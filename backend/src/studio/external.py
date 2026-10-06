@@ -24,7 +24,7 @@ def terminal_argv(workspace: Path, agent: str) -> list[str]:
     command = AGENT_COMMANDS[agent]
     wt = shutil.which("wt.exe") or shutil.which("wt")
     if wt:
-        return [wt, "-d", str(workspace), "--title", f"{agent} · Studio", "cmd", "/k", command]
+        return [wt, "-d", str(workspace), "--title", f"{agent} - Studio", "cmd", "/k", command]
     comspec = shutil.which("cmd.exe")
     if not comspec:
         raise TerminalError("no terminal found (wt.exe or cmd.exe)")

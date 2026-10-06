@@ -18,7 +18,6 @@ implementation. Findings on 2026-10-06:
   country and VPN.
 - Privacy: Freebuff processes prompts, code and repository content; prompts may be analysed
   to personalise ads; some models may use data for training when flagged.
-
 - Terms of service (freebuff.com/terms-of-service, read 2026-10-06) forbid using "a bot,
   script, macro, headless browser, autonomous agent, or similar automation to operate our
   products"; "a human must initiate each session and remain actively present". They also
@@ -56,6 +55,6 @@ implementation. Findings on 2026-10-06:
 ## Revisit when
 
 Freebuff ships `--print`/NDJSON headless mode or the SDK accepts the free login, **and** the
-terms allow automated use of it. Until then no automation, also not via pseudo-terminal. Then add an
-adapter in `agents/` that runs it as an automatic implementer (still not via the router),
+terms allow automated use of it. Until then no automation, also not via
+pseudo-terminal. Then add an adapter in `agents/` that runs it as an automatic implementer (still not via the router),
 with the same handoff checks.
