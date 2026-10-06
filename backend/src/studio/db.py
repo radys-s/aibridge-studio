@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS task (
@@ -85,7 +85,41 @@ CREATE TABLE IF NOT EXISTS cooldown (
     until REAL NOT NULL,
     reason TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS message (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES run(id),
+    at REAL NOT NULL,
+    author TEXT NOT NULL,
+    text TEXT NOT NULL,
+    data_json TEXT
+);
+CREATE INDEX IF NOT EXISTS message_run ON message(run_id, id);
+CREATE TABLE IF NOT EXISTS agent_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES run(id),
+    step_id INTEGER REFERENCES step(id),
+    lead TEXT NOT NULL,
+    at REAL NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    data_json TEXT
+);
+CREATE INDEX IF NOT EXISTS agent_event_run ON agent_event(run_id, id);
+CREATE TABLE IF NOT EXISTS setting (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
+);
 """
+
+# Columns added after schema version 1. SQLite has no ADD COLUMN IF NOT EXISTS.
+_RUN_COLUMNS_V2 = {
+    "implementer": "TEXT",  # effective implementer after auto/escalation; NULL = from spec
+    "escalations": "INTEGER NOT NULL DEFAULT 0",
+    # what the user is asked to decide: draft | plan | takeover | self_review | sensitive
+    "pending": "TEXT",
+    "sensitive_ok": "INTEGER NOT NULL DEFAULT 0",  # user confirmed flagged files are not secret
+}
+_MODEL_CALL_COLUMNS_V2 = {"billing": "TEXT NOT NULL DEFAULT 'api'"}
 
 
 def new_id() -> str:
@@ -101,6 +135,14 @@ class Database:
         self._lock = threading.RLock()
         with self.connect() as conn:
             conn.executescript(_SCHEMA)
+            for table, columns in (
+                ("run", _RUN_COLUMNS_V2),
+                ("model_call", _MODEL_CALL_COLUMNS_V2),
+            ):
+                have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+                for name, decl in columns.items():
+                    if name not in have:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @contextmanager
@@ -150,6 +192,13 @@ class Database:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def update_spec(self, run_id: str, spec_json: str) -> None:
+        with self.connect() as c:
+            c.execute(
+                "UPDATE task SET spec_json = ? WHERE id = (SELECT task_id FROM run WHERE id = ?)",
+                (spec_json, run_id),
+            )
 
     def update_run(self, run_id: str, **fields: Any) -> None:
         if not fields:
@@ -242,15 +291,87 @@ class Database:
             rows = c.execute("SELECT * FROM model_call WHERE run_id = ? ORDER BY id", (run_id,))
             return [dict(r) for r in rows.fetchall()]
 
-    def usage(self, run_id: str) -> dict[str, float]:
+    def usage(self, run_id: str, billing: str | None = None) -> dict[str, float]:
+        """Totals for a run. billing='api' is what the run's budget limits (gateway calls);
+        'subscription' is lead CLI use on the user's own login (cost is API-equivalent)."""
+        sql = (
+            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS tokens, "
+            "COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS calls "
+            "FROM model_call WHERE run_id = ?"
+        )
+        args: tuple[Any, ...] = (run_id,)
+        if billing:
+            sql += " AND billing = ?"
+            args = (run_id, billing)
         with self.connect() as c:
-            row = c.execute(
-                "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS tokens, "
-                "COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS calls "
-                "FROM model_call WHERE run_id = ?",
-                (run_id,),
-            ).fetchone()
+            row = c.execute(sql, args).fetchone()
         return {"tokens": float(row["tokens"]), "cost": float(row["cost"]), "calls": row["calls"]}
+
+    # --- conversation & live agent output ----------------------------------------------
+
+    def message(self, run_id: str, author: str, text: str, data: Any = None) -> int:
+        with self.connect() as c:
+            cur = c.execute(
+                "INSERT INTO message (run_id, at, author, text, data_json) VALUES (?,?,?,?,?)",
+                (
+                    run_id,
+                    time.time(),
+                    author,
+                    text,
+                    json.dumps(data, ensure_ascii=False) if data is not None else None,
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def messages(self, run_id: str, after_id: int = 0) -> list[dict[str, Any]]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT * FROM message WHERE run_id = ? AND id > ? ORDER BY id", (run_id, after_id)
+            )
+            return [dict(r) for r in rows.fetchall()]
+
+    def agent_event(
+        self, run_id: str, step_id: int, lead: str, kind: str, text: str, data: Any = None
+    ) -> None:
+        with self.connect() as c:
+            c.execute(
+                "INSERT INTO agent_event (run_id, step_id, lead, at, kind, text, data_json) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    step_id,
+                    lead,
+                    time.time(),
+                    kind,
+                    text,
+                    json.dumps(data, ensure_ascii=False) if data is not None else None,
+                ),
+            )
+
+    def agent_events(
+        self, run_id: str, after_id: int = 0, limit: int = 2000
+    ) -> list[dict[str, Any]]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT * FROM agent_event WHERE run_id = ? AND id > ? ORDER BY id LIMIT ?",
+                (run_id, after_id, limit),
+            )
+            return [dict(r) for r in rows.fetchall()]
+
+    # --- settings ---------------------------------------------------------------------
+
+    def setting(self, key: str) -> Any:
+        with self.connect() as c:
+            row = c.execute("SELECT value_json FROM setting WHERE key = ?", (key,)).fetchone()
+        return json.loads(row["value_json"]) if row else None
+
+    def set_setting(self, key: str, value: Any) -> None:
+        with self.connect() as c:
+            c.execute(
+                "INSERT INTO setting VALUES (?,?) ON CONFLICT(key) DO UPDATE SET "
+                "value_json = excluded.value_json",
+                (key, json.dumps(value, ensure_ascii=False)),
+            )
 
     # --- cooldowns (router state; persisted so a restart does not forget a dead provider)
 

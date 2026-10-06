@@ -60,7 +60,7 @@ class ModelRouter:
         `excluded` holds models that already failed during the current worker turn; the
         router never hands the same failing model back within that turn.
         """
-        used = self.db.usage(run_id)
+        used = self.db.usage(run_id, billing="api")
         if used["tokens"] >= budget.max_tokens:
             raise BudgetExceeded(
                 f"token budget {budget.max_tokens} reached ({int(used['tokens'])})"

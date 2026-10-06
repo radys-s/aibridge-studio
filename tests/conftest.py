@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from studio.agents.leads import AgentEvent, LeadError
+from studio.agents.prompts import DRAFT_SCHEMA, IMPLEMENT_SCHEMA, PLAN_SCHEMA, REVIEW_SCHEMA
 from studio.config import ModelSpec
 from studio.db import Database
 from studio.domain import Plan, Review, TaskSpec
@@ -147,20 +149,62 @@ class FakeGateway:
 
 
 class FakeLead:
-    def __init__(self, name: str, reviews: list[Review] | None = None) -> None:
+    """Scripted lead. Answers by schema; `errors` maps a call kind to a LeadError to raise.
+
+    `implement` is called with the working copy for write-mode calls (takeover).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        reviews: list[Review] | None = None,
+        plans: list[Plan] | None = None,
+        drafts: list[dict[str, Any]] | None = None,
+        implement: Callable[[Path], None] | None = None,
+        errors: dict[str, LeadError] | None = None,
+    ) -> None:
         self.name = name
         self.reviews = list(reviews or [])
+        self.plans = list(plans or [])
+        self.drafts = list(drafts or [])
+        self.implement = implement
+        self.errors = dict(errors or {})
         self.review_prompts: list[str] = []
+        self.calls: list[tuple[str, str, str | None, str | None]] = []  # kind, mode, model, effort
 
     def available(self) -> dict[str, Any]:
         return {"installed": True}
 
-    def plan(self, spec, cwd, should_stop):  # type: ignore[no-untyped-def]
-        return Plan(summary="Add median", steps=["edit stats", "add test"], complexity="trivial")
-
-    def review(self, spec, cwd, prompt, should_stop):  # type: ignore[no-untyped-def]
-        self.review_prompts.append(prompt)
-        return self.reviews.pop(0)
+    def ask(self, prompt, schema, cwd, ctx, mode="read"):  # type: ignore[no-untyped-def]
+        kind = {
+            id(DRAFT_SCHEMA): "draft",
+            id(PLAN_SCHEMA): "plan",
+            id(REVIEW_SCHEMA): "review",
+            id(IMPLEMENT_SCHEMA): "implement",
+        }[id(schema)]
+        self.calls.append((kind, mode, ctx.config.model, ctx.config.effort))
+        ctx.on_event(AgentEvent("text", f"{self.name} {kind}"))
+        ctx.usage.actual_model = f"{self.name}-model"
+        ctx.usage.tokens_in, ctx.usage.tokens_out = 1000, 100
+        if kind in self.errors:
+            raise self.errors.pop(kind)
+        if kind == "draft":
+            return self.drafts.pop(0)
+        if kind == "plan":
+            if self.plans:
+                return self.plans.pop(0).model_dump()
+            return Plan(
+                summary=f"Add median ({self.name})",
+                steps=["edit stats", "add test"],
+                complexity="trivial",
+            ).model_dump()
+        if kind == "review":
+            self.review_prompts.append(prompt)
+            return self.reviews.pop(0).model_dump()
+        assert mode == "write"
+        if self.implement:
+            self.implement(cwd)
+        return {"summary": f"{self.name} implemented", "files_changed": [], "concerns": []}
 
 
 ACCEPT = Review(verdict="accept", summary="ok", findings=[], criteria=[])
@@ -182,14 +226,16 @@ def good_script() -> list[dict[str, Any] | GatewayError]:
 
 @pytest.fixture
 def studio(tmp_path: Path):  # type: ignore[no-untyped-def]
-    def build(gateway: FakeGateway, reviews: list[Review]) -> tuple[Runner, Database, FakeLead]:
+    def build(
+        gateway: FakeGateway, reviews: list[Review], claude: FakeLead | None = None
+    ) -> tuple[Runner, Database, FakeLead]:
         db = Database(tmp_path / "data" / "studio.sqlite")
         reviewer = FakeLead("codex", reviews)
         runner = Runner(
             db,
             gateway,
             ModelRouter(db, MODELS),
-            {"claude": FakeLead("claude"), "codex": reviewer},
+            {"claude": claude or FakeLead("claude"), "codex": reviewer},
             tmp_path / "data" / "ws",
         )
         return runner, db, reviewer
