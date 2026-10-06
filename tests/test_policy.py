@@ -10,9 +10,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import MODELS, FakeGateway, FakeLead
-from studio.agents.leads import LeadError, _run
+from studio.agents.leads import CallContext, LeadError, _run
 from studio.api import create_app
 from studio.config import Settings
+from studio.domain import LeadConfig
 from studio.gateway import OmniRouteGateway
 from studio.sandbox import Denied, Sandbox, scrubbed_env, secret_findings
 
@@ -97,10 +98,10 @@ def test_gateway_unreachable_is_classified() -> None:
 def test_lead_process_timeout_and_cancel(tmp_path: Path) -> None:
     sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
     with pytest.raises(LeadError) as err:
-        _run(sleeper, "", tmp_path, 1, lambda: False)
+        _run(sleeper, "", tmp_path, CallContext(LeadConfig(), 1, lambda: False), print)
     assert err.value.kind == "timeout"
     with pytest.raises(LeadError) as err:
-        _run(sleeper, "", tmp_path, 30, lambda: True)
+        _run(sleeper, "", tmp_path, CallContext(LeadConfig(), 30, lambda: True), print)
     assert err.value.kind == "cancelled"
 
 
@@ -142,8 +143,19 @@ def test_api_csrf_guard_and_validation(tmp_path: Path, repo: Path) -> None:
     assert c.get(f"/api/runs/{run_id}").json()["run"]["state"] == "interrupted"
     bad = dict(body, repo_path=str(tmp_path))
     assert c.post("/api/tasks", json=bad, headers={"X-Studio": "1"}).status_code == 422
-    empty = dict(body, acceptance_commands=["  "])
-    assert c.post("/api/tasks", json=empty, headers={"X-Studio": "1"}).status_code == 422
+    assert (
+        c.post("/api/tasks", json=dict(body, goal=" "), headers={"X-Studio": "1"}).status_code
+        == 422
+    )
+    effort = dict(body, orchestration={"mode": "cross", "claude": {"effort": "minimal"}})
+    assert c.post("/api/tasks", json=effort, headers={"X-Studio": "1"}).status_code == 422
+    # A prompt alone is a valid task: the lead drafts scope and criteria.
+    prompt_only = {"goal": "Přidej funkci median", "repo_path": str(repo)}
+    created = c.post("/api/tasks", json=prompt_only, headers={"X-Studio": "1"})
+    assert created.status_code == 201
+    detail = c.get(f"/api/runs/{created.json()['run_id']}").json()
+    assert detail["messages"][0]["text"] == "Přidej funkci median"
+    assert detail["run"]["spec"]["orchestration"]["codex"]["model"]  # filled from defaults
 
 
 @pytest.mark.skipif(os.environ.get("STUDIO_LIVE") != "1", reason="live OmniRoute test is opt-in")
