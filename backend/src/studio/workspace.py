@@ -70,6 +70,19 @@ def commit_all(dest: Path, message: str) -> str:
     return _git(dest, "rev-parse", "HEAD").strip()
 
 
+def contains(dest: Path, commit: str) -> bool:
+    """True if `commit` is an ancestor of (or equal to) the working copy's HEAD."""
+    proc = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+        cwd=dest,
+        env=scrubbed_env({"GIT_CONFIG_NOSYSTEM": "1"}),
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
 def diff(dest: Path, base: str) -> str:
     """Unified diff of everything (committed + uncommitted + untracked) since `base`."""
     _git(dest, "add", "-A")

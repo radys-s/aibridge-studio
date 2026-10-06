@@ -10,11 +10,13 @@ export const STATE_LABELS: Record<string, string> = {
   needs_decision: "Čeká na rozhodnutí",
   interrupted: "Přerušeno",
   abandoned: "Opuštěno",
+  awaiting_external: "Čeká na externího agenta",
 };
 
 export const STEP_LABELS: Record<string, string> = {
   setup: "Příprava",
   plan: "Plán",
+  handoff: "Předání",
   work: "Práce",
   verify: "Ověření",
   review: "Review",

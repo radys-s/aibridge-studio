@@ -20,7 +20,7 @@ from studio.db import Database
 from studio.domain import Plan, Review, RunState, TaskSpec
 from studio.gateway import ChatGateway
 from studio.routing import ModelRouter
-from studio.sandbox import Sandbox
+from studio.sandbox import Sandbox, sensitive_files
 from studio.verify import failure_feedback, verify
 from studio.worker.loop import Worker, WorkerStopped
 
@@ -84,7 +84,8 @@ class Runner:
         self.db.update_run(run_id, cancel_requested=1)
         self.db.event(run_id, "decision", "Uživatel požádal o přerušení")
         run = self.db.run(run_id)
-        if run and run["state"] == RunState.QUEUED:
+        if run and run["state"] in (RunState.QUEUED, RunState.AWAITING_EXTERNAL):
+            # Resume re-runs the work phase: the copy is reset and handed off again.
             self.db.update_run(run_id, state=RunState.INTERRUPTED)
 
     def resume(self, run_id: str) -> None:
@@ -123,10 +124,55 @@ class Runner:
         run = self._require(run_id)
         if run["state"] in (RunState.ACCEPTED, RunState.ABANDONED):
             raise ValueError(f"run is already {run['state']}")
-        if run["state"] not in (RunState.NEEDS_DECISION, RunState.INTERRUPTED, RunState.QUEUED):
+        if run["state"] not in (
+            RunState.NEEDS_DECISION,
+            RunState.INTERRUPTED,
+            RunState.QUEUED,
+            RunState.AWAITING_EXTERNAL,
+        ):
             raise ValueError("stop the run before abandoning it")
         self.db.update_run(run_id, state=RunState.ABANDONED, finished_at=time.time())
         self.db.event(run_id, "decision", "Uživatel úkol opustil")
+
+    def external_done(self, run_id: str, note: str = "") -> None:
+        """The user says the external agent finished. Its work is a claim until verified."""
+        run = self._require(run_id)
+        if run["state"] != RunState.AWAITING_EXTERNAL:
+            raise ValueError(f"run is {run['state']}, not waiting for an external agent")
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        root = Path(run["workspace"])
+        handoff = self.db.last_step(run_id, "handoff")
+        step = self.db.start_step(
+            run_id, "work", run["iteration"], f"external:{spec.external_agent}"
+        )
+        if not workspace.contains(root, run["iteration_base"]):
+            reason = "external agent rewrote git history of the working copy"
+            self.db.finish_step(step, "failed", error=reason)
+            self._needs_decision(run_id, reason)
+            return
+        workspace.commit_all(root, f"studio: external iteration {run['iteration']}")
+        started = float(handoff["finished_at"]) if handoff and handoff["finished_at"] else None
+        output = {
+            "status": "external",
+            "summary": note.strip(),
+            "claim": f"{spec.external_agent} run by the user; nothing was verified by Studio yet",
+        }
+        self.db.finish_step(step, "done", output)
+        self.db.record_model_call(
+            run_id=run_id,
+            step_id=step,
+            role="worker",
+            requested_model=f"{spec.external_agent}-external",
+            actual_model=f"{spec.external_agent}-external",
+            provider=f"{spec.external_agent} (own login, ads; usage unknown)",
+            outcome="ok",
+            latency_ms=int((time.time() - started) * 1000) if started else None,
+        )
+        self.db.update_run(run_id, state=RunState.QUEUED, phase="verify")
+        self.db.event(
+            run_id, "work", f"Uživatel ohlásil konec práce {spec.external_agent}; ověřuji"
+        )
+        self.wake()
 
     def _require(self, run_id: str) -> dict[str, Any]:
         run = self.db.run(run_id)
@@ -221,6 +267,8 @@ class Runner:
         self.db.update_run(run_id, iteration_base=base)
         plan = Plan.model_validate_json(run["plan_json"]) if run["plan_json"] else None
         feedback = json.loads(run["feedback_json"] or "[]")
+        if spec.implementer == "external":
+            return self._handoff(run, spec, plan, feedback)
         step = self.db.start_step(run_id, "work", run["iteration"], "worker")
         self.db.event(run_id, "work", f"Worker začíná iteraci {run['iteration']}")
         worker = Worker(
@@ -253,6 +301,37 @@ class Runner:
         self.db.finish_step(step, "done", outcome.as_dict())
         self.db.update_run(run_id, phase="verify")
         return "next"
+
+    def _handoff(
+        self, run: dict[str, Any], spec: TaskSpec, plan: Plan | None, feedback: list[str]
+    ) -> str:
+        """Give the working copy to an agent the user drives by hand, then wait for them."""
+        run_id = run["id"]
+        root = Path(run["workspace"])
+        step = self.db.start_step(run_id, "handoff", run["iteration"], "studio")
+        # Studio cannot filter what an external agent reads, so check the whole copy first.
+        hits = sensitive_files(root)
+        if hits:
+            self.db.finish_step(step, "failed", {"sensitive_files": hits}, "sensitive files")
+            return self._needs_decision(
+                run_id,
+                "working copy contains files that must not leave the machine: "
+                + "; ".join(hits[:10]),
+            )
+        brief = external_brief(spec, plan, feedback, root)
+        brief_path = self.workspaces_dir / f"{run_id}.brief.md"
+        brief_path.write_text(brief, encoding="utf-8")
+        self.db.finish_step(
+            step, "done", {"agent": spec.external_agent, "brief": str(brief_path), "text": brief}
+        )
+        self.db.update_run(run_id, state=RunState.AWAITING_EXTERNAL)
+        self.db.event(
+            run_id,
+            "handoff",
+            f"Čeká na {spec.external_agent}: spusť ho v pracovní kopii a pak klikni Hotovo",
+            {"workspace": str(root), "brief": str(brief_path)},
+        )
+        return "pause"
 
     def _phase_verify(self, run: dict[str, Any], spec: TaskSpec) -> str:
         run_id = run["id"]
@@ -354,3 +433,35 @@ class Runner:
             error=(error or "")[:500] or None,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
+
+
+def external_brief(spec: TaskSpec, plan: Plan | None, feedback: list[str], root: Path) -> str:
+    """Prompt the user pastes into the external agent. English: it is read by a model."""
+    lines = [
+        f"# Task: {spec.title}",
+        "",
+        spec.goal,
+        "",
+        "## Scope",
+        "Change only files matching these patterns (other changes fail verification):",
+        *[f"- `{p}`" for p in spec.allowed_paths],
+        "",
+        "## Acceptance criteria",
+        *[f"- {c}" for c in spec.acceptance_criteria],
+        "",
+        "## Acceptance commands (Studio runs them itself afterwards)",
+        *[f"- `{c}`" for c in spec.acceptance_commands],
+    ]
+    if plan:
+        lines += ["", "## Plan", plan.summary, *[f"{i}. {s}" for i, s in enumerate(plan.steps, 1)]]
+    if feedback:
+        lines += ["", "## Fix these problems from the previous attempt", *feedback]
+    lines += [
+        "",
+        "## Rules",
+        "- Do not commit, push, rebase or reset; leave changes in the working tree.",
+        "- Do not read or create credential files.",
+        "",
+        f"<!-- run in: {root} -->",
+    ]
+    return "\n".join(lines) + "\n"

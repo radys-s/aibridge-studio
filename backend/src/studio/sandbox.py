@@ -100,6 +100,38 @@ def secret_findings(text: str) -> tuple[str, ...]:
     return tuple(code for code, pattern in SECRET_PATTERNS if pattern.search(text))
 
 
+def sensitive_files(root: Path, limit: int = 50) -> list[str]:
+    """Files an external agent must not see: credential-like names and secret content.
+
+    Used before a working copy is handed to an agent Studio cannot filter (Freebuff reads
+    whatever it wants). Only `.git` is skipped; every other directory counts.
+    """
+    hits: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d.lower() != ".git")
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            rel = PurePosixPath(path.relative_to(root)).as_posix()
+            lower = name.lower()
+            if (
+                lower in DENIED_NAMES
+                or lower.startswith(".env")
+                or path.suffix.lower() in DENIED_SUFFIXES
+            ):
+                hits.append(f"{rel} (credential-like name)")
+            else:
+                try:
+                    text = path.read_bytes()[:MAX_READ_BYTES].decode("utf-8", errors="replace")
+                except OSError:
+                    continue
+                found = secret_findings(text)
+                if found:
+                    hits.append(f"{rel} ({', '.join(found)})")
+            if len(hits) >= limit:
+                return hits
+    return hits
+
+
 def scrubbed_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k.upper() in _ENV_ALLOW}
     env = {k: v for k, v in env.items() if not _ENV_SECRET.search(k)}

@@ -17,6 +17,11 @@ Last update: 2026-10-06 (Claude Code). Phase 1 complete except live Claude lead 
 - Cancel, resume, rework with a note, abandon. Restart-safe: active runs become
   `interrupted`, nothing auto-resumes, resume resets the copy to the iteration base.
 
+- External implementer (Freebuff, manual): task option "Kdo implementuje". Studio hands the
+  working copy over, waits, then verifies and reviews (ADR 0001). Live-checked in the UI with
+  simulated agent edits and a real Codex review → accepted. Not yet tried with Freebuff
+  itself (not installed; needs Tomáš's login).
+
 ## Live-verified (2026-10-06)
 
 See `docs/MEASUREMENTS.md`. Four accepted runs (3 synthetic, 1 on a copy of AI Bridge),

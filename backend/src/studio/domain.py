@@ -18,6 +18,9 @@ class RunState(StrEnum):
     NEEDS_DECISION = "needs_decision"
     INTERRUPTED = "interrupted"
     ABANDONED = "abandoned"
+    # The working copy is handed to an external agent the user drives by hand (Freebuff).
+    # Not active: nothing runs in Studio, so a restart leaves it as it is.
+    AWAITING_EXTERNAL = "awaiting_external"
 
 
 ACTIVE_STATES = frozenset(
@@ -65,6 +68,12 @@ class TaskSpec(BaseModel):
     )
     planner: Literal["claude", "codex", "none"] = "claude"
     reviewer: Literal["claude", "codex"] = "codex"
+    implementer: Literal["worker", "external"] = Field(
+        "worker",
+        description="worker = tool loop via OmniRoute; external = the user runs an agent "
+        "(Freebuff) in the working copy by hand and tells Studio when it is done",
+    )
+    external_agent: Literal["freebuff"] = "freebuff"
     budget: Budget = Field(default_factory=lambda: Budget())
 
     @field_validator("allowed_paths", "acceptance_criteria", "acceptance_commands")
