@@ -219,6 +219,9 @@ class Sandbox:
         for operator in ("&&", "||", "|", ";", ">", "<", "`", "$(", "\n"):
             if operator in text:
                 raise Denied(f"Command contains {operator!r}. No shell: send one command.")
+        if os.name == "nt":
+            # POSIX shlex treats `\` as an escape and would turn `C:\a\b` into `C:ab`.
+            text = text.replace("\\", "\\\\")
         try:
             argv = shlex.split(text, posix=True)
         except ValueError as exc:
