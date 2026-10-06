@@ -1,0 +1,52 @@
+[project]
+name = "aibridge-studio"
+version = "0.1.0"
+description = "Local AI development studio: cheap workers via OmniRoute, Claude/Codex as leads and reviewers."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.8",
+]
+
+[project.scripts]
+studio = "studio.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/src/studio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend/src"]
+addopts = "-p no:cacheprovider"
+markers = ["live: needs running OmniRoute / authenticated CLIs (opt-in via STUDIO_LIVE=1)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["backend/src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["backend/src"]
+strict = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
