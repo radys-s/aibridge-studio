@@ -14,7 +14,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from studio import workspace
+from studio import external, workspace
 from studio.agents.leads import Lead, LeadError, review_prompt
 from studio.db import Database
 from studio.domain import Plan, Review, RunState, TaskSpec
@@ -173,6 +173,18 @@ class Runner:
             run_id, "work", f"Uživatel ohlásil konec práce {spec.external_agent}; ověřuji"
         )
         self.wake()
+
+    def open_external_terminal(self, run_id: str) -> None:
+        """Open a terminal in the working copy. The user runs the agent; Studio does not."""
+        run = self._require(run_id)
+        if run["state"] != RunState.AWAITING_EXTERNAL:
+            raise ValueError(f"run is {run['state']}, not waiting for an external agent")
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        try:
+            external.open_terminal(Path(run["workspace"]), spec.external_agent)
+        except external.TerminalError as exc:
+            raise ValueError(str(exc)) from exc
+        self.db.event(run_id, "handoff", f"Otevřen terminál pro {spec.external_agent}")
 
     def _require(self, run_id: str) -> dict[str, Any]:
         run = self.db.run(run_id)

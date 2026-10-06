@@ -152,6 +152,8 @@ def create_app(
                 runner.rework(run_id, body.note)
             elif action == "abandon":
                 runner.abandon(run_id)
+            elif action == "open-terminal":
+                runner.open_external_terminal(run_id)
             elif action == "external-done":
                 runner.external_done(run_id, body.note)
         except KeyError as exc:
@@ -162,7 +164,14 @@ def create_app(
 
     @app.post("/api/runs/{run_id}/{action}")
     def decide(run_id: str, action: str, body: DecisionBody | None = None) -> dict[str, str]:
-        if action not in ("cancel", "resume", "rework", "abandon", "external-done"):
+        if action not in (
+            "cancel",
+            "resume",
+            "rework",
+            "abandon",
+            "external-done",
+            "open-terminal",
+        ):
             raise HTTPException(404, "unknown action")
         return _decide(action, run_id, body or DecisionBody())
 

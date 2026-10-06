@@ -158,3 +158,29 @@ def test_api_external_done_in_wrong_state_is_409(tmp_path: Path, repo: Path) -> 
         f"/api/runs/{run_id}/external-done", json={"note": "x"}, headers={"X-Studio": "1"}
     )
     assert resp.status_code == 409
+
+
+def test_open_terminal_only_while_awaiting_and_with_scrubbed_env(
+    studio, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from studio import external
+
+    launched: list[tuple[list[str], dict[str, str]]] = []
+
+    def fake_popen(argv, cwd, env, stdin):  # type: ignore[no-untyped-def]
+        launched.append((argv, env))
+
+    runner, db, _ = studio(FakeGateway([]), [])
+    run_id = start(db, repo)
+    with pytest.raises(ValueError):
+        runner.open_external_terminal(run_id)  # queued, not handed off yet
+    ws = handed_off(runner, db, run_id)
+    # Patched only now: `external.subprocess` is the global module that git also uses.
+    monkeypatch.setattr(external.subprocess, "Popen", fake_popen)
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "should-not-leak")
+
+    runner.open_external_terminal(run_id)
+    argv, env = launched[0]
+    assert str(ws) in argv and argv[-1] == "freebuff"
+    assert "OMNIROUTE_API_KEY" not in env
+    assert db.run(run_id)["state"] == "awaiting_external"

@@ -132,8 +132,10 @@ function ActionPanel({ detail, onDone }: { detail: RunDetailData; onDone: () => 
         <h2>Čeká na Freebuff</h2>
         <ol>
           <li>
-            Spusť v terminálu: <code>{command}</code>{" "}
-            <CopyButton text={command} />
+            <button type="button" disabled={!!busy} onClick={() => act("open-terminal")}>
+              Otevřít terminál s Freebuffem
+            </button>{" "}
+            nebo spusť ručně: <code>{command}</code> <CopyButton text={command} />
           </li>
           <li>
             Vlož mu zadání níže <CopyButton text={handoff?.out.text ?? ""} />. Necommituj, změny nech v

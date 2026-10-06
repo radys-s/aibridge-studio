@@ -213,7 +213,7 @@ export interface RunDetail {
   usage: { tokens: number; cost: number; calls: number };
 }
 
-export type RunAction = "cancel" | "resume" | "rework" | "abandon" | "external-done";
+export type RunAction = "cancel" | "resume" | "rework" | "abandon" | "external-done" | "open-terminal";
 
 export class ApiError extends Error {
   status: number;
