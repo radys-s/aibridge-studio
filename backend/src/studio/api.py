@@ -54,7 +54,7 @@ def create_app(
     router = ModelRouter(db, settings.worker_models)
     lead_map: dict[str, Lead] = leads or {
         "claude": ClaudeLead(settings.claude_bin),
-        "codex": CodexLead(settings.codex_bin),
+        "codex": CodexLead(settings.codex_bin, model=settings.codex_model),
     }
     runner = Runner(db, gw, router, lead_map, settings.workspaces_dir)
     allowed_origins = {

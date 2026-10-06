@@ -217,16 +217,18 @@ class ClaudeLead:
             "--no-session-persistence",
         ]
         result = _run(argv, prompt, cwd, self.timeout_s, stop)
-        if result.returncode != 0:
-            raise LeadError(
-                f"claude exited {result.returncode}: {(result.stderr or result.stdout)[-600:]}"
-            )
         try:
             envelope = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
+            if result.returncode != 0:
+                raise LeadError(
+                    f"claude exited {result.returncode}: {(result.stderr or result.stdout)[-600:]}"
+                ) from exc
             raise LeadError(f"claude output not JSON: {result.stdout[:300]}", "bad_output") from exc
-        if envelope.get("is_error"):
-            raise LeadError(f"claude reported error: {str(envelope.get('result'))[:500]}")
+        if envelope.get("is_error") or result.returncode != 0:
+            message = str(envelope.get("result") or result.stderr)[:500]
+            kind = "not_logged_in" if "authenticate" in message.lower() else "error"
+            raise LeadError(f"claude reported error: {message}", kind)
         structured = envelope.get("structured_output")
         if not isinstance(structured, dict):
             raise LeadError("claude response has no structured_output", "bad_output")
@@ -244,9 +246,12 @@ class ClaudeLead:
 class CodexLead:
     name = "codex"
 
-    def __init__(self, executable: str = "codex", timeout_s: int = 600) -> None:
+    def __init__(
+        self, executable: str = "codex", timeout_s: int = 600, model: str | None = None
+    ) -> None:
         self.executable = executable
         self.timeout_s = timeout_s
+        self.model = model
 
     def available(self) -> dict[str, Any]:
         return {"installed": shutil.which(self.executable) is not None}
@@ -259,9 +264,13 @@ class CodexLead:
             schema_path = Path(tmp) / "schema.json"
             out_path = Path(tmp) / "out.json"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
+            # --ignore-user-config: the user's config.toml may pin a model the ChatGPT login
+            # cannot use in `exec` (verified 2026-10-06) and it loads personal hooks.
             argv = [
                 binary,
                 "exec",
+                "--ignore-user-config",
+                *(["-m", self.model] if self.model else []),
                 "-C",
                 str(cwd),
                 "--sandbox",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import socket
 
 import uvicorn
 
@@ -17,6 +18,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.cmd == "serve":
         settings = Settings.from_env()
+        # On Windows uvicorn's SO_REUSEADDR lets a second server bind the same port and
+        # silently steal requests from the first one. Refuse to start instead.
+        with socket.socket() as probe:
+            probe.settimeout(1)
+            if probe.connect_ex((settings.host, settings.port)) == 0:
+                raise SystemExit(f"port {settings.port} is already in use; is Studio running?")
         print(
             f"AI Bridge Studio: http://{settings.host}:{settings.port}  data: {settings.data_dir}"
         )

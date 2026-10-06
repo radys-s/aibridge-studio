@@ -52,6 +52,7 @@ class Settings:
     gateway_timeout_s: float = 180.0
     claude_bin: str = "claude"
     codex_bin: str = "codex"
+    codex_model: str | None = "gpt-5.6-sol"
     host: str = "127.0.0.1"
     port: int = 8765
 
@@ -74,5 +75,6 @@ class Settings:
             gateway_timeout_s=float(os.environ.get("STUDIO_GATEWAY_TIMEOUT", "180")),
             claude_bin=os.environ.get("STUDIO_CLAUDE_BIN", "claude"),
             codex_bin=os.environ.get("STUDIO_CODEX_BIN", "codex"),
+            codex_model=os.environ.get("STUDIO_CODEX_MODEL", "gpt-5.6-sol") or None,
             port=int(os.environ.get("STUDIO_PORT", "8765")),
         )
