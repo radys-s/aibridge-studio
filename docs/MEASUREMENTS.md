@@ -37,3 +37,11 @@ Lead (Codex) token use is not captured by Studio yet.
 - Worker context grows every turn (whole history resent). The real-repo task used 20x the
   tokens of the synthetic ones. Context trimming is the obvious next optimisation.
 - Small free model succeeded on all four bounded tasks in one round.
+
+### Attempted live failing-test run (b68dafabf57e)
+
+Task with an intentionally unsatisfiable criterion (`geomean([1, 4]) == 3`). The worker made
+7 calls, then laguna timed out and the other three models returned OpenRouter 429
+`free-models-per-day`. The run stopped with `needs_decision: no_model` (correct behaviour, but
+the failing-test path was not reached). The OpenRouter free tier has a daily request cap: the
+whole fallback list shares one provider, so one exhausted quota takes out every worker model.
