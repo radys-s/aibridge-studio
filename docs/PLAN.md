@@ -3,27 +3,28 @@
 Each phase ends only after: implementation → real verification → critical review → fixes →
 commit → STATUS update → Obsidian note.
 
-## Phase 1 — one complete verified loop (current)
+## Phase 1 — one complete verified loop (done 2026-10-06, see STATUS.md)
 
 Goal: task → plan → worker via OmniRoute → change in working copy → tests → independent
 review via Claude/Codex → accept or send back for rework. One worker, one reviewer.
 
 1. Project skeleton, instructions, architecture, provenance. ✅
-2. SQLite control plane: task/run/step/event/model_call/cooldown, state machine, recovery.
-3. Workspace: isolated clone, diff, scope check, reset to checkpoint.
-4. Sandbox: path/command/env policy (ported from Prizma), secret scan (from AI Bridge).
-5. Gateway adapter for OmniRoute + router (single owner of model choice and fallback).
-6. Worker tool loop with budgets.
-7. Independent verification.
-8. Claude / Codex adapters for plan and review.
-9. Runner + FastAPI + recovery on startup.
+2. SQLite control plane: task/run/step/event/model_call/cooldown, state machine, recovery. ✅
+3. Workspace: isolated clone, diff, scope check, reset to checkpoint. ✅
+4. Sandbox: path/command/env policy (ported from Prizma), secret scan (from AI Bridge). ✅
+5. Gateway adapter for OmniRoute + router (single owner of model choice and fallback). ✅
+6. Worker tool loop with budgets. ✅
+7. Independent verification. ✅
+8. Claude / Codex adapters for plan and review. ✅ (Codex verified live; Claude blocked on
+   CLI login, see STATUS.md)
+9. Runner + FastAPI + recovery on startup. ✅
 10. UI: task form, run list, run detail (state, plan, diff, evidence, review, model calls,
-    decisions).
+    decisions). ✅
 11. Tests incl. failure paths: failing test, provider unavailable, timeout, cancel,
-    restart/resume. Mocks only in tests.
-12. Live run on a synthetic repository.
-13. Live run on a copy of a real project without personal data.
-14. Measurement record (`docs/MEASUREMENTS.md`).
+    restart/resume. Mocks only in tests. ✅
+12. Live run on a synthetic repository. ✅
+13. Live run on a copy of a real project without personal data. ✅
+14. Measurement record (`docs/MEASUREMENTS.md`). ✅
 
 ## Phase 2 — reliability and context
 

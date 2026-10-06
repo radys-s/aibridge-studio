@@ -61,6 +61,12 @@ def test_commands(box: Sandbox) -> None:
     assert res.exit_code == 0 and "hi" in res.output
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows path parsing")
+def test_command_keeps_windows_backslashes(box: Sandbox) -> None:
+    argv = box.check_command(r'python C:\work\tool.py "C:\a b\c.txt"')
+    assert argv[1:] == [r"C:\work\tool.py", r"C:\a b\c.txt"]
+
+
 def test_command_timeout(box: Sandbox) -> None:
     res = box.run_command("python -c \"__import__('time').sleep(5)\"", timeout_s=1)
     assert res.timed_out and res.exit_code is None
