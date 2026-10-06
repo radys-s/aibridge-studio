@@ -75,7 +75,7 @@ def _decode(row: dict[str, Any], *keys: str) -> dict[str, Any]:
     return out
 
 
-def _agent_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for r in rows:
         r = _decode(r, "data_json")
@@ -228,9 +228,9 @@ def create_app(
         return {
             "run": run,
             "steps": steps,
-            "events": [_decode(e, "data_json") for e in db.events(run_id)],
-            "messages": _agent_rows(db.messages(run_id)),
-            "agent_events": _agent_rows(db.agent_events(run_id)),
+            "events": _rows(db.events(run_id)),
+            "messages": _rows(db.messages(run_id)),
+            "agent_events": _rows(db.agent_events(run_id)),
             "model_calls": db.model_calls(run_id),
             "usage": {
                 "api": db.usage(run_id, "api"),
@@ -261,9 +261,9 @@ def create_app(
             while not await request.is_disconnected():
                 batch = await asyncio.to_thread(
                     lambda: (
-                        db.events(run_id, cursors["event"]),
-                        _agent_rows(db.agent_events(run_id, cursors["agent"], 500)),
-                        _agent_rows(db.messages(run_id, cursors["message"])),
+                        _rows(db.events(run_id, cursors["event"])),
+                        _rows(db.agent_events(run_id, cursors["agent"], 500)),
+                        _rows(db.messages(run_id, cursors["message"])),
                         db.run(run_id),
                     )
                 )

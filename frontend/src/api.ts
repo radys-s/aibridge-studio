@@ -1,9 +1,11 @@
 // Typed client for the AI Bridge Studio backend (FastAPI).
-// All requests use relative /api/... paths; every POST carries the CSRF header X-Studio: 1.
+// All requests use relative /api/... paths; every mutating request carries X-Studio: 1 (CSRF).
 
 export type Lead = "claude" | "codex";
-export type Planner = Lead | "none";
-export type Implementer = "worker" | "external";
+export const LEADS: Lead[] = ["claude", "codex"];
+export type Mode = "claude" | "codex" | "cross" | "duo";
+export type Implementer = "auto" | "worker" | "freebuff" | "claude" | "codex";
+export type Escalation = "off" | "ask" | "auto";
 
 export interface Budget {
   max_iterations: number;
@@ -13,17 +15,21 @@ export interface Budget {
   max_cost_usd: number;
   command_timeout_s: number;
   agent_timeout_s: number;
+  max_escalations: number;
 }
 
-export const DEFAULT_BUDGET: Budget = {
-  max_iterations: 2,
-  max_worker_turns: 30,
-  max_worker_seconds: 900,
-  max_tokens: 400000,
-  max_cost_usd: 0.5,
-  command_timeout_s: 120,
-  agent_timeout_s: 600,
-};
+export interface LeadConfig {
+  model: string | null;
+  effort: string | null;
+}
+
+export interface Orchestration {
+  mode: Mode;
+  primary: Lead;
+  plan: boolean;
+  claude: LeadConfig;
+  codex: LeadConfig;
+}
 
 export interface TaskSpec {
   title: string;
@@ -32,19 +38,57 @@ export interface TaskSpec {
   allowed_paths: string[];
   acceptance_criteria: string[];
   acceptance_commands: string[];
-  planner: Planner;
-  reviewer: Lead;
-  implementer?: Implementer;
-  external_agent?: "freebuff";
+  orchestration: Orchestration;
+  implementer: Implementer;
+  escalation: Escalation;
+  auto_approve: boolean;
   budget?: Partial<Budget>;
 }
+
+/** What the composer sends: everything but goal and repo is optional. */
+export type NewTask = Pick<TaskSpec, "goal" | "repo_path"> & Partial<Omit<TaskSpec, "goal" | "repo_path">>;
 
 export interface Health {
   version: string;
   gateway: { reachable: boolean; status?: number; error?: string };
-  leads: { claude: { installed: boolean }; codex: { installed: boolean } };
+  leads: Record<Lead, { installed: boolean; path?: string | null }>;
   worker_models: string[];
   cooldowns: Record<string, number>;
+}
+
+export interface CatalogModel {
+  id: string;
+  label: string;
+}
+
+export interface EffortOption {
+  id: string;
+  heavy: boolean;
+}
+
+export interface Defaults {
+  orchestration: Orchestration;
+  implementer: Implementer;
+  escalation: Escalation;
+  auto_approve: boolean;
+}
+
+export interface Probe {
+  ok: boolean;
+  kind?: string;
+  error?: string;
+  actual_model?: string | null;
+  latency_ms: number;
+  tokens: number;
+  at: number;
+}
+
+export interface SettingsSnapshot {
+  defaults: Defaults;
+  catalog: Record<Lead, CatalogModel[]>;
+  efforts: Record<Lead, EffortOption[]>;
+  recent_repos: string[];
+  probes: Record<string, Probe>;
 }
 
 export type RunState =
@@ -57,7 +101,8 @@ export type RunState =
   | "needs_decision"
   | "interrupted"
   | "abandoned"
-  | "awaiting_external";
+  | "awaiting_external"
+  | "awaiting_approval";
 
 export const ACTIVE_STATES: RunState[] = ["queued", "planning", "working", "verifying", "reviewing"];
 
@@ -65,11 +110,17 @@ export function isActive(state: string): boolean {
   return (ACTIVE_STATES as string[]).includes(state);
 }
 
+export type Pending = "draft" | "plan" | "takeover" | "self_review" | "sensitive" | null;
+
 export interface RunSummary {
   id: string;
   title: string;
+  repo_path: string;
+  mode: Mode;
+  implementer: Implementer | string;
   state: RunState;
   phase: string | null;
+  pending: Pending;
   iteration: number;
   created_at: number;
   updated_at: number;
@@ -84,6 +135,17 @@ export interface Plan {
   risks: string[];
   complexity: string;
   recommended_implementer: string;
+  questions?: string[];
+}
+
+export interface Draft {
+  title: string;
+  goal: string;
+  allowed_paths: string[];
+  acceptance_criteria: string[];
+  acceptance_commands: string[];
+  questions: string[];
+  notes: string;
 }
 
 export interface Run {
@@ -95,7 +157,11 @@ export interface Run {
   source_commit: string | null;
   iteration_base: string | null;
   decision_reason: string | null;
-  cancel_requested: boolean;
+  cancel_requested: number | boolean;
+  implementer: string | null;
+  escalations: number;
+  pending: Pending;
+  sensitive_ok: number | boolean;
   created_at: number;
   updated_at: number;
   finished_at: number | null;
@@ -104,11 +170,11 @@ export interface Run {
   feedback: string[] | null;
 }
 
-export type StepKind = "setup" | "plan" | "handoff" | "work" | "verify" | "review";
+export type StepKind = "setup" | "draft" | "plan" | "handoff" | "work" | "verify" | "review";
 export type StepStatus = "running" | "done" | "failed" | "interrupted";
 
 export interface Step {
-  id: number | string;
+  id: number;
   kind: StepKind;
   iteration: number;
   status: StepStatus;
@@ -129,10 +195,12 @@ export interface ClaimedCheck {
 export interface WorkOutput {
   status: string;
   summary: string;
-  turns: number;
-  files_written: string[];
-  claimed_checks: ClaimedCheck[];
-  detail: string | null;
+  turns?: number;
+  files_written?: string[];
+  files_changed?: string[];
+  claimed_checks?: ClaimedCheck[];
+  concerns?: string[];
+  detail?: string | null;
   /** Set when the work was done by an external agent; an unverified claim. */
   claim?: string;
 }
@@ -183,15 +251,36 @@ export interface ReviewOutput {
 }
 
 export interface RunEvent {
-  id: number | string;
+  id: number;
   at: number;
   kind: string;
   message: string;
   data: unknown;
 }
 
+export type Author = "user" | "claude" | "codex" | "studio";
+
+export interface Message {
+  id: number;
+  at: number;
+  author: Author;
+  text: string;
+  data: { draft?: Draft; invalid?: string[] } | null;
+}
+
+export interface AgentEvent {
+  id: number;
+  step_id: number | null;
+  lead: string;
+  at: number;
+  kind: "status" | "text" | "tool" | "tool_result" | "error" | string;
+  text: string;
+  data: unknown;
+}
+
 export interface ModelCall {
-  id: number | string;
+  id: number;
+  step_id: number | null;
   role: string;
   requested_model: string;
   actual_model: string | null;
@@ -202,18 +291,47 @@ export interface ModelCall {
   latency_ms: number | null;
   outcome: string;
   error: string | null;
+  billing: "api" | "subscription" | "external";
   at: number;
+}
+
+export interface Usage {
+  tokens: number;
+  cost: number;
+  calls: number;
 }
 
 export interface RunDetail {
   run: Run;
   steps: Step[];
   events: RunEvent[];
+  messages: Message[];
+  agent_events: AgentEvent[];
   model_calls: ModelCall[];
-  usage: { tokens: number; cost: number; calls: number };
+  usage: { api: Usage; subscription: Usage; total: Usage };
 }
 
-export type RunAction = "cancel" | "resume" | "rework" | "abandon" | "external-done" | "open-terminal";
+export type RunAction =
+  | "cancel"
+  | "resume"
+  | "rework"
+  | "retry"
+  | "abandon"
+  | "reply"
+  | "approve"
+  | "takeover"
+  | "keep-worker"
+  | "accept"
+  | "allow-sensitive"
+  | "external-done"
+  | "open-terminal";
+
+export interface ActionBody {
+  note?: string;
+  text?: string;
+  lead?: Lead;
+  edits?: Partial<Pick<TaskSpec, "title" | "goal" | "allowed_paths" | "acceptance_criteria" | "acceptance_commands">>;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -268,22 +386,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-function post<T>(path: string, data: unknown): Promise<T> {
+function send<T>(method: "POST" | "PUT", path: string, data: unknown): Promise<T> {
   return request<T>(path, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json", "X-Studio": "1" },
     body: JSON.stringify(data ?? {}),
   });
 }
 
+const runPath = (id: string) => `/api/runs/${encodeURIComponent(id)}`;
+
 export const api = {
   health: () => request<Health>("/api/health"),
+  settings: () => request<SettingsSnapshot>("/api/settings"),
+  saveSettings: (body: { defaults?: Defaults; catalog?: Record<Lead, CatalogModel[]> }) =>
+    send<SettingsSnapshot>("PUT", "/api/settings", body),
+  probe: (lead: Lead, model: string | null, effort: string | null) =>
+    send<Probe>("POST", "/api/probe", { lead, model, effort }),
   listRuns: () => request<RunSummary[]>("/api/runs"),
-  getRun: (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
-  createTask: (spec: TaskSpec) => post<{ run_id: string }>("/api/tasks", spec),
-  runAction: (id: string, action: RunAction, note?: string) =>
-    post<{ ok: boolean }>(
-      `/api/runs/${encodeURIComponent(id)}/${action}`,
-      note && note.trim() ? { note: note.trim() } : {},
-    ),
+  getRun: (id: string) => request<RunDetail>(runPath(id)),
+  createTask: (task: NewTask) => send<{ run_id: string }>("POST", "/api/tasks", task),
+  runAction: (id: string, action: RunAction, body: ActionBody = {}) =>
+    send<{ ok: boolean }>("POST", `${runPath(id)}/${action}`, body),
+  streamUrl: (id: string, cursors: { events: number; agent: number; messages: number }) =>
+    `${runPath(id)}/stream?events=${cursors.events}&agent=${cursors.agent}&messages=${cursors.messages}`,
 };

@@ -1,6 +1,9 @@
 # AI Bridge Studio — Architecture
 
-Status: Phase 1 (2026-10-06). Living document; decisions with lasting impact go to `docs/adr/`.
+Status: Phase 2a (2026-10-06). Living document; decisions with lasting impact go to `docs/adr/`.
+Orchestration modes, draft/approval, takeover, escalation, SSE and the `studio app` window
+are described in `docs/adr/0002-orchestration-modes.md`; it overrides the Phase 1 shape
+below where they differ (the UI now streams over SSE instead of polling).
 
 ## Product goal
 
@@ -88,6 +91,8 @@ queued → planning → working → verifying → reviewing → accepted
                        ▲                      │
                        └──── changes_requested (iteration < max) ┘
 working (implementer=external) → awaiting_external → [user: "Hotovo"] → verifying
+queued → planning (phase draft) → awaiting_approval → [user: "Schválit"] → planning   (prompt-only task)
+needs_decision.pending ∈ draft | plan | takeover | self_review | sensitive
 any active state → interrupted (restart / cancel)  → resume = re-run the interrupted step
 any active state → needs_decision (budget exceeded, providers down, review reject,
                                     max iterations)  → user: rework / escalate / abandon

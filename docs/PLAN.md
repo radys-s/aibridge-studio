@@ -26,12 +26,19 @@ review via Claude/Codex → accept or send back for rework. One worker, one revi
 13. Live run on a copy of a real project without personal data. ✅
 14. Measurement record (`docs/MEASUREMENTS.md`). ✅
 
+## Phase 2a — Studio app (done 2026-10-06, ADR 0002)
+
+Orchestration modes (cross / duo / solo), per-lead model and effort with heavy-effort warning,
+lead-drafted spec with approval and chat, takeover by Claude/Codex with escalation policy,
+DB v2 (messages, agent events, settings), SSE live view, rebuilt UI, `studio app` window and
+shortcut. Open: Claude live runs (login), Codex isolation from global AGENTS.md (decision).
+
 ## Phase 2 — reliability and context
 
 - Port the AI Bridge memory kernel (selective context, source, age, conflicts,
   confirmation) with its tests; context packet for planner, worker and reviewer.
 - Escalation: strong agent takes over implementation in the same working copy; the other
-  agent reviews.
+  agent reviews. Done in Phase 2a.
 - Apply flow: accepted change → branch in the source repository on explicit approval.
 - Router learns from outcomes (success rate per model and task kind).
 - External implementer, manual (Freebuff): done 2026-10-06, see `docs/adr/0001-...`.

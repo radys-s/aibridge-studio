@@ -97,6 +97,8 @@ def test_codex_stream_usage_effort_and_sandbox(tmp_path: Path) -> None:
     c2, _ = ctx(LeadConfig())
     argv = lead.ask("impl", PROBE_SCHEMA, tmp_path, c2, mode="write")["argv"]
     assert argv[argv.index("--sandbox") + 1] == "workspace-write"
+    if os.name == "nt":  # without it Codex silently writes nothing on Windows
+        assert 'windows.sandbox="elevated"' in argv
 
 
 def test_codex_rejected_effort_surfaces_api_message(tmp_path: Path, fake_mode) -> None:  # type: ignore[no-untyped-def]

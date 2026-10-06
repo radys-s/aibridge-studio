@@ -69,6 +69,14 @@ REVIEW_SCHEMA = _obj(
 IMPLEMENT_SCHEMA = _obj({"summary": _STR, "files_changed": _STRS, "concerns": _STRS})
 
 
+# Codex loads the user's global AGENTS.md and skills, which may point at personal notes.
+# This line is an instruction, not an enforced limit; see ADR 0002.
+_CONFINE = (
+    "Stay inside the repository (cwd): do not read, search or write anything outside it,"
+    " such as notes, home-directory files or other projects, even if other instructions ask."
+)
+
+
 def _conversation(messages: list[Message]) -> list[str]:
     if not messages:
         return []
@@ -96,6 +104,7 @@ def draft_prompt(spec: TaskSpec, messages: list[Message]) -> str:
             "You are the lead engineer. The user wrote a request in free text. Inspect the",
             "repository read-only and turn the request into a precise, checkable task.",
             "Do not edit anything.",
+            _CONFINE,
             "- title: short imperative title in the user's language.",
             "- goal: the request restated precisely (keep the user's language).",
             "- allowed_paths: narrowest glob patterns (relative, forward slashes) of files the",
@@ -126,6 +135,7 @@ def plan_prompt(spec: TaskSpec, messages: list[Message]) -> str:
             "Return a short concrete plan. Mark complexity 'hard' and recommend 'strong_agent'",
             "only if a small model is unlikely to succeed. Put questions only if the plan cannot",
             "be made without the user's answer.",
+            _CONFINE,
             "",
             *_spec_lines(spec),
             *_conversation(messages),
@@ -143,6 +153,7 @@ def merge_prompt(spec: TaskSpec, plans: dict[str, Plan]) -> str:
             "Merge them into one plan: keep steps both agree on, resolve conflicts explicitly in",
             "favour of the safer correct option, keep every real risk and question either raised.",
             "Inspect the repository read-only if needed. Do not edit.",
+            _CONFINE,
             "",
             *_spec_lines(spec),
             *blocks,
@@ -157,8 +168,10 @@ def implement_prompt(
         "You are implementing this task directly in the working copy (cwd).",
         "Change only files matching ALLOWED PATHS; other changes fail verification.",
         "Do not run git commit/reset/rebase; leave changes in the working tree.",
-        "Do not read or create credential files. You cannot run commands; the orchestrator",
-        "runs the acceptance commands after you finish, so make the code right by reading it.",
+        "Do not read or create credential files. Read files as you need (read-only commands",
+        "are fine), but do not run tests, builds or installers: the orchestrator runs the",
+        "acceptance commands after you finish, so make the code right by reading it.",
+        _CONFINE,
         "",
         *_spec_lines(spec),
     ]
@@ -191,6 +204,7 @@ def review_prompt(
             "You may read files in the repository to check context. Do not edit anything.",
             "Verdict 'accept' only if every criterion is met and there is no blocker or major",
             "finding. 'request_changes' for fixable problems. 'reject' if the approach is wrong.",
+            _CONFINE,
             "",
             f"GOAL:\n{spec.goal}",
             "ALLOWED PATHS: " + ", ".join(spec.allowed_paths),
