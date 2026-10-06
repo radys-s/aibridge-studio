@@ -45,3 +45,28 @@ Task with an intentionally unsatisfiable criterion (`geomean([1, 4]) == 3`). The
 `free-models-per-day`. The run stopped with `needs_decision: no_model` (correct behaviour, but
 the failing-test path was not reached). The OpenRouter free tier has a daily request cap: the
 whole fallback list shares one provider, so one exhausted quota takes out every worker model.
+
+## Phase 2a live runs (2026-10-06, Codex only: Claude login expired, OmniRoute not running)
+
+| Run | Mode | Implementer | Effort | Result | Wall time | Lead calls |
+|---|---|---|---|---|---|---|
+| c20d95f8a610 | codex solo | codex | low | draft approved in UI, plan, then 3 iterations with an empty diff; abandoned | ~25 min | draft, plan, 3× implement |
+| 91c1b481d12c | codex solo | codex | low | iteration 1 claimed a change but wrote nothing; cancelled | ~6 min | plan, 2× implement |
+| 4b9fa0d87ecb | codex solo | codex | low | plan 14 s, implement 69 s, verify passed, Codex review accept, 
+eeds_decision: self_review, accepted by the user in the UI | 96 s to the decision | plan, implement, review |
+
+What the failed runs found (all fixed or documented in ADR 0002):
+
+- With --ignore-user-config, Codex also loses [windows] sandbox = "elevated", so
+  workspace-write cannot write. Studio now passes -c windows.sandbox="elevated".
+- The elevated sandbox user cannot see an MSIX-virtualized %LOCALAPPDATA%. This happens when
+  the Claude desktop app starts Studio, and it fails with CreateProcessWithLogonW failed: 267.
+  The dev launcher now sets STUDIO_DATA_DIR outside AppData.
+- Codex loads the global ~/.codex/AGENTS.md and the user's skills.
+  - The draft call used about 103k input tokens and the plan call about 81k, on a 3-file repo.
+  - Codex once refused to edit because it "could not read the mandatory Obsidian context".
+  - Lead prompts now carry an explicit stay-in-the-repository line. Real isolation is still open.
+- The prompt "You cannot run commands" made Codex refuse to read files, because it reads
+  through the shell. The prompt now forbids only tests, builds and installers.
+- UI bug: event payloads were sent as data_json, so the accepted patch path did not show.
+  Fixed, with a test.

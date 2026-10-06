@@ -1,0 +1,1 @@
+{"version":"0.0.1","configurations":[{"name":"studio","runtimeExecutable":"powershell","runtimeArgs":["-NoProfile","-Command","$env:STUDIO_DATA_DIR=\"$HOME\\.aibridge-studio-dev\"; uv run studio serve"],"port":8765}]}

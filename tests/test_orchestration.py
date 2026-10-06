@@ -325,3 +325,9 @@ def test_stream_catch_up_sends_messages_events_and_state(tmp_path: Path, repo: P
         again = c.get(f"/api/runs/{run_id}/stream?follow=false&messages=999999&events=999999")
         assert "event: message" not in again.text  # cursors skip what the client has
         assert c.get("/api/runs/nope/stream?follow=false").status_code == 404
+        # Event payloads reach the UI as `data` (e.g. the accepted patch path), in both views.
+        app.state.db.event(run_id, "accepted", "ok", {"patch": "x.patch"})
+        events = c.get(f"/api/runs/{run_id}").json()["events"]
+        assert events[-1]["data"] == {"patch": "x.patch"} and "data_json" not in events[-1]
+        streamed = c.get(f"/api/runs/{run_id}/stream?follow=false").text
+        assert '"data": {"patch": "x.patch"}' in streamed

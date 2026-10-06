@@ -328,8 +328,15 @@ class ClaudeLead:
 class CodexLead:
     name = "codex"
 
-    def __init__(self, executable: str = "codex") -> None:
+    def __init__(
+        self,
+        executable: str = "codex",
+        windows_sandbox: str | None = "elevated" if os.name == "nt" else None,
+    ) -> None:
         self.executable = executable
+        # --ignore-user-config also drops `[windows] sandbox`; without it workspace-write
+        # silently degrades to read-only on Windows (verified live 2026-10-06).
+        self.windows_sandbox = windows_sandbox
 
     def available(self) -> dict[str, Any]:
         return {"installed": shutil.which(self.executable) is not None}
@@ -351,6 +358,7 @@ class CodexLead:
             "--ignore-user-config",
             *(["-m", config.model] if config.model else []),
             *(["-c", f"model_reasoning_effort={config.effort}"] if config.effort else []),
+            *(["-c", f'windows.sandbox="{self.windows_sandbox}"'] if self.windows_sandbox else []),
             "-C",
             str(cwd),
             "--sandbox",
