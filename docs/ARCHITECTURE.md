@@ -50,6 +50,10 @@ boundaries are Python packages with narrow interfaces.
    Not in Phase 1 — the first loop gets context only from the task and the repository.
 3. **Agent runtime** (`worker/`, `sandbox.py`, `workspace.py`): tools, isolation, working
    copy, limits, artifacts.
+   **External implementer** (`implementer=external`, ADR 0001): the working copy is handed
+   to Freebuff, which Tomáš runs by hand. Studio scans the copy for sensitive files first,
+   writes the brief outside the copy and waits in `awaiting_external` (not an active state,
+   so restart leaves it). Its output is a claim; verification and review are unchanged.
 4. **Routing** (`routing.py`, derived from Prizma `routing/selector.py`): choose a model by
    capability, availability (cooldowns) and budget.
 5. **OmniRoute** (`gateway.py`): gateway to providers. Integrated as an external dependency
@@ -83,6 +87,7 @@ boundaries are Python packages with narrow interfaces.
 queued → planning → working → verifying → reviewing → accepted
                        ▲                      │
                        └──── changes_requested (iteration < max) ┘
+working (implementer=external) → awaiting_external → [user: "Hotovo"] → verifying
 any active state → interrupted (restart / cancel)  → resume = re-run the interrupted step
 any active state → needs_decision (budget exceeded, providers down, review reject,
                                     max iterations)  → user: rework / escalate / abandon

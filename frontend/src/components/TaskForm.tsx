@@ -1,5 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { api, DEFAULT_BUDGET, type Budget, type Lead, type Planner, type TaskSpec } from "../api";
+import {
+  api,
+  DEFAULT_BUDGET,
+  type Budget,
+  type Implementer,
+  type Lead,
+  type Planner,
+  type TaskSpec,
+} from "../api";
 
 interface Props {
   onCreated: (runId: string) => void;
@@ -31,6 +39,7 @@ export function TaskForm({ onCreated }: Props) {
   const [commands, setCommands] = useState("");
   const [planner, setPlanner] = useState<Planner>("claude");
   const [reviewer, setReviewer] = useState<Lead>("codex");
+  const [implementer, setImplementer] = useState<Implementer>("worker");
   const [budget, setBudget] = useState<Record<keyof Budget, string>>(
     () =>
       Object.fromEntries(Object.entries(DEFAULT_BUDGET).map(([k, v]) => [k, String(v)])) as Record<
@@ -72,6 +81,7 @@ export function TaskForm({ onCreated }: Props) {
       acceptance_commands: lines(commands),
       planner,
       reviewer,
+      implementer,
       budget: b,
     };
     const v = validate(spec);
@@ -166,6 +176,29 @@ export function TaskForm({ onCreated }: Props) {
           </select>
           <p className="hint">Kdo zhodnotí výsledek proti kritériím.</p>
         </div>
+      </div>
+
+      <div className="field">
+        <label htmlFor="f-implementer">Kdo implementuje</label>
+        <select
+          id="f-implementer"
+          value={implementer}
+          onChange={(e) => setImplementer(e.target.value as Implementer)}
+        >
+          <option value="worker">Worker přes OmniRoute (automaticky)</option>
+          <option value="external">Freebuff (ručně, externí agent)</option>
+        </select>
+        <p className="hint">
+          U Freebuffu Studio připraví pracovní kopii a zadání, ty v ní spustíš <code>freebuff</code> a pak
+          klikneš Hotovo. Ověření a review proběhnou stejně jako u workeru.
+        </p>
+        {implementer === "external" && (
+          <div className="alert warn">
+            Freebuff pošle kód z pracovní kopie na své servery, zobrazuje reklamy (texty promptů mohou
+            sloužit k cílení) a má denní limit. Studio před předáním zkontroluje, že kopie neobsahuje
+            tajné údaje, ale co agent udělá mimo kopii, uhlídat nedokáže.
+          </div>
+        )}
       </div>
 
       <details className="budget">

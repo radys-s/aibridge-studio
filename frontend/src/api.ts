@@ -3,6 +3,7 @@
 
 export type Lead = "claude" | "codex";
 export type Planner = Lead | "none";
+export type Implementer = "worker" | "external";
 
 export interface Budget {
   max_iterations: number;
@@ -33,6 +34,8 @@ export interface TaskSpec {
   acceptance_commands: string[];
   planner: Planner;
   reviewer: Lead;
+  implementer?: Implementer;
+  external_agent?: "freebuff";
   budget?: Partial<Budget>;
 }
 
@@ -53,7 +56,8 @@ export type RunState =
   | "accepted"
   | "needs_decision"
   | "interrupted"
-  | "abandoned";
+  | "abandoned"
+  | "awaiting_external";
 
 export const ACTIVE_STATES: RunState[] = ["queued", "planning", "working", "verifying", "reviewing"];
 
@@ -100,7 +104,7 @@ export interface Run {
   feedback: string[] | null;
 }
 
-export type StepKind = "setup" | "plan" | "work" | "verify" | "review";
+export type StepKind = "setup" | "plan" | "handoff" | "work" | "verify" | "review";
 export type StepStatus = "running" | "done" | "failed" | "interrupted";
 
 export interface Step {
@@ -129,6 +133,14 @@ export interface WorkOutput {
   files_written: string[];
   claimed_checks: ClaimedCheck[];
   detail: string | null;
+  /** Set when the work was done by an external agent; an unverified claim. */
+  claim?: string;
+}
+
+export interface HandoffOutput {
+  agent: string;
+  brief: string;
+  text: string;
 }
 
 export interface CommandResult {
@@ -201,7 +213,7 @@ export interface RunDetail {
   usage: { tokens: number; cost: number; calls: number };
 }
 
-export type RunAction = "cancel" | "resume" | "rework" | "abandon";
+export type RunAction = "cancel" | "resume" | "rework" | "abandon" | "external-done";
 
 export class ApiError extends Error {
   status: number;

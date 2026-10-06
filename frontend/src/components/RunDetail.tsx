@@ -3,6 +3,7 @@ import {
   api,
   ApiError,
   isActive,
+  type HandoffOutput,
   type ModelCall,
   type ReviewOutput,
   type RunAction,
@@ -67,6 +68,8 @@ function ExitBadge({ code, timedOut }: { code: number | null; timedOut: boolean 
   return <span className="badge bad">exit {code} · selhalo</span>;
 }
 
+const BIG_PANEL: string[] = ["needs_decision", "awaiting_external"];
+
 function ActionPanel({ detail, onDone }: { detail: RunDetailData; onDone: () => void }) {
   const { run } = detail;
   const [note, setNote] = useState("");
@@ -78,7 +81,8 @@ function ActionPanel({ detail, onDone }: { detail: RunDetailData; onDone: () => 
     setBusy(action);
     setError(null);
     try {
-      await api.runAction(run.id, action, action === "rework" ? note : undefined);
+      const withNote = action === "rework" || action === "external-done";
+      await api.runAction(run.id, action, withNote ? note : undefined);
       setNote("");
       onDone();
     } catch (e) {
@@ -120,6 +124,50 @@ function ActionPanel({ detail, onDone }: { detail: RunDetailData; onDone: () => 
     );
   }
 
+  if (run.state === "awaiting_external") {
+    const handoff = latestOutput<HandoffOutput>(detail.steps, "handoff");
+    const command = `cd "${run.workspace ?? ""}"; freebuff`;
+    return (
+      <div className="decision" role="region" aria-label="Externí agent">
+        <h2>Čeká na Freebuff</h2>
+        <ol>
+          <li>
+            Spusť v terminálu: <code>{command}</code>{" "}
+            <CopyButton text={command} />
+          </li>
+          <li>
+            Vlož mu zadání níže <CopyButton text={handoff?.out.text ?? ""} />. Necommituj, změny nech v
+            pracovní kopii.
+          </li>
+          <li>Až skončí, klikni Hotovo. Studio pak samo ověří testy a rozsah a pustí review.</li>
+        </ol>
+        {handoff && (
+          <details open>
+            <summary>Zadání pro agenta</summary>
+            <pre className="output">{handoff.out.text}</pre>
+          </details>
+        )}
+        <div className="field">
+          <label htmlFor="external-note">Co agent tvrdí, že udělal (nepovinné)</label>
+          <textarea id="external-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
+          <p className="hint">Reviewer to dostane jen jako neověřené tvrzení.</p>
+        </div>
+        <div className="actions">
+          <button type="button" className="primary" disabled={!!busy} onClick={() => act("external-done")}>
+            Hotovo, ověř
+          </button>
+          <button type="button" disabled={!!busy} onClick={() => act("cancel")}>
+            Přerušit
+          </button>
+          <button type="button" className="danger" disabled={!!busy} onClick={() => act("abandon")}>
+            Opustit
+          </button>
+        </div>
+        {err}
+      </div>
+    );
+  }
+
   if (run.state === "needs_decision") {
     return (
       <div className="decision" role="region" aria-label="Rozhodnutí">
@@ -143,6 +191,24 @@ function ActionPanel({ detail, onDone }: { detail: RunDetailData; onDone: () => 
     );
   }
   return null;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <button type="button" className="small" onClick={() => void copy()} disabled={!text}>
+      {copied ? "Zkopírováno" : "Kopírovat"}
+    </button>
+  );
 }
 
 function Timeline({ steps }: { steps: Step[] }) {
@@ -225,9 +291,15 @@ function Evidence({ verify, work }: { verify: VerifyOutput | null; work: WorkOut
           <p className="muted">Worker zatím nic neodevzdal.</p>
         ) : (
           <>
-            <p>
-              Stav: <strong>{work.status}</strong> · tahů: {work.turns}
-            </p>
+            {work.claim ? (
+              <p>
+                <span className="badge warn">externí agent</span> {work.claim}
+              </p>
+            ) : (
+              <p>
+                Stav: <strong>{work.status}</strong> · tahů: {work.turns}
+              </p>
+            )}
             {work.summary && <p className="prewrap">{work.summary}</p>}
             {work.claimed_checks?.length > 0 ? (
               <ul className="claims">
@@ -449,10 +521,10 @@ export function RunDetail({ runId, listUpdatedAt, onChanged }: Props) {
           </span>
         </div>
         {error && <p className="error small">Obnovení selhalo: {error}</p>}
-        {run.state !== "needs_decision" && <ActionPanel detail={detail} onDone={afterAction} />}
+        {!BIG_PANEL.includes(run.state) && <ActionPanel detail={detail} onDone={afterAction} />}
       </header>
 
-      {run.state === "needs_decision" && <ActionPanel detail={detail} onDone={afterAction} />}
+      {BIG_PANEL.includes(run.state) && <ActionPanel detail={detail} onDone={afterAction} />}
 
       <Section title="Zadání" id="sec-spec">
         <p className="prewrap">{spec.goal}</p>

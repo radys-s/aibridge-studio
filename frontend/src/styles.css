@@ -299,6 +299,7 @@ button.block {
 .badge.warn,
 .state-needs_decision,
 .state-interrupted,
+.state-awaiting_external,
 .verdict-request_changes,
 .step-status-interrupted,
 .sev-major {

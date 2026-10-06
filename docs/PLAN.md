@@ -34,6 +34,10 @@ review via Claude/Codex → accept or send back for rework. One worker, one revi
   agent reviews.
 - Apply flow: accepted change → branch in the source repository on explicit approval.
 - Router learns from outcomes (success rate per model and task kind).
+- External implementer, manual (Freebuff): done 2026-10-06, see `docs/adr/0001-...`.
+- Watch: headless Freebuff adapter in `agents/` once `--print` NDJSON or free SDK auth
+  exists (github.com/CodebuffAI/freebuff/issues/947). Plugs in as an implementer, never via
+  the router. Override for false positives of the pre-handoff sensitive scan.
 
 ## Phase 3 — scale and comfort
 
