@@ -12,94 +12,24 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from studio.agents.tools import (
+    FINISH,
+    LIST_FILES,
+    READ_FILE,
+    RUN_COMMAND,
+    WRITE_TOOLS,
+    FileTools,
+)
 from studio.db import Database
 from studio.domain import Budget, Plan, TaskSpec
 from studio.gateway import ChatGateway, GatewayError, GatewayUnavailable
 from studio.routing import BudgetExceeded, ModelRouter, NoModelAvailable, RouteBudget
-from studio.sandbox import Denied, Sandbox, clip
+from studio.sandbox import Denied, Sandbox
 
 MAX_MODEL_SWITCHES_PER_TURN = 4
 MAX_NUDGES = 3
 
-TOOLS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "list_files",
-            "description": "List files under a directory of the repository (relative path).",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string", "description": "e.g. '.' or 'src'"}},
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read a UTF-8 text file (relative path, forward slashes).",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Create or overwrite a file with the complete new content.",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-                "required": ["path", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "replace_in_file",
-            "description": "Replace one exact, unique occurrence of old_text with new_text.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "old_text": {"type": "string"},
-                    "new_text": {"type": "string"},
-                },
-                "required": ["path", "old_text", "new_text"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command",
-            "description": "Run one allowlisted command (no shell, no pipes), e.g. "
-            "'python -m unittest -q'. Returns exit code and output.",
-            "parameters": {
-                "type": "object",
-                "properties": {"command": {"type": "string"}},
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "finish",
-            "description": "Call when the change is complete and checks pass.",
-            "parameters": {
-                "type": "object",
-                "properties": {"summary": {"type": "string"}},
-                "required": ["summary"],
-            },
-        },
-    },
-]
+TOOLS: list[dict[str, Any]] = [LIST_FILES, READ_FILE, *WRITE_TOOLS, RUN_COMMAND, FINISH]
 
 
 class WorkerStopped(Exception):
@@ -216,43 +146,21 @@ class Worker:
     # --- tools ------------------------------------------------------------------------
 
     def _tool(self, name: str, args: dict[str, Any], outcome: WorkerOutcome) -> str:
-        sb = self.sandbox
-        try:
-            if name == "list_files":
-                return "\n".join(sb.list_files(str(args.get("path") or "."))) or "(empty)"
-            if name == "read_file":
-                return clip(sb.read_text(str(args["path"])))
-            if name == "write_file":
-                path = sb.check_writable(str(args["path"]))
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(str(args["content"]), encoding="utf-8", newline="")
-                outcome.files_written.append(sb.rel(path))
-                return f"wrote {sb.rel(path)} ({len(str(args['content']))} chars)"
-            if name == "replace_in_file":
-                path = sb.check_writable(str(args["path"]))
-                text = sb.read_text(str(args["path"]))
-                old = str(args["old_text"])
-                count = text.count(old) if old else 0
-                if count != 1:
-                    return f"error: old_text found {count} times; it must match exactly once"
-                path.write_text(
-                    text.replace(old, str(args["new_text"])), encoding="utf-8", newline=""
-                )
-                outcome.files_written.append(sb.rel(path))
-                return f"replaced in {sb.rel(path)}"
-            if name == "run_command":
-                result = sb.run_command(str(args["command"]))
-                outcome.claimed_checks.append(
-                    {k: v for k, v in result.as_dict().items() if k != "output"}
-                )
-                return json.dumps(result.as_dict(), ensure_ascii=False)
+        files = FileTools(self.sandbox)
+        result = files.call(name, args)
+        outcome.files_written.extend(files.files_written)
+        if result is not None:
+            return result
+        if name != "run_command":
             return f"error: unknown tool {name}"
+        try:
+            res = self.sandbox.run_command(str(args["command"]))
         except Denied as exc:
             return f"denied: {exc}"
         except KeyError as exc:
             return f"error: missing argument {exc}"
-        except OSError as exc:
-            return f"error: {exc}"
+        outcome.claimed_checks.append({k: v for k, v in res.as_dict().items() if k != "output"})
+        return json.dumps(res.as_dict(), ensure_ascii=False)
 
     # --- loop -------------------------------------------------------------------------
 
