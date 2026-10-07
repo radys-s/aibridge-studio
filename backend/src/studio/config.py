@@ -24,23 +24,44 @@ class ModelSpec:
 
 # Explicit model ids only; never `auto/*` combos (see docs/ARCHITECTURE.md).
 # Verified tool-calling through OmniRoute on 2026-10-06: laguna-s-2.1.
+# `lead` = may act as Autopilot (draft, plan, review). Review needs a second lead model,
+# different from the implementer, so keep at least two.
 DEFAULT_MODELS: tuple[ModelSpec, ...] = (
-    ModelSpec("openrouter/poolside/laguna-s-2.1:free", frozenset({"coding", "tools"}), 3),
+    ModelSpec("openrouter/poolside/laguna-s-2.1:free", frozenset({"coding", "tools", "lead"}), 3),
     ModelSpec("openrouter/cohere/north-mini-code:free", frozenset({"coding", "tools"}), 2),
-    ModelSpec("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", frozenset({"tools"}), 4),
-    ModelSpec("openrouter/google/gemma-4-31b-it:free", frozenset({"tools"}), 2),
+    ModelSpec("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", frozenset({"tools", "lead"}), 4),
+    ModelSpec("openrouter/google/gemma-4-31b-it:free", frozenset({"tools", "lead"}), 2),
 )
 
 
+def _ids(name: str) -> list[str]:
+    return [item.strip() for item in os.environ.get(name, "").split(",") if item.strip()]
+
+
 def _models_from_env() -> tuple[ModelSpec, ...]:
-    raw = os.environ.get("STUDIO_WORKER_MODELS", "").strip()
-    if not raw:
+    """STUDIO_WORKER_MODELS replaces the coding models; STUDIO_LEAD_MODELS the lead ones.
+
+    Order in each variable is preference order (strongest first for lead models).
+    """
+    workers, leads = _ids("STUDIO_WORKER_MODELS"), _ids("STUDIO_LEAD_MODELS")
+    if not workers and not leads:
         return DEFAULT_MODELS
-    return tuple(
-        ModelSpec(item.strip(), frozenset({"coding", "tools"}), 1)
-        for item in raw.split(",")
-        if item.strip()
+    base = (
+        [ModelSpec(m, frozenset({"coding", "tools"}), 1) for m in workers]
+        if workers
+        else [m for m in DEFAULT_MODELS if "coding" in m.capabilities]
     )
+    if leads:
+        base = [ModelSpec(m.id, m.capabilities - {"lead"}, m.strength) for m in base]
+    else:
+        leads = [m.id for m in DEFAULT_MODELS if "lead" in m.capabilities]
+    by_id = {m.id: m for m in base}
+    for rank, model_id in enumerate(leads):
+        strength = 10 - rank  # keeps the given order for hard tasks
+        old = by_id.get(model_id)
+        caps = (old.capabilities if old else frozenset({"tools"})) | {"lead"}
+        by_id[model_id] = ModelSpec(model_id, caps, max(strength, old.strength if old else 0))
+    return tuple(by_id.values())
 
 
 @dataclass(frozen=True)

@@ -44,7 +44,8 @@ Mode = Literal["read", "write"]
 class LeadError(Exception):
     def __init__(self, message: str, kind: str = "error") -> None:
         super().__init__(message)
-        # error | timeout | not_installed | not_logged_in | cancelled | bad_output
+        # error | timeout | not_installed | not_logged_in | limit | cancelled | bad_output
+        # Autopilot adds: no_model | budget | gateway_down
         self.kind = kind
 
 
@@ -72,6 +73,15 @@ class CallContext:
     should_stop: Callable[[], bool]
     on_event: Callable[[AgentEvent], None] = lambda _e: None
     usage: LeadUsage = field(default_factory=LeadUsage)
+    # Used by Autopilot, which records its own gateway calls and routes through the router.
+    run_id: str | None = None
+    step_id: int | None = None
+    role: str = "lead"
+    scope: tuple[str, ...] = ()
+    complexity: str = "moderate"
+    exclude_models: frozenset[str] = frozenset()
+    max_tokens: int = 400_000
+    max_cost_usd: float = 0.5
 
 
 class Lead(Protocol):

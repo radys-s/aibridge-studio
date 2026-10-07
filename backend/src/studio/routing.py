@@ -38,7 +38,12 @@ class ModelRouter:
 
     def candidates(self, capability: str = "coding", complexity: str = "moderate") -> list[str]:
         preferred = [m for m in self.models if capability in m.capabilities]
-        others = [m for m in self.models if capability not in m.capabilities]
+        # Workers may fall back to any model; Autopilot only to models marked `lead`.
+        others = (
+            []
+            if capability == "lead"
+            else [m for m in self.models if capability not in m.capabilities]
+        )
         if complexity == "hard":
             preferred.sort(key=lambda m: -m.strength)
             others.sort(key=lambda m: -m.strength)
@@ -75,8 +80,11 @@ class ModelRouter:
                 continue
             return model
         raise NoModelAvailable(
-            "all worker models failed or are cooling down: "
-            + ", ".join(f"{m} (cooldown)" if m in cooling else m for m in self.candidates())
+            f"all {capability} models failed, are excluded or are cooling down: "
+            + ", ".join(
+                f"{m} (cooldown)" if m in cooling else m
+                for m in self.candidates(capability, complexity)
+            )
         )
 
     def report_failure(self, model: str, kind: str, status: int | None, detail: str) -> None:

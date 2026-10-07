@@ -39,6 +39,7 @@ from studio.domain import (
     LEADS,
     Draft,
     ImplementReport,
+    LeadConfig,
     Message,
     Plan,
     Review,
@@ -397,8 +398,14 @@ class Runner:
         model: type[T],
         mode: Mode = "read",
         actor: str | None = None,
+        exclude_models: frozenset[str] = frozenset(),
+        complexity: str = "moderate",
     ) -> tuple[int, T | LeadError]:
-        """One lead CLI call as one step. Cancel raises Stopped; other failures are returned."""
+        """One lead call as one step. Cancel raises Stopped; other failures are returned.
+
+        CLI leads are recorded here as one subscription call; Autopilot (`records_calls`)
+        records each of its gateway calls itself, against the run's API budget.
+        """
         run_id = run["id"]
         lead = self.leads[name]
         step = self.db.start_step(run_id, kind, run["iteration"], actor or name)
@@ -408,6 +415,14 @@ class Runner:
             timeout_s=spec.budget.agent_timeout_s,
             should_stop=lambda: self._should_stop(run_id),
             on_event=lambda e: self.db.agent_event(run_id, step, name, e.kind, e.text, e.data),
+            run_id=run_id,
+            step_id=step,
+            role=kind,
+            scope=tuple(spec.allowed_paths),
+            complexity=complexity,
+            exclude_models=exclude_models,
+            max_tokens=spec.budget.max_tokens,
+            max_cost_usd=spec.budget.max_cost_usd,
         )
         started = time.monotonic()
         result: T | LeadError
@@ -415,6 +430,28 @@ class Runner:
             result = validate(model, lead.ask(prompt, schema, Path(run["workspace"]), ctx, mode))
         except LeadError as exc:
             result = exc
+        if not getattr(lead, "records_calls", False):
+            self._record_lead_call(run_id, step, kind, name, config, ctx, result, started)
+        if isinstance(result, LeadError):
+            if result.kind == "cancelled":
+                self.db.finish_step(step, "interrupted", error=str(result))
+                raise Stopped() from result
+            self.db.finish_step(step, "failed", error=str(result))
+        else:
+            self.db.finish_step(step, "done", result.model_dump())
+        return step, result
+
+    def _record_lead_call(
+        self,
+        run_id: str,
+        step: int,
+        kind: str,
+        name: str,
+        config: LeadConfig,
+        ctx: CallContext,
+        result: object,
+        started: float,
+    ) -> None:
         self.db.record_model_call(
             run_id=run_id,
             step_id=step,
@@ -431,14 +468,6 @@ class Runner:
             error=str(result)[:500] if isinstance(result, LeadError) else None,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
-        if isinstance(result, LeadError):
-            if result.kind == "cancelled":
-                self.db.finish_step(step, "interrupted", error=str(result))
-                raise Stopped() from result
-            self.db.finish_step(step, "failed", error=str(result))
-        else:
-            self.db.finish_step(step, "done", result.model_dump())
-        return step, result
 
     def _ask_leads[T: BaseModel](
         self,
