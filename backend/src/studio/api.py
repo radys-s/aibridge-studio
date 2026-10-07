@@ -21,11 +21,12 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from studio import __version__
+from studio.agents.api_lead import ApiLead
 from studio.agents.leads import CallContext, ClaudeLead, CodexLead, Lead, LeadError
 from studio.agents.prompts import PROBE_SCHEMA, probe_prompt
 from studio.config import Settings
 from studio.db import Database
-from studio.domain import LEADS, Effort, LeadConfig, TaskSpec
+from studio.domain import AUTOPILOT, LEADS, Effort, LeadConfig, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
 from studio.preferences import Catalog, Defaults, Preferences
 from studio.routing import ModelRouter
@@ -52,7 +53,7 @@ ACTIONS = (
 class ActionBody(BaseModel):
     note: str = Field("", max_length=20_000)
     text: str = Field("", max_length=20_000)
-    lead: Literal["claude", "codex"] | None = None
+    lead: Literal["autopilot", "claude", "codex"] | None = None
     edits: dict[str, Any] | None = None
 
 
@@ -62,7 +63,7 @@ class SettingsBody(BaseModel):
 
 
 class ProbeBody(BaseModel):
-    lead: Literal["claude", "codex"]
+    lead: Literal["autopilot", "claude", "codex"]
     model: str | None = None
     effort: Effort | None = None
 
@@ -97,6 +98,7 @@ def create_app(
     )
     router = ModelRouter(db, settings.worker_models)
     lead_map: dict[str, Lead] = leads or {
+        AUTOPILOT: ApiLead(db, gw, router, lambda: settings.vault()),
         "claude": ClaudeLead(settings.claude_bin),
         "codex": CodexLead(settings.codex_bin),
     }
@@ -135,6 +137,7 @@ def create_app(
             "gateway": gw.health(),
             "leads": {name: lead.available() for name, lead in lead_map.items()},
             "worker_models": router.candidates(),
+            "lead_models": router.candidates("lead", "hard"),
             "cooldowns": db.cooldowns(),
         }
 

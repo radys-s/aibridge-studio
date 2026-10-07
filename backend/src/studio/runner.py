@@ -36,6 +36,7 @@ from studio.agents.prompts import (
 )
 from studio.db import Database
 from studio.domain import (
+    AUTOPILOT,
     LEADS,
     Draft,
     ImplementReport,
@@ -64,6 +65,8 @@ PHASE_STATE = {
 EXTERNAL_AGENT = "freebuff"
 # Worker outcomes that mean "the cheap path cannot do this", not "it did something partial".
 ESCALATE_WORKER = frozenset({"no_model", "gateway_down", "error", "budget"})
+# Autopilot uses the same gateway and budget as the worker: it cannot fix these.
+SHARED_POOL_FAILURES = frozenset({"gateway_down", "budget"})
 WAITING = (RunState.NEEDS_DECISION, RunState.AWAITING_APPROVAL)
 
 
@@ -214,7 +217,7 @@ class Runner:
             raise ValueError("the task is not ready for implementation yet")
         spec = TaskSpec.model_validate_json(run["spec_json"])
         name = lead or spec.orchestration.primary
-        if name not in LEADS:
+        if name not in (AUTOPILOT, *LEADS) or name not in self.leads:
             raise ValueError(f"unknown lead {name}")
         feedback = json.loads(run["feedback_json"] or "[]")
         if note.strip():
@@ -382,7 +385,7 @@ class Runner:
         return [
             Message(author=m["author"], text=m["text"])
             for m in self.db.messages(run_id)
-            if m["author"] in ("user", "claude", "codex", "studio")
+            if m["author"] in ("user", AUTOPILOT, "claude", "codex", "studio")
         ]
 
     # --- lead calls -------------------------------------------------------------------
@@ -407,8 +410,12 @@ class Runner:
         records each of its gateway calls itself, against the run's API budget.
         """
         run_id = run["id"]
-        lead = self.leads[name]
         step = self.db.start_step(run_id, kind, run["iteration"], actor or name)
+        lead = self.leads.get(name)
+        if lead is None:
+            error = LeadError(f"lead {name} is not configured in this Studio", "not_installed")
+            self.db.finish_step(step, "failed", error=str(error))
+            return step, error
         config = spec.orchestration.config(name)
         ctx = CallContext(
             config=config,
@@ -478,14 +485,40 @@ class Runner:
         prompt: Callable[[str], str],
         schema: dict[str, Any],
         model: type[T],
+        exclude_models: frozenset[str] = frozenset(),
     ) -> dict[str, T | LeadError]:
-        """Ask several leads the same thing in parallel; each gets its own step."""
+        """Ask several leads the same thing in parallel; each gets its own step.
+
+        `exclude_models` only matters to Autopilot (router-backed): the reviewer must not
+        be the model that wrote the change.
+        """
         if len(names) == 1:
             name = names[0]
-            return {name: self._ask_lead(run, spec, name, kind, prompt(name), schema, model)[1]}
+            return {
+                name: self._ask_lead(
+                    run,
+                    spec,
+                    name,
+                    kind,
+                    prompt(name),
+                    schema,
+                    model,
+                    exclude_models=exclude_models,
+                )[1]
+            }
         with ThreadPoolExecutor(max_workers=len(names), thread_name_prefix="lead") as pool:
             futures = {
-                n: pool.submit(self._ask_lead, run, spec, n, kind, prompt(n), schema, model)
+                n: pool.submit(
+                    self._ask_lead,
+                    run,
+                    spec,
+                    n,
+                    kind,
+                    prompt(n),
+                    schema,
+                    model,
+                    exclude_models=exclude_models,
+                )
                 for n in names
             }
             results: dict[str, T | LeadError] = {}
@@ -677,7 +710,7 @@ class Runner:
             )
         if who == "freebuff":
             return self._handoff(run, spec, plan, feedback)
-        if who in LEADS:
+        if who == AUTOPILOT or who in LEADS:
             return self._lead_work(run, spec, who, plan, feedback)
         return self._worker_work(run, spec, plan, feedback)
 
@@ -702,6 +735,7 @@ class Runner:
             ImplementReport,
             mode="write",
             actor=f"lead:{name}",
+            complexity=plan.complexity if plan else "moderate",
         )
         workspace.commit_all(root, f"studio: {name} iteration {run['iteration']}")
         if isinstance(result, LeadError):
@@ -741,6 +775,8 @@ class Runner:
                 self.db.update_run(run_id, phase="verify")
                 return "next"
             why = f"worker stopped: {outcome.status} {outcome.detail}".strip()
+            if spec.orchestration.primary == AUTOPILOT and outcome.status in SHARED_POOL_FAILURES:
+                return self._needs_decision(run_id, why + " (Autopilot shares this pool)")
             if outcome.status in ESCALATE_WORKER:
                 return self._escalate_or_decide(run, spec, why, feedback, same_iteration=True)
             return self._needs_decision(run_id, why)
@@ -844,12 +880,40 @@ class Runner:
         )
         implementer = (work or {}).get("actor") or "worker"
         impl_name = implementer.removeprefix("lead:")
-        reviewers = spec.orchestration.reviewers(impl_name)
-        self.db.event(run_id, "review", " a ".join(reviewers) + " nezávisle reviduje diff")
+        orch = spec.orchestration
+        reviewers: list[str] = list(orch.reviewers(impl_name))
+        optional: list[str] = [n for n in orch.second_opinion if n != impl_name and n in self.leads]
+        exclude = self._step_models(run_id, work["id"]) if work else frozenset()
+        who = " a ".join(reviewers + optional)
+        self.db.event(run_id, "review", f"{who} nezávisle reviduje diff")
         prompt = review_prompt(spec, verification["diff"], verification, summary, implementer)
         results = self._ask_leads(
-            run, spec, list(reviewers), "review", lambda _n: prompt, REVIEW_SCHEMA, Review
+            run,
+            spec,
+            reviewers + optional,
+            "review",
+            lambda _n: prompt,
+            REVIEW_SCHEMA,
+            Review,
+            exclude_models=exclude,
         )
+        dependent = {n for n in reviewers if n == impl_name and n != AUTOPILOT}
+        first = results.get(AUTOPILOT)
+        if isinstance(first, LeadError) and first.kind == "no_model" and exclude:
+            # No other free model is available: review on the same one, the user confirms.
+            self.db.event(run_id, "warning", "Jiný free model není volný; review stejným modelem")
+            step, results[AUTOPILOT] = self._ask_lead(
+                run, spec, AUTOPILOT, "review", prompt, REVIEW_SCHEMA, Review
+            )
+            if self._step_models(run_id, step) & exclude:
+                dependent.add(AUTOPILOT)
+        for name in optional:
+            result = results.get(name)
+            if isinstance(result, LeadError):
+                del results[name]
+                why = "došel limit" if result.kind == "limit" else result.kind
+                self.db.message(run_id, "studio", f"Druhý názor od {name} přeskočen ({why}).")
+                self.db.event(run_id, "warning", f"second opinion from {name} skipped: {result}")
         failed = {n: r for n, r in results.items() if isinstance(r, LeadError)}
         if failed:
             # Never accept on fewer reviews than the mode requires.
@@ -857,10 +921,23 @@ class Runner:
                 run_id, "; ".join(f"review by {n} failed: {e}" for n, e in failed.items())
             )
         reviews = {n: r for n, r in results.items() if isinstance(r, Review)}
-        return self._apply_reviews(run, spec, reviews, impl_name)
+        return self._apply_reviews(run, spec, reviews, impl_name, dependent)
+
+    def _step_models(self, run_id: str, step_id: int) -> frozenset[str]:
+        """Router models that answered in one step (Autopilot or worker gateway calls)."""
+        return frozenset(
+            str(c["requested_model"])
+            for c in self.db.model_calls(run_id)
+            if c["step_id"] == step_id and c["billing"] == "api" and c["outcome"] == "ok"
+        )
 
     def _apply_reviews(
-        self, run: dict[str, Any], spec: TaskSpec, reviews: dict[str, Review], implementer: str
+        self,
+        run: dict[str, Any],
+        spec: TaskSpec,
+        reviews: dict[str, Review],
+        implementer: str,
+        dependent: set[str],
     ) -> str:
         run_id = run["id"]
 
@@ -872,11 +949,11 @@ class Runner:
             if r.verdict == "accept" and not passes(r):
                 self.db.event(run_id, "warning", f"{name} napsal accept, ale má blokující nálezy")
         if all(passes(r) for r in reviews.values()):
-            independent = [n for n in reviews if n != implementer]
+            independent = [n for n in reviews if n not in dependent]
             if not independent:
                 return self._needs_decision(
                     run_id,
-                    f"only {implementer} reviewed its own change; confirm acceptance",
+                    f"no independent reviewer for {implementer}'s change; confirm acceptance",
                     "self_review",
                 )
             self._accept(run, "Review přijalo změnu (" + ", ".join(reviews) + ")")

@@ -6,10 +6,16 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from studio.vault import Vault
+
 
 def _default_data_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
     return Path(base) / "aibridge-studio"
+
+
+def _default_vault() -> Path:
+    return Path.home() / "Documents" / "Obsidian Vault" / "AI paměť"
 
 
 @dataclass(frozen=True)
@@ -74,8 +80,15 @@ class Settings:
     claude_bin: str = "claude"
     codex_bin: str = "codex"
     codex_model: str | None = "gpt-5.6-sol"
+    # Shared Obsidian memory (Autopilot reads non-personal notes; see vault.py).
+    vault_path: Path | None = field(default_factory=lambda: _default_vault())
     host: str = "127.0.0.1"
     port: int = 8765
+
+    def vault(self) -> Vault | None:
+        if self.vault_path is None or not self.vault_path.is_dir():
+            return None
+        return Vault(self.vault_path)
 
     @property
     def db_path(self) -> Path:
@@ -98,4 +111,9 @@ class Settings:
             codex_bin=os.environ.get("STUDIO_CODEX_BIN", "codex"),
             codex_model=os.environ.get("STUDIO_CODEX_MODEL", "gpt-5.6-sol") or None,
             port=int(os.environ.get("STUDIO_PORT", "8765")),
+            vault_path=(
+                Path(os.environ["STUDIO_VAULT"])
+                if os.environ.get("STUDIO_VAULT")
+                else _default_vault()
+            ),
         )

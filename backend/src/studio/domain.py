@@ -33,6 +33,9 @@ TERMINAL_STATES = frozenset({RunState.ACCEPTED, RunState.ABANDONED})
 
 LeadName = Literal["claude", "codex"]
 LEADS: tuple[LeadName, LeadName] = ("claude", "codex")
+# Studio's own orchestrator on free models (see ADR 0003). Not a CLI: no model/effort config.
+AUTOPILOT: Literal["autopilot"] = "autopilot"
+AnyLead = Literal["autopilot", "claude", "codex"]
 Effort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 # Values each CLI accepts. Claude: `claude --help` 2.1.269. Codex: API error message for an
 # invalid `model_reasoning_effort`, gpt-5.6-sol via ChatGPT login, verified 2026-10-06.
@@ -42,7 +45,7 @@ EFFORTS: dict[str, tuple[str, ...]] = {
 }
 # Above `high` the subscription limits drain fast; the UI asks before using these.
 HEAVY_EFFORTS = frozenset({"xhigh", "max"})
-Implementer = Literal["auto", "worker", "freebuff", "claude", "codex"]
+Implementer = Literal["auto", "worker", "freebuff", "autopilot", "claude", "codex"]
 Escalation = Literal["off", "ask", "auto"]
 
 
@@ -85,21 +88,31 @@ class LeadConfig(BaseModel):
 class Orchestration(BaseModel):
     """Who leads. The single place that decides which lead drafts, plans and reviews.
 
+    autopilot (default): Studio's free-model orchestrator drafts, plans and reviews; the
+        review runs on a different model than the implementation. `second_opinion` adds
+        optional Claude/Codex reviews that are skipped when their limit is used up.
     claude / codex: one lead does everything (reduced independence, flagged in the UI).
     cross: `primary` drafts and plans, the other lead reviews.
     duo: both plan independently (primary merges), both review; accept needs both.
+    The last three are kept for older runs and for use while subscriptions have quota.
     """
 
-    mode: Literal["claude", "codex", "cross", "duo"] = "cross"
-    primary: LeadName = "claude"
+    mode: Literal["autopilot", "claude", "codex", "cross", "duo"] = "autopilot"
+    primary: AnyLead = "autopilot"
     plan: bool = True
+    second_opinion: list[LeadName] = Field(default_factory=list)
     claude: LeadConfig = Field(default_factory=lambda: LeadConfig())
     codex: LeadConfig = Field(default_factory=lambda: LeadConfig())
 
     @model_validator(mode="after")
     def _check(self) -> Orchestration:
-        if self.mode in LEADS:
+        if self.mode == "claude" or self.mode == "codex" or self.mode == AUTOPILOT:
             self.primary = self.mode
+        elif self.primary == AUTOPILOT:
+            self.primary = "claude"  # cross/duo pair the two CLI leads
+        self.second_opinion = (
+            list(dict.fromkeys(self.second_opinion)) if self.mode == AUTOPILOT else []
+        )
         for name in LEADS:
             effort = self.config(name).effort
             if effort and effort not in EFFORTS[name]:
@@ -107,20 +120,27 @@ class Orchestration(BaseModel):
         return self
 
     def config(self, name: str) -> LeadConfig:
-        return self.claude if name == "claude" else self.codex
+        if name == "claude":
+            return self.claude
+        if name == "codex":
+            return self.codex
+        return LeadConfig()
 
     @property
     def solo(self) -> bool:
         return self.mode in LEADS
 
-    def planners(self) -> list[LeadName]:
+    def planners(self) -> list[AnyLead]:
         if not self.plan:
             return []
         if self.mode == "duo":
             return [self.primary, other_lead(self.primary)]
         return [self.primary]
 
-    def reviewers(self, implementer: str | None = None) -> list[LeadName]:
+    def reviewers(self, implementer: str | None = None) -> list[AnyLead]:
+        """Required reviewers. Autopilot's optional second opinions are separate."""
+        if self.mode == AUTOPILOT:
+            return [AUTOPILOT]
         if self.mode in LEADS:
             return [self.primary]
         if self.mode == "duo":
@@ -131,12 +151,12 @@ class Orchestration(BaseModel):
         return [other_lead(self.primary)]
 
     def heavy(self) -> list[str]:
-        used = {*self.planners(), *self.reviewers(), self.primary}
+        used = {*self.planners(), *self.reviewers(), *self.second_opinion, self.primary}
         return [n for n in LEADS if n in used and self.config(n).effort in HEAVY_EFFORTS]
 
 
 class Message(BaseModel):
-    author: Literal["user", "claude", "codex", "studio"]
+    author: Literal["user", "autopilot", "claude", "codex", "studio"]
     text: str
 
 
