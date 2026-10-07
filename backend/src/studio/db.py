@@ -307,6 +307,14 @@ class Database:
             row = c.execute(sql, args).fetchone()
         return {"tokens": float(row["tokens"]), "cost": float(row["cost"]), "calls": row["calls"]}
 
+    def api_calls_since(self, since: float) -> int:
+        """Gateway calls (all runs) since a timestamp: what the shared free pool has used."""
+        with self.connect() as c:
+            row = c.execute(
+                "SELECT COUNT(*) AS n FROM model_call WHERE billing = 'api' AND at >= ?", (since,)
+            ).fetchone()
+        return int(row["n"])
+
     # --- conversation & live agent output ----------------------------------------------
 
     def message(self, run_id: str, author: str, text: str, data: Any = None) -> int:

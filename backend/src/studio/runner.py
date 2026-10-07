@@ -26,14 +26,17 @@ from studio.agents.leads import CallContext, Lead, LeadError, Mode, validate
 from studio.agents.prompts import (
     DRAFT_SCHEMA,
     IMPLEMENT_SCHEMA,
+    MEMORY_SCHEMA,
     PLAN_SCHEMA,
     REVIEW_SCHEMA,
     draft_prompt,
     implement_prompt,
+    memory_prompt,
     merge_prompt,
     plan_prompt,
     review_prompt,
 )
+from studio.apply import ApplyError, apply_run
 from studio.db import Database
 from studio.domain import (
     AUTOPILOT,
@@ -41,6 +44,7 @@ from studio.domain import (
     Draft,
     ImplementReport,
     LeadConfig,
+    MemoryProposal,
     Message,
     Plan,
     Review,
@@ -48,8 +52,10 @@ from studio.domain import (
     TaskSpec,
 )
 from studio.gateway import ChatGateway
+from studio.memory import build_proposals, project_memory
 from studio.routing import ModelRouter
 from studio.sandbox import Denied, Sandbox, sensitive_files
+from studio.vault import Vault
 from studio.verify import failure_feedback, verify
 from studio.worker.loop import Worker, WorkerStopped
 
@@ -82,7 +88,10 @@ class Runner:
         router: ModelRouter,
         leads: dict[str, Lead],
         workspaces_dir: Path,
+        vault: Callable[[], Vault | None] = lambda: None,
     ) -> None:
+        self.vault = vault
+        self._vault_lock = threading.Lock()  # one proposal read-modify-write at a time
         self.db = db
         self.gateway = gateway
         self.router = router
@@ -255,6 +264,84 @@ class Runner:
         if run["state"] != RunState.NEEDS_DECISION or run["pending"] != "self_review":
             raise ValueError("manual acceptance is only for a self-reviewed change")
         self._accept(run, "Uživatel potvrdil změnu schválenou jen sebe-review")
+        threading.Thread(
+            target=self._propose_memory, args=(run_id,), name="studio-memory", daemon=True
+        ).start()
+
+    def vault_write(self, run_id: str, index: int) -> str:
+        """Write one approved memory proposal into the vault. The only vault write path."""
+        with self._vault_lock:
+            return self._vault_write(run_id, index)
+
+    def _vault_write(self, run_id: str, index: int) -> str:
+        step, proposals = self._proposals(run_id)
+        if not 0 <= index < len(proposals) or proposals[index]["status"] != "proposed":
+            raise ValueError("no such open proposal")
+        vault = self.vault()
+        if vault is None:
+            raise ValueError("the shared memory (Obsidian vault) is not available")
+        item = proposals[index]
+        try:
+            rel = vault.write(item["path"], item["content"], item["kind"])
+        except Denied as exc:
+            raise ValueError(str(exc)) from exc
+        item["status"] = "written"
+        self._save_proposals(step, proposals)
+        self.db.event(run_id, "vault", f"Zapsáno do paměti: {rel}", {"vault_written": rel})
+        return rel
+
+    def apply_to_repo(self, run_id: str) -> dict[str, Any]:
+        """Put an accepted change into the source repo as branch studio/<run_id> (on click).
+
+        Never merges, pushes or switches the user's branch; see apply.py.
+        """
+        run = self._require(run_id)
+        if run["state"] != RunState.ACCEPTED:
+            raise ValueError("only an accepted change can be applied")
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        try:
+            applied = apply_run(
+                Path(spec.repo_path),
+                Path(run["workspace"]),
+                run["source_commit"],
+                run_id,
+                spec.title,
+            )
+        except ApplyError as exc:
+            raise ValueError(str(exc)) from exc
+        data = {"branch": applied.branch, "commit": applied.commit, "files": applied.files}
+        self.db.event(run_id, "applied", f"Změna je ve větvi {applied.branch}", data)
+        self.db.message(
+            run_id,
+            "studio",
+            f"Změna je v repozitáři jako větev `{applied.branch}` (commit {applied.commit[:10]}). "
+            "Tvoje aktuální větev zůstala beze změny; sloučení je na tobě.",
+        )
+        return data
+
+    def vault_discard(self, run_id: str, index: int) -> None:
+        with self._vault_lock:
+            self._vault_discard(run_id, index)
+
+    def _vault_discard(self, run_id: str, index: int) -> None:
+        step, proposals = self._proposals(run_id)
+        if not 0 <= index < len(proposals) or proposals[index]["status"] != "proposed":
+            raise ValueError("no such open proposal")
+        proposals[index]["status"] = "discarded"
+        self._save_proposals(step, proposals)
+        self.db.event(run_id, "vault", f"Návrh zahozen: {proposals[index]['path']}")
+
+    def _proposals(self, run_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        self._require(run_id)
+        step = self.db.last_step(run_id, "memory")
+        if not step or not step["output_json"]:
+            raise ValueError("there are no memory proposals for this run")
+        return step, list(json.loads(step["output_json"]).get("proposals") or [])
+
+    def _save_proposals(self, step: dict[str, Any], proposals: list[dict[str, Any]]) -> None:
+        output = json.loads(step["output_json"])
+        output["proposals"] = proposals
+        self.db.finish_step(step["id"], step["status"], output)
 
     def allow_sensitive(self, run_id: str) -> None:
         run = self._require(run_id)
@@ -569,13 +656,29 @@ class Runner:
             self.db.update_run(run_id, phase="plan")
             return "next"
         name = spec.orchestration.primary
+        memory: list[tuple[str, str]] = []
+        if spec.project_note:
+            vault = self.vault()
+            if vault is None:
+                return self._needs_decision(run_id, "the shared memory (Obsidian) is not available")
+            try:
+                memory, refused = project_memory(vault, spec.project_note)
+            except (Denied, OSError) as exc:
+                return self._needs_decision(run_id, f"project note cannot be shared: {exc}")
+            sent = [path for path, _ in memory]
+            self.db.event(
+                run_id,
+                "vault",
+                "Poznámky z paměti poslané modelu: " + ", ".join(sent),
+                {"vault": sent, "refused": refused},
+            )
         self.db.event(run_id, "draft", f"{name} navrhuje zadání")
         _step, result = self._ask_lead(
             run,
             spec,
             name,
             "draft",
-            draft_prompt(spec, self._messages(run_id)),
+            draft_prompt(spec, self._messages(run_id), memory),
             DRAFT_SCHEMA,
             Draft,
         )
@@ -957,6 +1060,7 @@ class Runner:
                     "self_review",
                 )
             self._accept(run, "Review přijalo změnu (" + ", ".join(reviews) + ")")
+            self._propose_memory(run_id)
             return "pause"
         tag = len(reviews) > 1
         feedback: list[str] = []
@@ -985,6 +1089,50 @@ class Runner:
         patch_path.write_text(patch, encoding="utf-8", newline="")
         self.db.update_run(run_id, state=RunState.ACCEPTED, finished_at=time.time(), pending=None)
         self.db.event(run_id, "accepted", message, {"patch": str(patch_path)})
+
+    def _propose_memory(self, run_id: str) -> None:
+        """After acceptance: Autopilot proposes project-note and handoff updates.
+
+        Never blocks or changes the accepted run; failures are only reported.
+        """
+        try:
+            run = self._require(run_id)
+            spec = TaskSpec.model_validate_json(run["spec_json"])
+            vault = self.vault()
+            if not spec.project_note or vault is None or AUTOPILOT not in self.leads:
+                return
+            note = vault.read(spec.project_note)
+            review = self.db.last_step(run_id, "review")
+            summary = (
+                json.loads(review["output_json"]).get("summary", "")
+                if review and review["output_json"]
+                else ""
+            )
+            changed = workspace.changed_files(Path(run["workspace"]), run["source_commit"])
+            step, result = self._ask_lead(
+                run,
+                spec,
+                AUTOPILOT,
+                "memory",
+                memory_prompt(spec, (note.path, note.text), "\n".join(changed), summary),
+                MEMORY_SCHEMA,
+                MemoryProposal,
+            )
+            if isinstance(result, LeadError):
+                self.db.event(run_id, "warning", f"Návrh zápisu do paměti selhal: {result}")
+                return
+            proposals = build_proposals(vault, result, note.path, run_id, spec.title)
+            self.db.finish_step(
+                step, "done", {"memory": result.model_dump(), "proposals": proposals}
+            )
+            self.db.event(
+                run_id,
+                "vault",
+                "Autopilot navrhuje zápis do paměti; zapíše se až po schválení",
+                {"proposals": len(proposals)},
+            )
+        except Exception as exc:  # the run is already accepted; this is a convenience
+            self.db.event(run_id, "warning", f"Návrh zápisu do paměti selhal: {exc}")
 
     def _next_iteration_or_decide(
         self, run: dict[str, Any], spec: TaskSpec, feedback: list[str], why: str

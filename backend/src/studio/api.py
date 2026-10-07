@@ -28,9 +28,11 @@ from studio.config import Settings
 from studio.db import Database
 from studio.domain import AUTOPILOT, LEADS, Effort, LeadConfig, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
+from studio.memory import project_memory
 from studio.preferences import Catalog, Defaults, Preferences
 from studio.routing import ModelRouter
 from studio.runner import Runner
+from studio.sandbox import Denied
 
 UI_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 ACTIONS = (
@@ -47,6 +49,9 @@ ACTIONS = (
     "allow-sensitive",
     "external-done",
     "open-terminal",
+    "apply",
+    "vault-write",
+    "vault-discard",
 )
 
 
@@ -55,6 +60,7 @@ class ActionBody(BaseModel):
     text: str = Field("", max_length=20_000)
     lead: Literal["autopilot", "claude", "codex"] | None = None
     edits: dict[str, Any] | None = None
+    index: int | None = None  # which memory proposal (vault-write / vault-discard)
 
 
 class SettingsBody(BaseModel):
@@ -85,6 +91,12 @@ def _rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _midnight_utc() -> float:
+    """OpenRouter's free daily limit resets at 00:00 UTC."""
+    now = time.time()
+    return now - now % 86_400
+
+
 def create_app(
     settings: Settings,
     *,
@@ -103,7 +115,7 @@ def create_app(
         "codex": CodexLead(settings.codex_bin),
     }
     prefs = Preferences(db, settings.codex_model)
-    runner = Runner(db, gw, router, lead_map, settings.workspaces_dir)
+    runner = Runner(db, gw, router, lead_map, settings.workspaces_dir, settings.vault)
     allowed_origins = {
         f"http://{settings.host}:{settings.port}",
         f"http://localhost:{settings.port}",
@@ -139,6 +151,7 @@ def create_app(
             "worker_models": router.candidates(),
             "lead_models": router.candidates("lead", "hard"),
             "cooldowns": db.cooldowns(),
+            "api_calls_today": db.api_calls_since(_midnight_utc()),
         }
 
     # --- preferences --------------------------------------------------------------------
@@ -170,6 +183,41 @@ def create_app(
         prefs.record_probe(f"{body.lead}:{config.model or 'default'}:{config.effort or ''}", result)
         return result
 
+    # --- shared memory (Obsidian) ------------------------------------------------------
+
+    @app.get("/api/vault")
+    def vault_overview() -> dict[str, Any]:
+        """Projects and open handoffs Studio may use. Names only; nothing is sent anywhere."""
+        vault = settings.vault()
+        if vault is None:
+            return {"available": False, "path": str(settings.vault_path or "")}
+        return {
+            "available": True,
+            "path": str(vault.root),
+            "projects": vault.projects(),
+            "handoffs": vault.open_handoffs(),
+            "folders": vault.folder_counts(),
+        }
+
+    @app.get("/api/vault/project")
+    def vault_project(note: str) -> dict[str, Any]:
+        vault = settings.vault()
+        if vault is None:
+            raise HTTPException(404, "the Obsidian vault is not available")
+        try:
+            notes, refused = project_memory(vault, note)
+        except Denied as exc:
+            raise HTTPException(403, str(exc)) from exc
+        main = vault.read(note)
+        return {
+            "note": main.path,
+            "title": main.title,
+            "repo_hint": vault.repo_hint(main),
+            "handoffs": [path for path, _ in notes[1:]],
+            "refused": refused,
+            "preview": main.text[:1500],
+        }
+
     # --- tasks and runs -----------------------------------------------------------------
 
     @app.post("/api/tasks", status_code=201)
@@ -177,6 +225,10 @@ def create_app(
         repo = Path(spec.repo_path)
         if not repo.is_absolute() or not (repo / ".git").exists():
             raise HTTPException(422, "repo_path must be an absolute path to a git repository")
+        if spec.project_note:
+            vault = settings.vault()
+            if vault is None or not vault.shareable(spec.project_note):
+                raise HTTPException(422, "project_note is not a shared note in the vault")
         defaults = prefs.defaults().orchestration
         for name in LEADS:  # a lead left on "default" gets the user's preferred model
             config = spec.orchestration.config(name)
@@ -329,6 +381,12 @@ def create_app(
                     runner.open_external_terminal(run_id)
                 case "external-done":
                     runner.external_done(run_id, body.note)
+                case "apply":
+                    runner.apply_to_repo(run_id)
+                case "vault-write":
+                    runner.vault_write(run_id, -1 if body.index is None else body.index)
+                case "vault-discard":
+                    runner.vault_discard(run_id, -1 if body.index is None else body.index)
         except KeyError as exc:
             raise HTTPException(404, "run not found") from exc
         except ValueError as exc:

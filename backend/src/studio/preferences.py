@@ -30,8 +30,8 @@ class CatalogModel(BaseModel):
 class Defaults(BaseModel):
     orchestration: Orchestration = Field(
         default_factory=lambda: Orchestration(
-            mode="cross",
-            primary="claude",
+            mode="autopilot",
+            primary="autopilot",
             claude=LeadConfig(model="opus", effort="high"),
             codex=LeadConfig(model="gpt-5.6-sol", effort="medium"),
         )
