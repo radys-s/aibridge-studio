@@ -22,9 +22,10 @@ from studio.agents.leads import LeadError
 from studio.api import create_app
 from studio.config import Settings
 from studio.db import Database
-from studio.domain import Finding, Plan, Review, TaskSpec
+from studio.domain import Finding, Orchestration, Plan, Review, TaskSpec
 from studio.gateway import ProviderError
 
+CROSS = Orchestration(mode="cross")
 CHANGES = Review(
     verdict="request_changes",
     summary="needs work",
@@ -147,7 +148,7 @@ DRAFT = {
 def test_prompt_only_task_is_drafted_then_approved(studio, repo: Path) -> None:
     claude = FakeLead("claude", drafts=[dict(DRAFT, questions=["Jaký typ návratu?"]), DRAFT])
     runner, db, _ = studio(FakeGateway(good_script()), [ACCEPT], claude)
-    spec = TaskSpec(goal="přidej median", repo_path=str(repo))
+    spec = TaskSpec(goal="přidej median", repo_path=str(repo), orchestration=CROSS)
     assert not spec.complete
     run_id = start(db, spec)
     runner.execute(run_id)
@@ -178,7 +179,7 @@ def test_prompt_only_task_is_drafted_then_approved(studio, repo: Path) -> None:
 def test_approval_refuses_commands_outside_policy(studio, repo: Path) -> None:
     claude = FakeLead("claude", drafts=[dict(DRAFT, acceptance_commands=["bash -c 'rm -rf /'"])])
     runner, db, _ = studio(FakeGateway([]), [], claude)
-    run_id = start(db, TaskSpec(goal="přidej median", repo_path=str(repo)))
+    run_id = start(db, TaskSpec(goal="přidej median", repo_path=str(repo), orchestration=CROSS))
     runner.execute(run_id)
     assert "nespustí" in db.messages(run_id)[-1]["text"]
     try:

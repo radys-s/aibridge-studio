@@ -94,6 +94,24 @@ class Lead(Protocol):
     ) -> dict[str, Any]: ...
 
 
+# Subscription quota used up. Checked before login errors: a limit message can mention
+# the account ("log in to upgrade") without being a login problem.
+_LIMIT = re.compile(
+    r"usage limit|rate.?limit|limit (?:reached|exceeded)|hit your (?:\w+ )?limit|"
+    r"quota|too many requests|\b429\b|try again (?:at|in|later)|resets? (?:at|in)",
+    re.I,
+)
+_LOGIN = re.compile(r"authenticat|log ?in|\b401\b|unauthori", re.I)
+
+
+def cli_error_kind(message: str) -> str:
+    if _LIMIT.search(message):
+        return "limit"
+    if _LOGIN.search(message):
+        return "not_logged_in"
+    return "error"
+
+
 # --- environment ---------------------------------------------------------------------
 
 # Variables a host process (e.g. the Claude desktop app) sets for its own child sessions.
@@ -288,8 +306,7 @@ class ClaudeLead:
             )
         if final.get("is_error") or result.returncode != 0:
             message = str(final.get("result") or result.stderr)[:500]
-            kind = "not_logged_in" if "authenticate" in message.lower() else "error"
-            raise LeadError(f"claude reported error: {message}", kind)
+            raise LeadError(f"claude reported error: {message}", cli_error_kind(message))
         structured = final.get("structured_output")
         if not isinstance(structured, dict):
             raise LeadError("claude response has no structured_output", "bad_output")
@@ -412,12 +429,10 @@ class CodexLead:
             result = _run(argv, prompt, cwd, ctx, on_line)
             if result.returncode != 0 or failures:
                 detail = "; ".join(failures) or (result.stderr or "".join(result.lines))[-600:]
-                kind = (
-                    "not_logged_in"
-                    if re.search(r"log ?in|401|unauthori", detail, re.I)
-                    else "error"
+                raise LeadError(
+                    f"codex exited {result.returncode}: {_clip(detail, 600)}",
+                    cli_error_kind(detail),
                 )
-                raise LeadError(f"codex exited {result.returncode}: {_clip(detail, 600)}", kind)
             try:
                 payload = json.loads(out_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
