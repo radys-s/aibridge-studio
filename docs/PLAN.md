@@ -33,6 +33,14 @@ lead-drafted spec with approval and chat, takeover by Claude/Codex with escalati
 DB v2 (messages, agent events, settings), SSE live view, rebuilt UI, `studio app` window and
 shortcut. Open: Claude live runs (login), Codex isolation from global AGENTS.md (decision).
 
+## Phase 2b — Autopilot (implemented 2026-10-07, ADR 0003)
+
+Studio is the tool for after the Claude/Codex limits run out. The free-model orchestrator
+is Autopilot, with a different-model review. Claude/Codex give an optional second opinion.
+"Pokračovat projekt" works from Obsidian, memory write-back needs approval, and apply
+creates a `studio/<run_id>` branch. Open: the live run with OmniRoute, recorded in
+`MEASUREMENTS.md`.
+
 ## Phase 2 — reliability and context
 
 - Port the AI Bridge memory kernel (selective context, source, age, conflicts,
@@ -40,6 +48,7 @@ shortcut. Open: Claude live runs (login), Codex isolation from global AGENTS.md 
 - Escalation: strong agent takes over implementation in the same working copy; the other
   agent reviews. Done in Phase 2a.
 - Apply flow: accepted change → branch in the source repository on explicit approval.
+  Done in Phase 2b.
 - Router learns from outcomes (success rate per model and task kind).
 - External implementer, manual (Freebuff): done 2026-10-06, see `docs/adr/0001-...`.
 - Watch: headless Freebuff adapter in `agents/` once `--print` NDJSON or free SDK auth
@@ -50,7 +59,7 @@ shortcut. Open: Claude live runs (login), Codex isolation from global AGENTS.md 
 
 - Multiple workers in parallel (separate working copies, no shared files).
 - Reusable workflows (task templates with acceptance criteria).
-- Obsidian context source (read-only, explicit selection, no personal notes by default).
+- Obsidian context source: done in Phase 2b (project note + handoffs, policy in `vault.py`).
 - Cost overview across runs; comparison against direct Claude/Codex work.
 - Desktop control (tray/launcher, notifications).
 

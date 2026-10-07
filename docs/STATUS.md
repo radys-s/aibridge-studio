@@ -1,8 +1,28 @@
 # Status
 
-Last update: 2026-10-06 (Claude Code). Phase 1 complete. Phase 2 "Studio app" (ADR 0002)
-implemented: orchestration modes, per-lead model/effort, draft + chat, takeover/escalation,
-SSE live view, new UI, `studio app` window. Claude lead still blocked on login.
+Last update: 2026-10-07 (Claude Code). Phase 2b "Autopilot" (ADR 0003) implemented and
+tested offline; the live run with OmniRoute is pending (OmniRoute was not running).
+
+## Phase 2b — Autopilot, the after-the-limit tool (2026-10-07)
+
+- Default orchestration is `autopilot`: a free model through OmniRoute drafts, plans and
+  reviews. The review runs on a different model from the work; if none is free, the run
+  needs Tomáš's acceptance (`self_review`).
+- Claude/Codex are optional second-opinion reviewers (Settings, off by default). A limit
+  or login error skips them and the run continues. They also remain takeover targets.
+- Composer: "Pokračovat projekt" picks a project note from Obsidian, shows the open
+  handoffs that will be sent and fills the repo from the note's path. "Nové zadání" is the
+  free prompt. The free-pool line shows the lead models and requests today.
+- Vault policy: shared folders only, no private/`osobni`/secret notes, nothing whose path
+  names Recorder, contacts redacted. Reads appear as agent events.
+- After acceptance, Autopilot proposes a project-note append and a handoff to Claude/Codex.
+  The thread shows "Zapsat" / "Zahodit"; nothing is written before the click.
+- "Použít do repozitáře" creates branch `studio/<run_id>` in the source repo without
+  checkout, merge or push. Live-checked on the demo repo (run `4b9fa0d87ecb`): the branch
+  holds one squashed commit on the source commit, and `main` and the working tree are
+  unchanged.
+- Tests: 108 backend + 14 frontend. A browser-pane click-through covered the project picker,
+  repo hint, settings and apply.
 
 ## Phase 2 — Studio app (2026-10-06)
 
@@ -72,7 +92,9 @@ Environment: `STUDIO_DATA_DIR`, `STUDIO_OMNIROUTE_URL`, `OMNIROUTE_API_KEY`,
 - Narrow crash window: if Studio dies between the pre-iteration commit and the DB write of
   `iteration_base`, resume resets to the previous base and the previous iteration's changes
   are lost (still reachable via the copy's reflog). Low risk; fix with a step marker.
-- No apply flow, no memory/context packet yet.
+- Live Autopilot run (Phase 2b step 7) not done yet: needs OmniRoute running.
+- Memory proposals run synchronously after acceptance in the runner thread (one extra
+  free call per accepted project run).
 - Codex loads the global `~/.codex/AGENTS.md` and skills even with `--ignore-user-config`:
   50–100k extra input tokens per call, and it tries to follow personal instructions
   (Obsidian). Prompts now tell leads to stay in the working copy; real isolation (own

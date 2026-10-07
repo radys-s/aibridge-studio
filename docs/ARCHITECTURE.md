@@ -1,6 +1,8 @@
 # AI Bridge Studio — Architecture
 
-Status: Phase 2a (2026-10-06). Living document; decisions with lasting impact go to `docs/adr/`.
+Status: Phase 2b (2026-10-07). Autopilot, the vault and apply are in `docs/adr/0003-autopilot.md`,
+which makes Autopilot (free models) the default orchestrator instead of Claude/Codex.
+Earlier status: Phase 2a (2026-10-06). Living document; decisions with lasting impact go to `docs/adr/`.
 Orchestration modes, draft/approval, takeover, escalation, SSE and the `studio app` window
 are described in `docs/adr/0002-orchestration-modes.md`; it overrides the Phase 1 shape
 below where they differ (the UI now streams over SSE instead of polling).

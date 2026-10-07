@@ -23,6 +23,7 @@ def vault(tmp_path: Path) -> Vault:
         "02 Projekty/Tajne.md": "---\nprivate: true\n---\nnic",
         "02 Projekty/Tagged.md": "---\ntags:\n  - projekt\n  - osobni\n---\nnic",
         "02 Projekty/Klic.md": "api_key = abcdefgh12345678",
+        "02 Projekty/Iron Dust a Recorder.md": "# Recorder\nnahrávky",
         "08 Předávání/2026-10-06 claude → codex - calc.md": (
             "---\ntype: handoff\nstatus: open\n---\n# calc\nDodělat variance"
         ),
@@ -40,6 +41,7 @@ def test_only_shared_folders_are_listed(vault: Vault) -> None:
     notes = vault.notes()
     assert "02 Projekty/Calc.md" in notes and "00 Rozcestník.md" in notes
     assert not any(n.startswith(("01 Profil", "10 Chaty", ".obsidian")) for n in notes)
+    assert not any("recorder" in n.lower() for n in notes)  # Recorder data never leaves
 
 
 @pytest.mark.parametrize(
@@ -50,6 +52,7 @@ def test_only_shared_folders_are_listed(vault: Vault) -> None:
         "02 Projekty/Tajne.md",
         "02 Projekty/Tagged.md",
         "02 Projekty/Klic.md",
+        "02 Projekty/Iron Dust a Recorder.md",
         "../outside.md",
         "02 Projekty/../01 Profil/Kdo jsem.md",
     ],
@@ -101,3 +104,12 @@ def test_folder_counts_mark_what_is_shared(vault: Vault) -> None:
     counts = {c["name"]: c for c in vault.folder_counts()}
     assert counts["02 Projekty"]["shared"] is True and counts["01 Profil"]["shared"] is False
     assert ".obsidian" not in counts
+
+
+def test_repo_hint_accepts_both_slash_styles(vault: Vault, tmp_path: Path) -> None:
+    repo = tmp_path / "proj"
+    (repo / ".git").mkdir(parents=True)
+    for written in (str(repo), repo.as_posix()):
+        note = vault.root / "02 Projekty/Hint.md"
+        note.write_text(f'---\npath: "{written}"\n---\n# Hint', encoding="utf-8")
+        assert vault.repo_hint(vault.read("02 Projekty/Hint.md")) is not None

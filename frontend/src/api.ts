@@ -1,10 +1,14 @@
 // Typed client for the AI Bridge Studio backend (FastAPI).
 // All requests use relative /api/... paths; every mutating request carries X-Studio: 1 (CSRF).
 
+/** Claude and Codex: CLI leads on the user's subscription (second opinion, takeover). */
 export type Lead = "claude" | "codex";
 export const LEADS: Lead[] = ["claude", "codex"];
-export type Mode = "claude" | "codex" | "cross" | "duo";
-export type Implementer = "auto" | "worker" | "freebuff" | "claude" | "codex";
+/** Autopilot: Studio's own orchestrator on free models through OmniRoute. */
+export type AnyLead = Lead | "autopilot";
+export const AUTOPILOT = "autopilot" as const;
+export type Mode = "autopilot" | "claude" | "codex" | "cross" | "duo";
+export type Implementer = "auto" | "worker" | "freebuff" | "autopilot" | "claude" | "codex";
 export type Escalation = "off" | "ask" | "auto";
 
 export interface Budget {
@@ -25,8 +29,10 @@ export interface LeadConfig {
 
 export interface Orchestration {
   mode: Mode;
-  primary: Lead;
+  primary: AnyLead;
   plan: boolean;
+  /** Optional Claude/Codex reviews in autopilot mode; skipped when their limit is used up. */
+  second_opinion: Lead[];
   claude: LeadConfig;
   codex: LeadConfig;
 }
@@ -42,6 +48,8 @@ export interface TaskSpec {
   implementer: Implementer;
   escalation: Escalation;
   auto_approve: boolean;
+  /** Project note in the Obsidian vault to continue (relative path). */
+  project_note?: string | null;
   budget?: Partial<Budget>;
 }
 
@@ -51,9 +59,12 @@ export type NewTask = Pick<TaskSpec, "goal" | "repo_path"> & Partial<Omit<TaskSp
 export interface Health {
   version: string;
   gateway: { reachable: boolean; status?: number; error?: string };
-  leads: Record<Lead, { installed: boolean; path?: string | null }>;
+  leads: Partial<Record<AnyLead, { installed: boolean; path?: string | null }>>;
   worker_models: string[];
+  lead_models: string[];
   cooldowns: Record<string, number>;
+  /** Gateway calls since 00:00 UTC, when the free daily limit resets. */
+  api_calls_today: number;
 }
 
 export interface CatalogModel {
@@ -170,7 +181,7 @@ export interface Run {
   feedback: string[] | null;
 }
 
-export type StepKind = "setup" | "draft" | "plan" | "handoff" | "work" | "verify" | "review";
+export type StepKind = "setup" | "draft" | "plan" | "handoff" | "work" | "verify" | "review" | "memory";
 export type StepStatus = "running" | "done" | "failed" | "interrupted";
 
 export interface Step {
@@ -258,7 +269,7 @@ export interface RunEvent {
   data: unknown;
 }
 
-export type Author = "user" | "claude" | "codex" | "studio";
+export type Author = "user" | "claude" | "codex" | "autopilot" | "studio";
 
 export interface Message {
   id: number;
@@ -324,13 +335,58 @@ export type RunAction =
   | "accept"
   | "allow-sensitive"
   | "external-done"
-  | "open-terminal";
+  | "open-terminal"
+  | "apply"
+  | "vault-write"
+  | "vault-discard";
 
 export interface ActionBody {
   note?: string;
   text?: string;
-  lead?: Lead;
+  lead?: AnyLead;
+  /** Which memory proposal (vault-write / vault-discard). */
+  index?: number;
   edits?: Partial<Pick<TaskSpec, "title" | "goal" | "allowed_paths" | "acceptance_criteria" | "acceptance_commands">>;
+}
+
+export interface MemoryProposal {
+  kind: "append" | "new";
+  path: string;
+  content: string;
+  status: "proposed" | "written" | "discarded";
+}
+
+export interface MemoryOutput {
+  proposals: MemoryProposal[];
+}
+
+export interface VaultFolder {
+  name: string;
+  notes: number;
+  shared: boolean;
+}
+
+export interface VaultOverview {
+  available: boolean;
+  path: string;
+  projects?: string[];
+  handoffs?: string[];
+  folders?: VaultFolder[];
+}
+
+export interface VaultProject {
+  note: string;
+  title: string;
+  repo_hint: string | null;
+  handoffs: string[];
+  refused: string[];
+  preview: string;
+}
+
+export interface Applied {
+  branch: string;
+  commit: string;
+  files: string[];
 }
 
 export class ApiError extends Error {
@@ -408,6 +464,8 @@ export const api = {
   createTask: (task: NewTask) => send<{ run_id: string }>("POST", "/api/tasks", task),
   runAction: (id: string, action: RunAction, body: ActionBody = {}) =>
     send<{ ok: boolean }>("POST", `${runPath(id)}/${action}`, body),
+  vault: () => request<VaultOverview>("/api/vault"),
+  vaultProject: (note: string) => request<VaultProject>(`/api/vault/project?note=${encodeURIComponent(note)}`),
   streamUrl: (id: string, cursors: { events: number; agent: number; messages: number }) =>
     `${runPath(id)}/stream?events=${cursors.events}&agent=${cursors.agent}&messages=${cursors.messages}`,
 };

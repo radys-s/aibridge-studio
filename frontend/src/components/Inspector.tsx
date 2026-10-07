@@ -93,8 +93,8 @@ function Models({ calls, usage }: { calls: ModelCall[]; usage: RunDetail["usage"
   return (
     <>
       <div className="usage">
-        <UsageLine label="Worker (API, počítá se do rozpočtu)" u={usage.api} />
-        <UsageLine label="Leady (předplatné, orientačně)" u={usage.subscription} />
+        <UsageLine label="Free modely přes OmniRoute (Autopilot + worker, rozpočet)" u={usage.api} />
+        <UsageLine label="Claude/Codex (předplatné, orientačně)" u={usage.subscription} />
       </div>
       {calls.length === 0 ? (
         <p className="muted">Zatím žádná volání.</p>

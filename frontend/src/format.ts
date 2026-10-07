@@ -23,6 +23,7 @@ export const STEP_LABELS: Record<string, string> = {
   work: "Práce",
   verify: "Ověření",
   review: "Review",
+  memory: "Návrh do paměti",
 };
 
 export const STEP_STATUS_LABELS: Record<string, string> = {

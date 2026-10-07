@@ -2,38 +2,63 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import {
   api,
   type Escalation,
+  type Health,
   type Implementer,
-  type Lead,
   type NewTask,
-  type Orchestration,
   type SettingsSnapshot,
+  type VaultOverview,
+  type VaultProject,
 } from "../api";
-import {
-  ESCALATIONS,
-  HEAVY_WARNING,
-  heavyLeads,
-  IMPLEMENTERS,
-  isSolo,
-  LEAD_LABELS,
-  leadsIn,
-  lines,
-  MODES,
-  withMode,
-} from "../options";
-import { LeadPicker } from "./LeadPicker";
+import { asAutopilot, COMPOSER_IMPLEMENTERS, describe, ESCALATIONS, lines } from "../options";
+import { List } from "./bits";
 
 interface Props {
   settings: SettingsSnapshot;
+  health: Health | null;
   onCreated: (runId: string) => void;
   onSettingsSaved: (s: SettingsSnapshot) => void;
 }
 
-/** New task: one prompt box plus orchestration chips. The lead drafts scope and criteria. */
-export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
+type Start = "project" | "free";
+
+/** Note path without folder and extension: "02 Projekty/Calc.md" → "Calc". */
+export function noteTitle(path: string): string {
+  return (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+}
+
+/** Goal sent to Autopilot when continuing a project; the focus is optional. */
+export function continueGoal(title: string, focus: string): string {
+  const f = focus.trim();
+  return f ? `Pokračuj v projektu ${title}. Zaměř se na: ${f}` : `Pokračuj v projektu ${title}.`;
+}
+
+function PoolLine({ health }: { health: Health | null }) {
+  if (!health) return null;
+  const models = health.lead_models?.length ?? 0;
+  return (
+    <p className="hint pool-line">
+      {health.gateway.reachable ? (
+        <span className="badge good">OmniRoute běží</span>
+      ) : (
+        <span className="badge bad">OmniRoute nedostupný</span>
+      )}{" "}
+      Autopilot: {models} {models === 1 ? "model" : models >= 2 && models <= 4 ? "modely" : "modelů"} · dnes{" "}
+      {health.api_calls_today ?? 0} requestů na free modely (limit se nuluje o půlnoci UTC)
+    </p>
+  );
+}
+
+/** New task. Main path: continue a project from the shared Obsidian memory; or a free prompt. */
+export function Composer({ settings, health, onCreated, onSettingsSaved }: Props) {
   const d = settings.defaults;
+  const [vault, setVault] = useState<VaultOverview | null>(null);
+  const [start, setStart] = useState<Start>("project");
+  const [note, setNote] = useState("");
+  const [project, setProject] = useState<VaultProject | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [focus, setFocus] = useState("");
   const [goal, setGoal] = useState("");
   const [repo, setRepo] = useState(settings.recent_repos[0] ?? "");
-  const [orch, setOrch] = useState<Orchestration>(d.orchestration);
   const [implementer, setImplementer] = useState<Implementer>(d.implementer);
   const [escalation, setEscalation] = useState<Escalation>(d.escalation);
   const [autoApprove, setAutoApprove] = useState(d.auto_approve);
@@ -47,31 +72,72 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
 
   // Settings may load after the first render or change in the settings view.
   useEffect(() => {
-    setOrch(settings.defaults.orchestration);
-    setImplementer(settings.defaults.implementer);
+    // Claude/Codex are not offered as implementers here; an old default falls back to auto.
+    const impl = settings.defaults.implementer;
+    setImplementer(COMPOSER_IMPLEMENTERS.some((i) => i.id === impl) ? impl : "auto");
     setEscalation(settings.defaults.escalation);
     setAutoApprove(settings.defaults.auto_approve);
   }, [settings.defaults]);
 
-  const heavy = heavyLeads(orch, settings.efforts);
-  const active = leadsIn(orch.mode);
+  useEffect(() => {
+    api.vault().then(
+      (v) => {
+        setVault(v);
+        if (!v.available || !v.projects?.length) setStart("free");
+      },
+      () => {
+        setVault({ available: false, path: "" });
+        setStart("free");
+      },
+    );
+  }, []);
 
-  async function submit() {
-    if (goal.trim().length < 3 || !repo.trim()) {
-      setError("Napiš, co se má udělat, a vyber repozitář.");
+  useEffect(() => {
+    if (!note) {
+      setProject(null);
       return;
     }
-    if (heavy.length && !window.confirm(`${HEAVY_WARNING}\n\nSpustit s effortem nad high (${heavy.map((l) => LEAD_LABELS[l]).join(", ")})?`)) {
+    let alive = true;
+    setProjectError(null);
+    api.vaultProject(note).then(
+      (p) => {
+        if (!alive) return;
+        setProject(p);
+        if (p.repo_hint) setRepo(p.repo_hint);
+      },
+      (e) => {
+        if (!alive) return;
+        setProject(null);
+        setProjectError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [note]);
+
+  const orchestration = asAutopilot(d.orchestration);
+  const projects = vault?.projects ?? [];
+
+  async function submit() {
+    if (start === "project" && !note) {
+      setError("Vyber projekt, ve kterém se má pokračovat.");
+      return;
+    }
+    const text = start === "project" ? continueGoal(project?.title ?? noteTitle(note), focus) : goal.trim();
+    if (text.length < 3 || !repo.trim()) {
+      setError(start === "project" ? "Vyber repozitář projektu." : "Napiš, co se má udělat, a vyber repozitář.");
       return;
     }
     const task: NewTask = {
-      goal: goal.trim(),
+      goal: text,
       repo_path: repo.trim(),
-      orchestration: orch,
+      orchestration,
       implementer,
       escalation,
       auto_approve: autoApprove,
     };
+    if (start === "project") task.project_note = note;
     if (advanced) {
       task.allowed_paths = lines(paths);
       task.acceptance_criteria = lines(criteria);
@@ -82,6 +148,7 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
     try {
       const { run_id } = await api.createTask(task);
       setGoal("");
+      setFocus("");
       onCreated(run_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -93,7 +160,7 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
   async function saveDefaults() {
     try {
       const s = await api.saveSettings({
-        defaults: { orchestration: orch, implementer, escalation, auto_approve: autoApprove },
+        defaults: { orchestration, implementer, escalation, auto_approve: autoApprove },
       });
       onSettingsSaved(s);
       setSaved(true);
@@ -112,7 +179,7 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
 
   return (
     <div className="composer-page">
-      <h1 className="composer-title">Co postavíme?</h1>
+      <h1 className="composer-title">{start === "project" ? "Kde pokračujeme?" : "Co postavíme?"}</h1>
       <form
         className="composer"
         onSubmit={(e) => {
@@ -120,16 +187,82 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
           void submit();
         }}
       >
-        <textarea
-          className="composer-input"
-          aria-label="Zadání"
-          rows={5}
-          autoFocus
-          placeholder="Popiš úkol. Lead z něj navrhne rozsah, kritéria a příkazy k ověření, ty to jen schválíš.  (Ctrl+Enter odešle)"
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          onKeyDown={onKey}
-        />
+        <div className="segmented" role="radiogroup" aria-label="Začátek">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={start === "project"}
+            className={start === "project" ? "on" : undefined}
+            disabled={!vault?.available || projects.length === 0}
+            title={vault?.available ? "Autopilot naváže na poznámku projektu a otevřené předávky." : "Obsidian vault není dostupný."}
+            onClick={() => setStart("project")}
+          >
+            Pokračovat projekt
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={start === "free"}
+            className={start === "free" ? "on" : undefined}
+            onClick={() => setStart("free")}
+          >
+            Nové zadání
+          </button>
+        </div>
+
+        {start === "project" ? (
+          <div className="project-pick">
+            <label className="field">
+              <span>Projekt (Obsidian · 02 Projekty)</span>
+              <select aria-label="Projekt" value={note} onChange={(e) => setNote(e.target.value)}>
+                <option value="">— vyber projekt —</option>
+                {projects.map((p) => (
+                  <option key={p} value={p}>
+                    {noteTitle(p)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {projectError && <p className="alert error small">{projectError}</p>}
+            {project && (
+              <div className="project-info small">
+                <div>
+                  Autopilot dostane poznámku <code>{project.note}</code>
+                  {project.handoffs.length > 0 ? " a otevřené předávky:" : " (žádné otevřené předávky)."}
+                </div>
+                {project.handoffs.length > 0 && <List items={project.handoffs.map(noteTitle)} />}
+                {project.refused.length > 0 && (
+                  <div className="muted">Nepošle se (osobní nebo tajné): {project.refused.map(noteTitle).join(", ")}</div>
+                )}
+                <details>
+                  <summary>Náhled poznámky (e-maily a telefony jsou skryté)</summary>
+                  <pre className="output">{project.preview}</pre>
+                </details>
+              </div>
+            )}
+            <textarea
+              className="composer-input"
+              aria-label="Na co se zaměřit"
+              rows={2}
+              placeholder="Na co se zaměřit (nepovinné). Jinak Autopilot navrhne další krok sám.  (Ctrl+Enter odešle)"
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+              onKeyDown={onKey}
+            />
+          </div>
+        ) : (
+          <textarea
+            className="composer-input"
+            aria-label="Zadání"
+            rows={5}
+            autoFocus
+            placeholder="Popiš úkol. Autopilot z něj navrhne rozsah, kritéria a příkazy k ověření, ty to jen schválíš.  (Ctrl+Enter odešle)"
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            onKeyDown={onKey}
+          />
+        )}
+
         <div className="composer-bar">
           <label className="chip-field repo-field">
             <span>Repozitář</span>
@@ -152,34 +285,10 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
         </div>
 
         <div className="composer-options">
-          <div className="segmented" role="radiogroup" aria-label="Orchestrátor">
-            {MODES.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                role="radio"
-                aria-checked={orch.mode === m.id}
-                className={orch.mode === m.id ? "on" : undefined}
-                title={m.hint}
-                onClick={() => setOrch(withMode(orch, m.id))}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-          {!isSolo(orch.mode) && (
-            <label className="chip-field">
-              <span>{orch.mode === "duo" ? "Slučuje plán" : "Plánuje"}</span>
-              <select value={orch.primary} onChange={(e) => setOrch({ ...orch, primary: e.target.value as Lead })}>
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-              </select>
-            </label>
-          )}
-          <label className="chip-field" title={IMPLEMENTERS.find((i) => i.id === implementer)?.hint}>
+          <label className="chip-field" title={COMPOSER_IMPLEMENTERS.find((i) => i.id === implementer)?.hint}>
             <span>Implementuje</span>
             <select value={implementer} onChange={(e) => setImplementer(e.target.value as Implementer)}>
-              {IMPLEMENTERS.map((i) => (
+              {COMPOSER_IMPLEMENTERS.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.label}
                 </option>
@@ -201,32 +310,14 @@ export function Composer({ settings, onCreated, onSettingsSaved }: Props) {
             Schválit návrh zadání automaticky
           </label>
         </div>
-        <p className="hint">{MODES.find((m) => m.id === orch.mode)?.hint}</p>
-
-        <div className="lead-pickers">
-          {active.map((lead) => (
-            <LeadPicker
-              key={lead}
-              lead={lead}
-              primary={!isSolo(orch.mode) && orch.primary === lead}
-              config={orch[lead]}
-              catalog={settings.catalog[lead] ?? []}
-              efforts={settings.efforts[lead] ?? []}
-              onChange={(c) => setOrch({ ...orch, [lead]: c })}
-            />
-          ))}
-        </div>
-        {heavy.length > 0 && (
-          <p className="alert warn" role="status">
-            ⚠ {HEAVY_WARNING}
-          </p>
-        )}
-        {isSolo(orch.mode) && (implementer === orch.mode) && (
-          <p className="alert warn">Stejný model by psal i hodnotil vlastní kód. Přijetí pak potvrdíš ručně.</p>
-        )}
+        <p className="hint">
+          {describe(orchestration)}. Free modely mohou data použít k tréninku: posílá se jen kód z repozitáře a
+          sdílené poznámky bez osobního obsahu.
+        </p>
+        <PoolLine health={health} />
 
         <details className="advanced" open={advanced} onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>
-          <summary>Rozsah a kritéria ručně (jinak je navrhne lead)</summary>
+          <summary>Rozsah a kritéria ručně (jinak je navrhne Autopilot)</summary>
           <div className="field-row">
             <label className="field">
               <span>Povolené cesty (glob, po řádcích)</span>

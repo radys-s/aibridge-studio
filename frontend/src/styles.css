@@ -26,6 +26,7 @@
   --hunk-bg: #e9eef9;
   --claude: #c2603b;
   --codex: #2f6fdb;
+  --autopilot: #2e8b57;
   --user: #5b5a57;
   --studio: #7a7a7a;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 4px 16px rgb(0 0 0 / 0.04);
@@ -60,6 +61,8 @@
     --hunk-bg: #1f2a3f;
     --claude: #e07c55;
     --codex: #6c9cff;
+  --autopilot: #5cc28a;
+    --autopilot: #5cc28a;
     --user: #b8b4ac;
     --studio: #8f8b84;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
@@ -730,6 +733,9 @@ details.advanced > summary {
 .av-codex {
   background: var(--codex);
 }
+.av-autopilot {
+  background: var(--autopilot);
+}
 .msg-user .msg-body {
   background: var(--raised);
   border: 1px solid var(--border);
@@ -756,6 +762,9 @@ details.advanced > summary {
 }
 .step-card.by-codex {
   border-left-color: var(--codex);
+}
+.step-card.by-autopilot {
+  border-left-color: var(--autopilot);
 }
 .step-card.status-failed {
   border-color: var(--bad);
@@ -942,6 +951,9 @@ details.advanced > summary {
 }
 .review-card.by-codex {
   border-left-color: var(--codex);
+}
+.review-card.by-autopilot {
+  border-left-color: var(--autopilot);
 }
 .review-card h3 {
   margin-top: 0.2rem;
@@ -1166,4 +1178,34 @@ pre.output {
 .dl.meta {
   color: var(--muted);
   font-style: italic;
+}
+
+/* Pokračovat projekt + paměť */
+.project-pick {
+  display: grid;
+  gap: 0.5rem;
+}
+.project-info {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.55rem 0.8rem;
+}
+.pool-line {
+  margin: 0.25rem 0 0;
+}
+.proposal {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  margin: 0.4rem 0;
+}
+.proposal pre.output {
+  max-height: 16rem;
+}
+.proposal.status-written {
+  border-color: var(--autopilot);
+}
+.proposal.status-discarded {
+  opacity: 0.6;
 }

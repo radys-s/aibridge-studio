@@ -1,10 +1,11 @@
 import { describe as group, expect, it } from "vitest";
 import type { EffortOption, Orchestration, RunDetail } from "./api";
-import { describe, heavyLeads, leadsIn, lines, withMode } from "./options";
+import { asAutopilot, COMPOSER_IMPLEMENTERS, describe, heavyLeads, leadsIn, lines, withMode } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
 import { actorLead, buildThread, latestDraftId } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
+import { continueGoal, noteTitle } from "./components/Composer";
 
 const EFFORTS: Record<"claude" | "codex", EffortOption[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, heavy: id === "xhigh" || id === "max" })),
@@ -15,6 +16,7 @@ const ORCH: Orchestration = {
   mode: "cross",
   primary: "claude",
   plan: true,
+  second_opinion: [],
   claude: { model: "opus", effort: "high" },
   codex: { model: "gpt-5.6-sol", effort: "medium" },
 };
@@ -49,6 +51,24 @@ group("effort warning", () => {
     expect(withMode({ ...ORCH, primary: "codex" }, "duo").primary).toBe("codex");
     expect(leadsIn("claude")).toEqual(["claude"]);
     expect(describe(withMode(ORCH, "duo"))).toBe("Oba · Claude opus/high + Codex gpt-5.6-sol/medium");
+  });
+
+  it("autopilot is Studio's orchestration; Claude/Codex only as a second opinion", () => {
+    const auto = asAutopilot(ORCH);
+    expect(auto.mode).toBe("autopilot");
+    expect(auto.primary).toBe("autopilot");
+    expect(auto.claude).toEqual(ORCH.claude);
+    expect(leadsIn("autopilot")).toEqual([]);
+    expect(heavyLeads({ ...auto, claude: { model: "opus", effort: "max" } }, EFFORTS)).toEqual([]);
+    expect(describe(auto)).toBe("Autopilot · free modely");
+    expect(describe({ ...auto, second_opinion: ["codex"] })).toBe("Autopilot · druhý názor Codex");
+    expect(COMPOSER_IMPLEMENTERS.map((i) => i.id)).toEqual(["auto", "worker", "autopilot", "freebuff"]);
+  });
+
+  it("continues a project by its note title", () => {
+    expect(noteTitle("02 Projekty/AI Bridge Studio.md")).toBe("AI Bridge Studio");
+    expect(continueGoal("Calc", "  ")).toBe("Pokračuj v projektu Calc.");
+    expect(continueGoal("Calc", "variance")).toBe("Pokračuj v projektu Calc. Zaměř se na: variance");
   });
 
   it("splits textarea lines", () => {
@@ -97,6 +117,8 @@ group("thread", () => {
   it("maps step actors to leads", () => {
     expect(actorLead("lead:codex")).toBe("codex");
     expect(actorLead("claude:merge")).toBe("claude");
+    expect(actorLead("autopilot")).toBe("autopilot");
+    expect(actorLead("lead:autopilot")).toBe("autopilot");
     expect(actorLead("worker")).toBeNull();
   });
 
