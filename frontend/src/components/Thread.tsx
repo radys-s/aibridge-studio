@@ -2,13 +2,16 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import {
   api,
   ApiError,
+  AUTOPILOT,
   isActive,
   LEADS,
   type ActionBody,
   type AgentEvent,
+  type AnyLead,
+  type Applied,
   type Draft,
   type HandoffOutput,
-  type Lead,
+  type MemoryOutput,
   type Message,
   type Plan,
   type ReviewOutput,
@@ -26,10 +29,17 @@ import { StateBadge } from "./StateBadge";
 
 type Act = (action: RunAction, body?: ActionBody) => Promise<boolean>;
 
-const AUTHOR_LABELS: Record<string, string> = { user: "Ty", claude: "Claude", codex: "Codex", studio: "Studio" };
+const AUTHOR_LABELS: Record<string, string> = {
+  user: "Ty",
+  claude: "Claude",
+  codex: "Codex",
+  autopilot: "Autopilot",
+  studio: "Studio",
+};
+const AVATAR_LETTERS: Record<string, string> = { user: "T", studio: "S", claude: "C", codex: "X", autopilot: "A" };
 
 function Avatar({ who }: { who: string }) {
-  const letter = who === "user" ? "T" : who === "studio" ? "S" : who === "claude" ? "C" : who === "codex" ? "X" : "?";
+  const letter = AVATAR_LETTERS[who] ?? "?";
   return (
     <span className={`avatar av-${who}`} aria-hidden="true">
       {letter}
@@ -161,10 +171,59 @@ export function ReviewBody({ review }: { review: ReviewOutput }) {
   );
 }
 
-function StepBody({ step }: { step: Step }) {
+function MemoryBody({ out, act }: { out: MemoryOutput; act: Act }) {
+  const [busy, setBusy] = useState<number | null>(null);
+  const proposals = out.proposals ?? [];
+  if (proposals.length === 0) return <p className="muted small">Autopilot nenavrhl nic k zápisu.</p>;
+
+  async function run(action: "vault-write" | "vault-discard", index: number) {
+    setBusy(index);
+    await act(action, { index });
+    setBusy(null);
+  }
+
+  return (
+    <>
+      <p className="small muted">
+        Zapíše se do Obsidianu až po kliknutí, jen připojením na konec poznámky nebo jako nová předávka. Nic se
+        nepřepisuje.
+      </p>
+      {proposals.map((p, i) => (
+        <div key={i} className={`proposal status-${p.status}`}>
+          <div className="small">
+            <strong>{p.kind === "append" ? "Doplnit poznámku projektu" : "Nová předávka"}</strong>{" "}
+            <code>{p.path}</code>
+          </div>
+          <details open={p.status === "proposed"}>
+            <summary className="small">Text</summary>
+            <pre className="output">{p.content}</pre>
+          </details>
+          {p.status === "proposed" ? (
+            <div className="actions">
+              <button type="button" className="primary small" disabled={busy !== null} onClick={() => void run("vault-write", i)}>
+                Zapsat
+              </button>
+              <button type="button" className="small" disabled={busy !== null} onClick={() => void run("vault-discard", i)}>
+                Zahodit
+              </button>
+            </div>
+          ) : (
+            <span className={`badge ${p.status === "written" ? "good" : "warn"}`}>
+              {p.status === "written" ? "zapsáno" : "zahozeno"}
+            </span>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function StepBody({ step, act }: { step: Step; act: Act }) {
   const out = step.output as Record<string, unknown> | null;
   if (!out || typeof out !== "object") return null;
   switch (step.kind) {
+    case "memory":
+      return <MemoryBody out={out as unknown as MemoryOutput} act={act} />;
     case "plan":
       return <PlanBody plan={out as unknown as Plan} />;
     case "review":
@@ -236,14 +295,14 @@ function stepTitle(step: Step): string {
   const label = STEP_LABELS[step.kind] ?? step.kind;
   const actor = step.actor ?? "";
   if (actor.endsWith(":merge")) return "Sloučený plán";
-  if (actor.startsWith("lead:")) return `${label} · implementuje ${LEAD_LABELS[actor.slice(5) as Lead] ?? actor}`;
+  if (actor.startsWith("lead:")) return `${label} · implementuje ${LEAD_LABELS[actor.slice(5) as AnyLead] ?? actor}`;
   if (actor.startsWith("external:")) return `${label} · ${actor.slice(9)} (ručně)`;
   const lead = actorLead(actor);
   if (lead) return `${label} · ${LEAD_LABELS[lead]}`;
   return actor && actor !== "studio" ? `${label} · ${actor}` : label;
 }
 
-function StepCard({ step, agent }: { step: Step; agent: AgentEvent[] }) {
+function StepCard({ step, agent, act }: { step: Step; agent: AgentEvent[]; act: Act }) {
   const lead = actorLead(step.actor);
   const running = step.status === "running";
   const dur = step.started_at ? formatDuration((step.finished_at ?? nowSec()) - step.started_at) : "";
@@ -259,7 +318,7 @@ function StepCard({ step, agent }: { step: Step; agent: AgentEvent[] }) {
         </span>
       </div>
       {step.error && <p className="error small">{step.error}</p>}
-      <StepBody step={step} />
+      <StepBody step={step} act={act} />
       {(lead || agent.length > 0) && <AgentStream events={agent} running={running} />}
     </div>
   );
@@ -369,10 +428,17 @@ function MessageBubble({ message, draftEditable, act }: { message: Message; draf
   );
 }
 
+function files(n: number): string {
+  return `${n} ${n === 1 ? "soubor" : n >= 2 && n <= 4 ? "soubory" : "souborů"}`;
+}
+
+/** Takeover targets: Autopilot first; Claude/Codex only help while they still have quota. */
+const TAKEOVER: AnyLead[] = [AUTOPILOT, ...LEADS];
+
 function LeadButtons({ act, note, verb }: { act: Act; note: string; verb: string }) {
   return (
     <>
-      {LEADS.map((lead) => (
+      {TAKEOVER.map((lead) => (
         <button key={lead} type="button" onClick={() => void act("takeover", { lead, note })}>
           {verb} {LEAD_LABELS[lead]}
         </button>
@@ -413,14 +479,38 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   if (run.state === "accepted") {
     const ev = [...detail.events].reverse().find((e) => e.kind === "accepted");
     const patch = (ev?.data as { patch?: string } | null)?.patch ?? "";
+    const applied = [...detail.events].reverse().find((e) => e.kind === "applied")?.data as Applied | undefined;
     return (
       <div className="decision-bar done">
         <span className="badge good">Přijato</span>
-        <span className="small">
-          Patch: <code>{patch || "–"}</code>
-        </span>
-        {patch && <CopyButton text={patch} label="Kopírovat cestu" />}
-        <span className="muted small">Do repozitáře nic nezapsáno; použij patch, až budeš chtít.</span>
+        {applied ? (
+          <>
+            <span className="small">
+              Ve větvi <code>{applied.branch}</code> ({files(applied.files.length)})
+            </span>
+            <CopyButton text={`git merge ${applied.branch}`} label="Kopírovat merge" />
+            <span className="muted small">Merge a push děláš sám.</span>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                const msg =
+                  `Vytvořit v ${run.spec.repo_path} novou větev studio/${run.id} s touto změnou?\n\n` +
+                  "Aktuální větev, rozpracované soubory ani remote se nezmění. Merge a push zůstávají na tobě.";
+                if (window.confirm(msg)) void act("apply");
+              }}
+            >
+              Použít do repozitáře
+            </button>
+            <span className="small">
+              Patch: <code>{patch || "–"}</code>
+            </span>
+            {patch && <CopyButton text={patch} label="Kopírovat cestu" />}
+          </>
+        )}
       </div>
     );
   }
@@ -639,7 +729,7 @@ export function Thread({ detail, live, onChanged }: Props) {
               act={act}
             />
           ) : (
-            <StepCard key={`s${it.step.id}`} step={it.step} agent={it.agent} />
+            <StepCard key={`s${it.step.id}`} step={it.step} agent={it.agent} act={act} />
           ),
         )}
         <div ref={bottom} />

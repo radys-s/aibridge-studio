@@ -139,6 +139,7 @@ export default function App() {
     main = (
       <Composer
         settings={settings}
+        health={health}
         onSettingsSaved={setSettings}
         onCreated={(id) => {
           void loadRuns();

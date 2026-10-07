@@ -5,7 +5,8 @@ it to continue a project after the subscription limits run out. Notes go to exte
 models, so the policy is strict:
 
 - only notes under the include list and not under the exclude list (folder or file prefix);
-- never notes marked `private: true` or tagged `osobni`/`private`;
+- never notes marked `private: true` or tagged `osobni`/`private`, nor notes whose path
+  names an excluded word (Recorder);
 - never notes with secrets; emails and phone numbers are redacted before anything leaves;
 - writes only as approved proposals: append to a project note, or a new handoff note.
 """
@@ -40,6 +41,8 @@ DEFAULT_EXCLUDE = (
     "10 Chaty",
     "13 Časová osa",
 )
+# Notes whose path names these never leave (Recorder data must not reach models).
+DEFAULT_EXCLUDE_WORDS = ("recorder",)
 PROJECTS = "02 Projekty"
 HANDOFFS = "08 Předávání"
 WRITABLE = (PROJECTS, HANDOFFS)
@@ -49,7 +52,7 @@ _PHONE = re.compile(r"(?<![\w.:/-])(?:\+\d{3} ?)?\d{3} ?\d{3} ?\d{3}(?![\w.:/-])
 _PRIVATE_FLAG = re.compile(r"(?im)^\s*private\s*:\s*(true|yes|ano)\s*$")
 _PRIVATE_TAG = re.compile(r"(?i)(?:^|[\s,\[\-#])(osobni|osobní|private)(?:$|[\s,\]])")
 _STATUS_OPEN = re.compile(r"(?im)^\s*status\s*:\s*open\s*$")
-_REPO_PATH = re.compile(r"(?i)\b([A-Z]:\\[^\s`'\"<>|]+)")
+_REPO_PATH = re.compile(r"(?i)\b([A-Z]:[\\/][^\s`'\"<>|]+)")
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,7 @@ class Vault:
     root: Path
     include: tuple[str, ...] = DEFAULT_INCLUDE
     exclude: tuple[str, ...] = DEFAULT_EXCLUDE
+    exclude_words: tuple[str, ...] = DEFAULT_EXCLUDE_WORDS
     reads: list[str] = field(default_factory=list)
 
     # --- policy -----------------------------------------------------------------------
@@ -76,6 +80,8 @@ class Vault:
         if not rel.lower().endswith(".md"):
             return False
         if any(_under(rel, p) for p in self.exclude):
+            return False
+        if any(word in rel.lower() for word in self.exclude_words):
             return False
         return any(_under(rel, p) for p in self.include)
 
