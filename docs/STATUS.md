@@ -1,7 +1,9 @@
 # Status
 
-Last update: 2026-10-07 (Claude Code). Phase 2b "Autopilot" (ADR 0003) implemented and
-tested offline; the live run with OmniRoute is pending (OmniRoute was not running).
+Last update: 2026-10-07 (Claude Code). Phase 2b "Autopilot" (ADR 0003) implemented, tested
+and run live once. Run `c3daa9ee51e6` went from Pokračovat projekt through draft, plan,
+worker and verify on free models. The review fell back to the same model (other free
+providers returned 502/429), so it waits for Tomáš in `self_review`. See MEASUREMENTS.
 
 ## Phase 2b — Autopilot, the after-the-limit tool (2026-10-07)
 
@@ -92,7 +94,8 @@ Environment: `STUDIO_DATA_DIR`, `STUDIO_OMNIROUTE_URL`, `OMNIROUTE_API_KEY`,
 - Narrow crash window: if Studio dies between the pre-iteration commit and the DB write of
   `iteration_base`, resume resets to the previous base and the previous iteration's changes
   are lost (still reachable via the copy's reflog). Low risk; fix with a step marker.
-- Live Autopilot run (Phase 2b step 7) not done yet: needs OmniRoute running.
+- Memory proposals and "Zapsat" are not live-verified: they start after Tomáš accepts
+  `c3daa9ee51e6`. Free providers are flaky, so expect `self_review` often.
 - Memory proposals run synchronously after acceptance in the runner thread (one extra
   free call per accepted project run).
 - Codex loads the global `~/.codex/AGENTS.md` and skills even with `--ignore-user-config`:

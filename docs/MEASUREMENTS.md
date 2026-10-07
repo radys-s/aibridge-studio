@@ -70,3 +70,45 @@ What the failed runs found (all fixed or documented in ADR 0002):
   through the shell. The prompt now forbids only tests, builds and installers.
 - UI bug: event payloads were sent as data_json, so the accepted patch path did not show.
   Fixed, with a test.
+
+## Phase 2b — Autopilot on free models (2026-10-07)
+
+Setup: OmniRoute 3.8.49, OpenRouter `:free` models only. Test vault
+`~/.aibridge-studio-dev/test-vault` has the project note `Calc` and one open handoff. The run
+used the demo repo `aibridge-studio-demo/calc`. It was started from "Pokračovat projekt" in
+the UI.
+
+| Run | Start | Implementer | Outcome | Free calls | Tokens |
+|---|---|---|---|---|---|
+| c3daa9ee51e6 | Pokračovat projekt: Calc | worker (auto) | needs_decision: self_review | 19 | 40.8k |
+
+Steps:
+
+- **Draft (laguna, 4 calls).** The draft got the project note and the related handoff; the
+  vault event lists both. The spec was correct: `median()` with ValueError on an empty list
+  and the even/odd cases, scope `calc/stats.py` + `tests/test_stats.py`, and the unittest
+  command. Approved in the UI.
+- **Plan (laguna, 5 calls), then worker (laguna, 5 calls).** The worker added `median()` and
+  4 tests.
+- **Studio verification.** Exit 0, 7 tests, in scope.
+- **Review, first attempt.** Excluding the worker's model, nemotron answered once and then
+  returned 502 (an empty upstream response). gemma returned 429. The step failed with
+  `no_model`.
+- **Review, retry.** It ran without the exclusion on laguna, the same model as the worker.
+  The verdict was accept, and the run went to `self_review`, as designed. Accepting is
+  Tomáš's decision.
+
+Findings:
+
+- Free providers are flaky within a single run, so the different-model review often falls
+  back to `self_review`. The gate worked. Expect to confirm more often until another free
+  provider or a small credit is added in OmniRoute.
+- About 19 requests per small task. With the OpenRouter free cap of about 50/day without
+  credit, that is about 2–3 tasks a day.
+
+Earlier in the day, apply was live-checked on run `4b9fa0d87ecb` (Codex era). It created
+`studio/4b9fa0d87ecb` in the demo repo with one squashed commit on `d73a565`, and the current
+branch `main` and the working tree stayed clean.
+
+Not live-verified yet: the memory proposals and "Zapsat". They start only after acceptance,
+which is waiting for Tomáš on `c3daa9ee51e6`.
