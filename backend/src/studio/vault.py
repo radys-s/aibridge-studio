@@ -146,10 +146,13 @@ class Vault:
     def shareable(self, rel: str) -> bool:
         """Allowed by folder and not private or secret by content (names alone stay local)."""
         try:
-            text = (self.root / rel).read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            path, rel = self._resolve(rel)
+            if not self.allowed(rel):
+                return False
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except (Denied, OSError):
             return False
-        return self.allowed(rel) and not _is_private(text) and not secret_findings(text)
+        return not _is_private(text) and not secret_findings(text)
 
     def projects(self) -> list[str]:
         return [rel for rel in self.notes(PROJECTS) if self.shareable(rel)]
@@ -222,7 +225,7 @@ class Vault:
 
 
 def handoff_name(topic: str, to: str = "claude") -> str:
-    safe = re.sub(r'[\\/:*?"<>|]+', " ", topic).strip()[:80] or "pokračování"
+    safe = " ".join(re.sub(r'[\\/:*?"<>|]+', " ", topic).split())[:80] or "pokračování"
     return f"{HANDOFFS}/{date.today().isoformat()} studio → {to} - {safe}.md"
 
 

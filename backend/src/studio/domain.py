@@ -185,6 +185,12 @@ class TaskSpec(BaseModel):
     )
     escalation: Escalation = "ask"
     auto_approve: bool = Field(False, description="skip approval of a draft without questions")
+    project_note: str | None = Field(
+        None,
+        max_length=300,
+        description="vault note (e.g. '02 Projekty/X.md') this task continues; Studio sends "
+        "it and the project's open handoffs to the lead, filtered by the vault policy",
+    )
     budget: Budget = Field(default_factory=lambda: Budget())
 
     @model_validator(mode="before")
@@ -282,3 +288,14 @@ class Review(BaseModel):
     summary: str
     findings: list[Finding] = Field(default_factory=list)
     criteria: list[CriterionAssessment] = Field(default_factory=list)
+
+
+class MemoryProposal(BaseModel):
+    project_update: str = ""
+    handoff_needed: bool = False
+    handoff_to: Literal["claude", "codex"] = "claude"
+    handoff_topic: str = ""
+    handoff_done: list[str] = Field(default_factory=list)
+    handoff_open: list[str] = Field(default_factory=list)
+    handoff_files: list[str] = Field(default_factory=list)
+    handoff_avoid: list[str] = Field(default_factory=list)
