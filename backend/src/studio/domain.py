@@ -185,6 +185,13 @@ class Draft(BaseModel):
     questions: list[str] = Field(default_factory=list)
     notes: str = ""
 
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _join_notes(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return "\n".join(str(v) for v in value)
+        return value
+
 
 class ImplementReport(BaseModel):
     summary: str

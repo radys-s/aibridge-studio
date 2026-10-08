@@ -25,7 +25,10 @@ proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
   recurs, mark the project folder "Always keep on this device".
 - E2E waits on the run state through the API first, so a rare failure of the full-run spec
   (seen twice, not reproduced in 5 reruns) now reports where the run stopped.
-- Tests: 116 backend passed (1 live skipped), 15 vitest, 3 Playwright.
+- Live run `cf31341a973c` accepted with trimming on (MEASUREMENTS). Fixed on the way: the
+  draft `notes` field accepts a list (Groq rejects schema mismatches), and setup errors
+  (missing key or Account ID, 401/403) cool a model for 1 h instead of 30 s.
+- Tests: 117 backend passed (1 live skipped), 15 vitest, 3 Playwright.
 
 ## Prizma's providers (2026-10-08, ADR 0005)
 

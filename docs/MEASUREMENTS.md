@@ -151,3 +151,19 @@ private catalog. Result: **accepted** with an independent review, no `self_revie
   an unknown list means "no filter". Fixed: the gateway keeps the last good list when a probe
   fails, with a 5 s timeout (tests in `test_routing.py`).
 - Capacity: about 26 Groq requests per small task against the 1000/day per-model cap.
+
+## 2026-10-08 — second live run on Groq, worker context trimming (Claude Code)
+
+Run `cf31341a973c`, same task shape ("Pokračovat projekt" on the Calc demo, test vault).
+Cloudflare was connected but missing its Account ID, so every Cloudflare call was a 502.
+Result: **accepted**, review by groq gpt-oss-20b, memory proposal from the model.
+
+- An earlier attempt (`0be3eade4c0b`) stopped in draft: Groq validates tool arguments against
+  the schema and rejected `submit` because gpt-oss sent `notes` as an array. Fixed: the
+  draft schema allows a string or a list of strings.
+- 34 calls (25 ok), 51.0k tokens, cost 0, wall time 280 s. Failed calls: one Groq 429 and
+  eight Cloudflare 502s ("requires an Account ID"). Six of the 502s were in the review,
+  because a 5xx cooled Cloudflare for only 30 s. Fixed: setup errors (missing key or
+  Account ID, 401/403) cool for 1 h, and "Otestovat" clears the cooldown.
+- Worker: 10 turns, input tokens per turn 911 → 2444. The repo is small, so trimming (after
+  6 tool results) saves little here; it matters on longer runs.
