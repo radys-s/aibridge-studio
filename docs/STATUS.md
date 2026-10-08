@@ -1,9 +1,31 @@
 # Status
 
-Last update: 2026-10-07 (Claude Code). Phase 2b "Autopilot" (ADR 0003) implemented, tested
-and run live once. Run `c3daa9ee51e6` went from Pokračovat projekt through draft, plan,
-worker and verify on free models. The review fell back to the same model (other free
-providers returned 502/429), so it waits for Tomáš in `self_review`. See MEASUREMENTS.
+Last update: 2026-10-08 (Claude Code). Phase 2c "private free Autopilot only" (ADR 0004)
+implemented and tested (pytest, vitest, Playwright E2E). Studio no longer calls Claude or
+Codex. The live run on Groq is still open: OmniRoute was not running at the end of the
+session.
+
+## Phase 2c — private free Autopilot only (2026-10-08, ADR 0004)
+
+- Claude/Codex routing removed: no second opinion, no takeover by Claude/Codex, no CLI
+  probe, no lead picker. Takeover goes to a stronger free model. Old runs still load.
+  Claude/Codex remain only as handoff targets in vault notes.
+- Model catalog with privacy classes (`no_train` / `unknown` / `may_train`) and a `paid`
+  flag. The router never goes below `privacy_floor` (default `no_train`) and never picks a
+  paid model unless `STUDIO_ALLOW_PAID=1`. It skips ids OmniRoute does not expose.
+  Default order: Groq `gpt-oss-120b`, Cloudflare `kimi-k2.6` and `gpt-oss-120b`, Groq
+  `gpt-oss-20b`; OpenRouter `:free` only with `STUDIO_OPENROUTER_NO_TRAIN=1`.
+- Rate limits: 429 cools for 60 s or `Retry-After`, daily caps for 1 h, 5xx/empty for 30 s.
+  The router waits up to `STUDIO_ROUTE_WAIT` s (default 45) for a cooling model; cancel
+  interrupts the wait.
+- Memory proposals: `submit` only, strongest model; when the model fails, Studio builds a
+  fact-only fallback proposal (`author: studio`). "Navrhnout znovu" on the latest proposal.
+- Life-upgrades: privacy line in the composer, per-provider budget for today (warn at 80 %),
+  last project preselected, "Zkusit nezávislou recenzi znovu" on `self_review`.
+- E2E: `npm run e2e` (Playwright) starts Studio with `STUDIO_FAKE_GATEWAY=1` (scripted
+  gateway, test-only, labelled in the UI) on a fixture repo and vault. 3 specs: settings,
+  composer, full run to accepted with "Zapsat" and apply-to-branch.
+- Tests: 99 backend passed (1 live skipped), 14 vitest, 3 Playwright. ruff and mypy clean.
 
 ## Phase 2b — Autopilot, the after-the-limit tool (2026-10-07)
 
@@ -79,31 +101,31 @@ uv run studio serve                # http://127.0.0.1:8765
 ```
 
 Environment: `STUDIO_DATA_DIR`, `STUDIO_OMNIROUTE_URL`, `OMNIROUTE_API_KEY`,
-`STUDIO_WORKER_MODELS` (comma-separated explicit OmniRoute ids), `STUDIO_GATEWAY_TIMEOUT`,
-`STUDIO_CLAUDE_BIN`, `STUDIO_CODEX_BIN`, `STUDIO_CODEX_MODEL`, `STUDIO_PORT`.
+`STUDIO_LEAD_MODELS`, `STUDIO_WORKER_MODELS` (comma-separated explicit OmniRoute ids),
+`STUDIO_PRIVACY` (`no_train` default, `unknown` relaxes), `STUDIO_OPENROUTER_NO_TRAIN`,
+`STUDIO_PAID_MODELS`, `STUDIO_ALLOW_PAID`, `STUDIO_ROUTE_WAIT`, `STUDIO_GATEWAY_TIMEOUT`,
+`STUDIO_VAULT`, `STUDIO_PORT`. `STUDIO_FAKE_GATEWAY=1` is for E2E tests only.
+Provider keys live only in the OmniRoute dashboard; Studio never reads them.
 
 ## Known blockers and gaps
 
-- **Claude CLI headless login expired**: `claude -p` returns "Failed to authenticate: OAuth
-  session expired and could not be refreshed". Until Tomáš logs in again, use Codex for both
-  plan and review (reduced independence) or planner `none`.
-- Codex lead runs with `--ignore-user-config -m gpt-5.6-sol`: the user's config pins a model
-  the ChatGPT login cannot use in `exec`, and loads personal hooks.
+- **Live Groq run not done**: OmniRoute was not running on 20128 at the end of Phase 2c.
+  Start `omniroute serve`, then run Pokračovat projekt on the demo project.
+- Cloudflare Workers AI is in the catalog but not connected in OmniRoute; with Groq only,
+  review independence is `gpt-oss-20b` reviewing `gpt-oss-120b` (same provider).
+- Superseded memory proposals still show "Zapsat" (only "Navrhnout znovu" is limited to the
+  latest one).
 - Worker resends the whole history each turn; tokens grow fast on real repos.
 - Lead (CLI) token use is not recorded.
 - Narrow crash window: if Studio dies between the pre-iteration commit and the DB write of
   `iteration_base`, resume resets to the previous base and the previous iteration's changes
   are lost (still reachable via the copy's reflog). Low risk; fix with a step marker.
-- Memory proposals and "Zapsat" are not live-verified: they start after Tomáš accepts
-  `c3daa9ee51e6`. Free providers are flaky, so expect `self_review` often.
 - Memory proposals run synchronously after acceptance in the runner thread (one extra
   free call per accepted project run).
-- Codex loads the global `~/.codex/AGENTS.md` and skills even with `--ignore-user-config`:
-  50–100k extra input tokens per call, and it tries to follow personal instructions
-  (Obsidian). Prompts now tell leads to stay in the working copy; real isolation (own
-  `CODEX_HOME` with only the login) is Tomáš's decision (ADR 0002).
 
 ## Pitfalls found
+
+Codex CLI pitfalls below are historical (CLI leads removed in Phase 2c).
 
 - Codex on Windows: `--ignore-user-config` drops `windows.sandbox="elevated"`, so
   `workspace-write` silently cannot write; Studio passes it explicitly. The elevated sandbox

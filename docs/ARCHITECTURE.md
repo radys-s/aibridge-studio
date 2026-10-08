@@ -1,7 +1,10 @@
 # AI Bridge Studio — Architecture
 
-Status: Phase 2b (2026-10-07). Autopilot, the vault and apply are in `docs/adr/0003-autopilot.md`,
-which makes Autopilot (free models) the default orchestrator instead of Claude/Codex.
+Status: Phase 2c (2026-10-08). `docs/adr/0004-private-free-autopilot-only.md` removes every
+Claude/Codex route: Autopilot on free models whose provider does not train on Tomáš's data is
+the only orchestrator, planner, reviewer and takeover target. Where this document still
+names Claude/Codex as leads or reviewers, ADR 0004 wins.
+Phase 2b (2026-10-07): Autopilot, the vault and apply are in `docs/adr/0003-autopilot.md`.
 Earlier status: Phase 2a (2026-10-06). Living document; decisions with lasting impact go to `docs/adr/`.
 Orchestration modes, draft/approval, takeover, escalation, SSE and the `studio app` window
 are described in `docs/adr/0002-orchestration-modes.md`; it overrides the Phase 1 shape
@@ -10,10 +13,11 @@ below where they differ (the UI now streams over SSE instead of polling).
 ## Product goal
 
 Tomáš submits a task and sees its progress, the diff, test evidence and an independent
-review. Claude Code and Codex act as **leads and independent reviewers**. Bounded
-implementation is done by cheaper / free / local models through a **worker** that talks to
-providers via **OmniRoute**. A strong agent may take over implementation when the worker
-fails or the task is too hard.
+review. **Autopilot** (the strongest free no-train model, through OmniRoute) acts as lead
+and independent reviewer; Claude Code and Codex are never called by Studio (ADR 0004).
+Bounded implementation is done by free models through a **worker** that talks to providers
+via **OmniRoute**. A stronger free model may take over implementation when the worker fails
+or the task is too hard. A paid orchestrator can be added later by configuration only.
 
 Success metric: less supervision by Tomáš and faster acceptance of a good change. Not the
 number of models, agents or features.
@@ -32,9 +36,9 @@ boundaries are Python packages with narrow interfaces.
                                     │                   interruption, restart recovery
         ┌──────────────┬────────────┼──────────────┬──────────────────┐
         ▼              ▼            ▼              ▼                  ▼
-   agents/planner  worker/loop   verify.py     agents/reviewer   workspace.py
-   (Claude/Codex   (tool loop)   (independent  (Claude/Codex      (isolated git clone,
-    CLI, read-only)    │          acceptance    CLI, read-only)    diff, scope check)
+   agents/api_lead worker/loop   verify.py     agents/api_lead   workspace.py
+   (Autopilot plan, (tool loop)  (independent  (Autopilot review, (isolated git clone,
+    read-only)         │          acceptance    other model)       diff, scope check)
                        ▼          commands)
                  routing.py  ── single owner of model choice + fallback (cooldowns in DB)
                        │
@@ -60,13 +64,14 @@ boundaries are Python packages with narrow interfaces.
    writes the brief outside the copy and waits in `awaiting_external` (not an active state,
    so restart leaves it). Its output is a claim; verification and review are unchanged.
 4. **Routing** (`routing.py`, derived from Prizma `routing/selector.py`): choose a model by
-   capability, availability (cooldowns) and budget.
+   capability, privacy class (`privacy_floor`, default `no_train`), paid flag, whether
+   OmniRoute exposes it (`/v1/models`), availability (cooldowns, short waits) and budget.
 5. **OmniRoute** (`gateway.py`): gateway to providers. Integrated as an external dependency
    behind an adapter. Studio does not copy OmniRoute code and does not implement its own
    provider gateway.
-6. **Claude Code / Codex adapters** (`agents/`): planning, review and optional takeover.
-   Use the official CLIs (`claude -p`, `codex exec`) with their own authentication.
-   A subscription is not assumed to grant API access.
+6. **Lead adapter** (`agents/api_lead.py`): planning, review, memory proposals and takeover,
+   all through OmniRoute with `submit`-tool structured output. The former Claude/Codex CLI
+   adapters were removed in Phase 2c (ADR 0004).
 7. **UI** (`frontend/`): task form, run state, plan, diff, evidence, review, decisions.
 
 ## Single owner of model choice and fallback
@@ -137,7 +142,7 @@ A git clone is not a security sandbox. Layers:
 - **Worker-run checks**: commands the worker ran itself; shown as claims.
 - **Independent verification**: Studio runs the task's acceptance commands itself in the
   working copy after the worker stops, plus a scope check of the diff. Only these count.
-- **Review**: Claude or Codex receives the goal, acceptance criteria, scope, the full diff
+- **Review**: an Autopilot model other than the implementer's receives the goal, acceptance criteria, scope, the full diff
   and the independent verification output. The worker's summary is included only as an
   unverified claim. The reviewer returns structured JSON (`accept | request_changes |
   reject`, findings, per-criterion assessment).

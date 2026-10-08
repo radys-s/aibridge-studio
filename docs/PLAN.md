@@ -38,8 +38,15 @@ shortcut. Open: Claude live runs (login), Codex isolation from global AGENTS.md 
 Studio is the tool for after the Claude/Codex limits run out. The free-model orchestrator
 is Autopilot, with a different-model review. Claude/Codex give an optional second opinion.
 "Pokračovat projekt" works from Obsidian, memory write-back needs approval, and apply
-creates a `studio/<run_id>` branch. Open: the live run with OmniRoute, recorded in
-`MEASUREMENTS.md`.
+creates a `studio/<run_id>` branch. Live run recorded in `MEASUREMENTS.md`.
+
+## Phase 2c — private free Autopilot only (implemented 2026-10-08, ADR 0004)
+
+No Claude/Codex routing at all. The router picks the strongest free model whose provider
+does not train on inputs (Groq, Cloudflare), never below `privacy_floor`, and waits out
+short cooldowns. A paid orchestrator later is configuration only. Memory proposals always
+end with a card (model or fact-only fallback). Playwright E2E with a scripted gateway.
+Open: the live run on Groq (needs OmniRoute running) and connecting Cloudflare.
 
 ## Phase 2 — reliability and context
 

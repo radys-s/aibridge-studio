@@ -112,3 +112,19 @@ branch `main` and the working tree stayed clean.
 
 Not live-verified yet: the memory proposals and "Zapsat". They start only after acceptance,
 which is waiting for Tomáš on `c3daa9ee51e6`.
+
+## 2026-10-08 — Phase 2c: memory fallback and E2E (Claude Code)
+
+- **Memory retry on `c3daa9ee51e6`.** Tomáš accepted the run. The first memory step had
+  failed (laguna wrote prose and never called `submit`). "Navrhnout znovu" ran with OmniRoute
+  down, so the model call returned `gateway_down` and Studio built the fact-only fallback
+  proposal (`author: studio`): title, changed files, verification result, review summary.
+  Checked by hand: facts only, nothing personal. "Zapsat" wrote the project-note append and
+  the handoff to the test vault (`~/.aibridge-studio-dev/test-vault`). Nothing was written
+  before the click.
+- **Playwright E2E** (`npm run e2e`, scripted gateway): 3/3 passed. The full run reached
+  accepted, "Zapsat" appended to the fixture note only after the click, and apply created
+  `studio/<run_id>` while the fixture repo stayed on `main`.
+- **Not done:** a live run on Groq. OmniRoute was not running on 127.0.0.1:20128. Earlier on
+  2026-10-08 a single non-streaming tool call to `groq/openai/gpt-oss-120b` through OmniRoute
+  worked; a full Studio run on it is still unmeasured.
