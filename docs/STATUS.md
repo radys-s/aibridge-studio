@@ -5,6 +5,19 @@ implemented, tested (pytest, vitest, Playwright E2E) and run live on Groq: run
 `6280086d4b75` was accepted with an independent review (gpt-oss-20b) and a model-written memory
 proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
 
+## Phase 2d — provider setup (2026-10-08)
+
+- Settings: "Kde vzít klíče a kam je vložit" (direct links to each no-train provider's key
+  page and to OmniRoute → Providers) and an "Otestovat" button per model
+  (`POST /api/models/probe`): one tiny tool call, a fresh `/v1/models` check, and a stale
+  cooldown cleared on success. Models below the privacy floor or paid are never sent.
+- Live: Groq 120b and 20b call tools (554 / 588 ms); Cerebras answers "No active credentials
+  for provider: cerebras" until its key is added.
+- GitHub Models' daily cap is counted per model, like Groq.
+- E2E waits on the run state through the API first, so a rare failure of the full-run spec
+  (seen twice, not reproduced in 5 reruns) now reports where the run stopped.
+- Tests: 109 backend passed (1 live skipped), 15 vitest, 3 Playwright.
+
 ## Prizma's providers (2026-10-08, ADR 0005)
 
 - The catalog lists the providers whose keys Prizma holds: Cerebras and GitHub Models

@@ -1166,3 +1166,25 @@ pre.output {
 .proposal.status-discarded {
   opacity: 0.6;
 }
+
+/* Settings: model probe and key sources */
+td.probe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  min-width: 9rem;
+}
+td.probe .badge {
+  white-space: normal;
+}
+.key-sources {
+  margin: 0.5rem 0 0.8rem;
+}
+.key-sources ul {
+  padding-left: 1.1rem;
+  margin: 0.3rem 0;
+}
+.key-sources li {
+  margin: 0.2rem 0;
+}

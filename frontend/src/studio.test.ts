@@ -6,7 +6,7 @@ import { actorLead, buildThread, latestDraftId } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
-import { budgetLevel } from "./components/SettingsView";
+import { budgetLevel, probeText } from "./components/SettingsView";
 
 const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
 
@@ -144,5 +144,17 @@ group("agent text", () => {
     expect(readable('{"summary":"Upravuji stats.py","files_changed":[]}')).toBe("Upravuji stats.py");
     expect(readable("plain words")).toBe("plain words");
     expect(readable('{"x":1}')).toMatch(/strukturovaná/);
+  });
+});
+
+group("model probe", () => {
+  it("says whether the model can drive Studio", () => {
+    const base = { model: "cerebras/gpt-oss-120b", blocked: null };
+    expect(probeText({ ...base, ok: true, tools: true, latency_ms: 300 })).toBe("funguje, volá nástroje · 300 ms");
+    expect(probeText({ ...base, ok: true, tools: false })).toContain("nevolá nástroje");
+    expect(probeText({ ...base, ok: false, kind: "provider_error", status: 401, detail: "invalid key" })).toBe(
+      "chyba 401: invalid key",
+    );
+    expect(probeText({ ...base, blocked: "privacy", ok: false, kind: "privacy" })).toContain("neodesláno");
   });
 });

@@ -419,6 +419,18 @@ export function formatDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Settings "Otestovat": one tiny tool call to one catalog model. */
+export interface ProbeResult {
+  model: string;
+  ok: boolean;
+  blocked: ModelInfo["blocked"];
+  tools?: boolean;
+  kind?: string;
+  status?: number | null;
+  detail?: string;
+  latency_ms?: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -460,6 +472,7 @@ export const api = {
   createTask: (task: NewTask) => send<{ run_id: string }>("POST", "/api/tasks", task),
   runAction: (id: string, action: RunAction, body: ActionBody = {}) =>
     send<{ ok: boolean }>("POST", `${runPath(id)}/${action}`, body),
+  probeModel: (model: string) => send<ProbeResult>("POST", "/api/models/probe", { model }),
   vault: () => request<VaultOverview>("/api/vault"),
   vaultProject: (note: string) => request<VaultProject>(`/api/vault/project?note=${encodeURIComponent(note)}`),
   streamUrl: (id: string, cursors: { events: number; agent: number; messages: number }) =>

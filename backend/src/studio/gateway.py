@@ -70,8 +70,8 @@ class ChatGateway(Protocol):
 
     def health(self) -> dict[str, Any]: ...
 
-    def models(self) -> set[str] | None:
-        """Model ids OmniRoute exposes now, or None when unknown."""
+    def models(self, fresh: bool = False) -> set[str] | None:
+        """Model ids OmniRoute exposes now, or None when unknown. fresh skips the cache."""
         ...
 
 
@@ -100,9 +100,14 @@ class OmniRouteGateway:
         except httpx.HTTPError as exc:
             return {"reachable": False, "error": type(exc).__name__}
 
-    def models(self) -> set[str] | None:
-        """Exposed model ids, cached for a minute (connected providers rarely change)."""
+    def models(self, fresh: bool = False) -> set[str] | None:
+        """Exposed model ids, cached for a minute (connected providers rarely change).
+
+        fresh=True re-asks OmniRoute, e.g. right after Tomáš added a key in its dashboard.
+        """
         now = time.monotonic()
+        if fresh:
+            self._models = None
         # A failed probe is cached too (shorter), so a down OmniRoute does not add a 5 s
         # timeout to every routing decision or health poll.
         if self._models is not None and now - self._models[0] < (60 if self._models[1] else 15):

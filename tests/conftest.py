@@ -122,7 +122,7 @@ class FakeGateway:
     def health(self) -> dict[str, Any]:
         return {"reachable": True, "status": 200}
 
-    def models(self) -> set[str] | None:
+    def models(self, fresh: bool = False) -> set[str] | None:
         return None  # unknown: the router does not filter by availability
 
     def chat(self, model, messages, tools=None, timeout_s=None):  # type: ignore[no-untyped-def]
