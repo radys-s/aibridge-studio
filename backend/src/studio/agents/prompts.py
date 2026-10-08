@@ -28,7 +28,9 @@ DRAFT_SCHEMA = _obj(
         "acceptance_criteria": _STRS,
         "acceptance_commands": _STRS,
         "questions": _STRS,
-        "notes": _STR,
+        # Groq validates tool arguments against the schema and rejects the whole call; gpt-oss
+        # often sends notes as a list (seen live 2026-10-08), so both forms are allowed.
+        "notes": {"anyOf": [_STR, _STRS]},
     }
 )
 

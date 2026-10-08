@@ -63,6 +63,13 @@ def test_cooldown_lengths_follow_the_failure(tmp_path: Path) -> None:
     assert 10 < cooled("slow down", retry=12) < 15
     r.report_failure("groq/strong", "provider_error", 502, "502: upstream error")
     assert r.db.cooldowns()["groq/strong"] - now < 35
+    # A provider setting missing in OmniRoute (seen live on Cloudflare) does not fix itself.
+    r.report_failure(
+        "groq/strong", "provider_error", 502, "502: Workers AI requires an Account ID. Add it"
+    )
+    assert r.db.cooldowns()["groq/strong"] - now > 3500
+    r.report_failure("groq/strong", "provider_error", 401, "401: bad key")
+    assert r.db.cooldowns()["groq/strong"] - now > 3500
     r.report_failure("groq/strong", "gateway_unavailable", None, "down")  # never cools
 
 

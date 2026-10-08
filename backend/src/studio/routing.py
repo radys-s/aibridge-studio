@@ -24,9 +24,15 @@ COOLDOWN_S = {
     "rate_limit": 60.0,
     "daily_limit": 3600.0,
     "transient": 30.0,
+    # Missing key or provider setting: nothing changes until Tomáš fixes it in OmniRoute;
+    # "Otestovat" in Settings clears the cooldown as soon as it works.
+    "setup": 3600.0,
 }
 MAX_RETRY_AFTER_S = 600.0
 _DAILY = re.compile(r"per.?day|daily|requests per day|RPD|free-models-per-day", re.I)
+_SETUP = re.compile(
+    r"requires an Account ID|No active credentials|invalid api key|unauthorized", re.I
+)
 _TRANSIENT = re.compile(r"^5\d\d\b|empty|upstream|overloaded|temporarily", re.I)
 
 
@@ -203,6 +209,8 @@ class ModelRouter:
             return  # the gateway is down, not the model; cooling every model would be wrong
         if status == 429:
             key = "daily_limit" if _DAILY.search(detail) else "rate_limit"
+        elif status in (401, 403) or _SETUP.search(detail):
+            key = "setup"
         elif kind == "provider_error" and _TRANSIENT.search(detail):
             key = "transient"
         else:
