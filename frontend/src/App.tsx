@@ -50,8 +50,29 @@ function loadTheme(): Theme {
   }
 }
 
+/** A remembered on/off switch (per viewer); works without storage too. */
+function usePersistedFlag(key: string): [boolean, (v: boolean) => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      return window.localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const set = (v: boolean) => {
+    setValue(v);
+    try {
+      window.localStorage.setItem(key, v ? "1" : "0");
+    } catch {
+      /* storage unavailable: the choice holds for this session */
+    }
+  };
+  return [value, set];
+}
+
 function RunView({ runId, onChanged }: { runId: string; onChanged: () => void }) {
   const { detail, error, live, reload } = useRunDetail(runId);
+  const [detailsOpen, setDetailsOpen] = usePersistedFlag("studio-details");
   const changed = useCallback(() => {
     void reload();
     onChanged();
@@ -66,9 +87,15 @@ function RunView({ runId, onChanged }: { runId: string; onChanged: () => void })
     );
   }
   return (
-    <div className="run-view">
-      <Thread detail={detail} live={live} onChanged={changed} />
-      <Inspector detail={detail} />
+    <div className={`run-view${detailsOpen ? " split" : ""}`}>
+      <Thread
+        detail={detail}
+        live={live}
+        onChanged={changed}
+        detailsOpen={detailsOpen}
+        onToggleDetails={() => setDetailsOpen(!detailsOpen)}
+      />
+      {detailsOpen && <Inspector detail={detail} />}
     </div>
   );
 }

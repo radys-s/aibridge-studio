@@ -5,7 +5,7 @@ export const STATE_LABELS: Record<string, string> = {
   planning: "Plánuje",
   working: "Pracuje",
   verifying: "Ověřuje",
-  reviewing: "Review",
+  reviewing: "Recenze",
   accepted: "Přijato",
   needs_decision: "Čeká na rozhodnutí",
   interrupted: "Přerušeno",
@@ -22,8 +22,8 @@ export const STEP_LABELS: Record<string, string> = {
   handoff: "Předání",
   work: "Práce",
   verify: "Ověření",
-  review: "Review",
-  memory: "Návrh do paměti",
+  review: "Recenze",
+  memory: "Paměť",
 };
 
 export const STEP_STATUS_LABELS: Record<string, string> = {

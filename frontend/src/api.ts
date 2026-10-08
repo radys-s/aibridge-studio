@@ -59,6 +59,20 @@ export interface ModelInfo {
    * does not offer it (provider not connected). */
   blocked: "privacy" | "paid" | "not_connected" | null;
   cooldown_until: number | null;
+  /** Why the pause started: "setup" (key or provider setting missing in OmniRoute),
+   * "rate_limit", "daily_limit", "transient", … */
+  cooldown_kind?: string | null;
+  /** Calls of the last 3 days that count for reliability; reviewed work of 14 days (ADR 0006). */
+  stats?: ModelStats;
+  /** Fails often, so the router tries it after the healthy models. */
+  demoted?: boolean;
+}
+
+export interface ModelStats {
+  calls: number;
+  failed: number;
+  reviewed: number;
+  accepted: number;
 }
 
 export interface Health {

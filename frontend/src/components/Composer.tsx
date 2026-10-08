@@ -32,38 +32,32 @@ export function continueGoal(title: string, focus: string): string {
   return f ? `Pokračuj v projektu ${title}. Zaměř se na: ${f}` : `Pokračuj v projektu ${title}.`;
 }
 
-function PoolLine({ health }: { health: Health | null }) {
+/** One quiet line: gateway, who receives the code (only providers that do not train on it)
+ * and today's free requests. */
+export function StatusLine({ health }: { health: Health | null }) {
   if (!health) return null;
-  const models = health.lead_models?.length ?? 0;
+  const providers = activeProviders(health.models ?? []);
+  const calls = health.api_calls_today ?? 0;
   return (
-    <p className="hint pool-line">
-      {health.gateway.reachable ? (
-        <span className="badge good">OmniRoute běží</span>
-      ) : (
-        <span className="badge bad">OmniRoute nedostupný</span>
-      )}{" "}
-      Autopilot: {models} {models === 1 ? "model" : models >= 2 && models <= 4 ? "modely" : "modelů"} · dnes{" "}
-      {health.api_calls_today ?? 0} requestů na free modely (limit se nuluje o půlnoci UTC)
-    </p>
-  );
-}
-
-/** Who will receive the code and notes: only providers that do not train on them. */
-export function PrivacyLine({ health, summary }: { health: Health | null; summary: string }) {
-  const providers = health ? activeProviders(health.models ?? []) : [];
-  return (
-    <p className="hint privacy-line">
-      {summary}.{" "}
-      {!health ? null : providers.length ? (
-        <>
+    <p
+      className="status-line privacy-line"
+      title="Posílá se kód z repozitáře a sdílené poznámky bez osobního obsahu. Limity free modelů se nulují o půlnoci UTC."
+    >
+      <span className={`hdot ${health.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" />
+      <span>{health.gateway.reachable ? "OmniRoute běží" : "OmniRoute nedostupný"}</span>
+      <span aria-hidden="true">·</span>
+      {providers.length ? (
+        <span>
           {health.privacy_floor === "no_train"
             ? "Data jdou jen k poskytovatelům bez tréninku: "
             : "Data jdou i k poskytovatelům s neověřeným soukromím: "}
-          <strong>{providers.join(", ")}</strong>. Posílá se kód z repozitáře a sdílené poznámky bez osobního obsahu.
-        </>
+          <strong>{providers.join(", ")}</strong>
+        </span>
       ) : (
-        <span className="badge bad">Žádný poskytovatel bez tréninku není připojený, běh se zastaví.</span>
+        <span className="error">Žádný poskytovatel bez tréninku není připojený, běh se zastaví.</span>
       )}
+      <span aria-hidden="true">·</span>
+      <span>dnes {calls} {calls === 1 ? "dotaz" : calls >= 2 && calls <= 4 ? "dotazy" : "dotazů"}</span>
     </p>
   );
 }
@@ -203,6 +197,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
   return (
     <div className="composer-page">
       <h1 className="composer-title">{start === "project" ? "Kde pokračujeme?" : "Co postavíme?"}</h1>
+      <p className="composer-sub">Autopilot navrhne zadání, udělá práci a nechá ji nezávisle zkontrolovat.</p>
       <form
         className="composer"
         onSubmit={(e) => {
@@ -236,9 +231,9 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
         {start === "project" ? (
           <div className="project-pick">
             <label className="field">
-              <span>Projekt (Obsidian · 02 Projekty)</span>
+              <span>Projekt ze sdílené paměti</span>
               <select aria-label="Projekt" value={note} onChange={(e) => setNote(e.target.value)}>
-                <option value="">— vyber projekt —</option>
+                <option value="">Vyber projekt…</option>
                 {projects.map((p) => (
                   <option key={p} value={p}>
                     {noteTitle(p)}
@@ -250,7 +245,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
             {project && (
               <div className="project-info small">
                 <div>
-                  Autopilot dostane poznámku <code>{project.note}</code>
+                  Autopilot dostane poznámku <strong>{noteTitle(project.note)}</strong>
                   {project.handoffs.length > 0 ? " a otevřené předávky:" : " (žádné otevřené předávky)."}
                 </div>
                 {project.handoffs.length > 0 && <List items={project.handoffs.map(noteTitle)} />}
@@ -258,7 +253,8 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
                   <div className="muted">Nepošle se (osobní nebo tajné): {project.refused.map(noteTitle).join(", ")}</div>
                 )}
                 <details>
-                  <summary>Náhled poznámky (e-maily a telefony jsou skryté)</summary>
+                  <summary className="muted">Náhled poznámky</summary>
+                  <p className="hint">E-maily a telefony jsou skryté.</p>
                   <pre className="output">{project.preview}</pre>
                 </details>
               </div>
@@ -269,8 +265,8 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
               rows={2}
               placeholder={
                 project?.handoffs.length
-                  ? `Na co se zaměřit (nepovinné). Jinak Autopilot naváže na předávku ${noteTitle(project.handoffs[0])}.  (Ctrl+Enter odešle)`
-                  : "Na co se zaměřit (nepovinné). Jinak Autopilot navrhne další krok sám.  (Ctrl+Enter odešle)"
+                  ? `Na co se zaměřit? (nepovinné – jinak naváže na ${noteTitle(project.handoffs[0])})`
+                  : "Na co se zaměřit? (nepovinné – jinak Autopilot navrhne další krok sám)"
               }
               value={focus}
               onChange={(e) => setFocus(e.target.value)}
@@ -283,7 +279,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
             aria-label="Zadání"
             rows={5}
             autoFocus
-            placeholder="Popiš úkol. Autopilot z něj navrhne rozsah, kritéria a příkazy k ověření, ty to jen schválíš.  (Ctrl+Enter odešle)"
+            placeholder="Popiš, co se má udělat. Autopilot z toho navrhne rozsah a kontroly, ty to jen schválíš."
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             onKeyDown={onKey}
@@ -306,76 +302,93 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
               ))}
             </datalist>
           </label>
-          <button type="submit" className="primary send" disabled={busy}>
-            {busy ? "Odesílám…" : "Spustit"}
+          <button type="submit" className="primary send" disabled={busy} title="Ctrl+Enter">
+            {busy ? "Spouštím…" : "Spustit"}
           </button>
         </div>
 
-        <div className="composer-options">
-          <label className="chip-field" title={IMPLEMENTERS.find((i) => i.id === implementer)?.hint}>
-            <span>Implementuje</span>
-            <select value={implementer} onChange={(e) => setImplementer(e.target.value as Implementer)}>
-              {IMPLEMENTERS.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="chip-field" title={ESCALATIONS.find((x) => x.id === escalation)?.hint}>
-            <span>Převzetí</span>
-            <select value={escalation} onChange={(e) => setEscalation(e.target.value as Escalation)}>
-              {ESCALATIONS.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} />
-            Schválit návrh zadání automaticky
-          </label>
-        </div>
-        <PrivacyLine health={health} summary={describe(orchestration)} />
-        <PoolLine health={health} />
+        <label className="check" title="Když Autopilot nemá otázky, návrh zadání se schválí sám.">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={autoApprove}
+            onChange={(e) => setAutoApprove(e.target.checked)}
+          />
+          Schválit návrh zadání automaticky
+        </label>
 
-        <details className="advanced" open={advanced} onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>
-          <summary>Rozsah a kritéria ručně (jinak je navrhne Autopilot)</summary>
-          <div className="field-row">
-            <label className="field">
-              <span>Povolené cesty (glob, po řádcích)</span>
-              <textarea rows={3} value={paths} onChange={(e) => setPaths(e.target.value)} placeholder="src/**/*.py" />
-            </label>
-            <label className="field">
-              <span>Akceptační kritéria</span>
-              <textarea rows={3} value={criteria} onChange={(e) => setCriteria(e.target.value)} />
-            </label>
-            <label className="field">
-              <span>Příkazy k ověření</span>
-              <textarea
-                rows={3}
-                value={commands}
-                onChange={(e) => setCommands(e.target.value)}
-                placeholder="python -m pytest -q"
-                spellCheck={false}
-              />
-            </label>
-          </div>
-          <p className="hint">Když vyplníš všechno, návrh se přeskočí a jde se rovnou na plán.</p>
-        </details>
-
-        <div className="actions">
-          <button type="button" className="small" onClick={() => void saveDefaults()}>
-            {saved ? "Uloženo" : "Uložit jako výchozí"}
-          </button>
-        </div>
         {error && (
           <p className="alert error" role="alert">
             {error}
           </p>
         )}
+
+        <details className="more">
+          <summary>Další možnosti</summary>
+          <div className="composer-options">
+            <label className="chip-field">
+              <span>Kdo píše kód</span>
+              <select value={implementer} onChange={(e) => setImplementer(e.target.value as Implementer)}>
+                {IMPLEMENTERS.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="chip-field">
+              <span>Když to nezvládne</span>
+              <select value={escalation} onChange={(e) => setEscalation(e.target.value as Escalation)}>
+                {ESCALATIONS.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="hint">
+            {IMPLEMENTERS.find((i) => i.id === implementer)?.hint} {ESCALATIONS.find((x) => x.id === escalation)?.hint}
+          </p>
+
+          <details
+            className="advanced"
+            open={advanced}
+            onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}
+          >
+            <summary>Rozsah a kontroly zadat ručně</summary>
+            <div className="field-row">
+              <label className="field">
+                <span>Povolené cesty (glob, po řádcích)</span>
+                <textarea rows={3} value={paths} onChange={(e) => setPaths(e.target.value)} placeholder="src/**/*.py" />
+              </label>
+              <label className="field">
+                <span>Akceptační kritéria</span>
+                <textarea rows={3} value={criteria} onChange={(e) => setCriteria(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Příkazy k ověření</span>
+                <textarea
+                  rows={3}
+                  value={commands}
+                  onChange={(e) => setCommands(e.target.value)}
+                  placeholder="python -m pytest -q"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+            <p className="hint">Když vyplníš všechno, návrh se přeskočí a jde se rovnou na plán.</p>
+          </details>
+
+          <div className="actions">
+            <button type="button" className="small" onClick={() => void saveDefaults()}>
+              {saved ? "Uloženo" : "Uložit jako výchozí"}
+            </button>
+            <span className="muted small">{describe(orchestration)}</span>
+          </div>
+        </details>
       </form>
+      <StatusLine health={health} />
     </div>
   );
 }

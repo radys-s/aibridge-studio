@@ -12,10 +12,11 @@ const NOTE = join(TMP, "vault", "02 Projekty", "Calc.md");
 
 test("settings: only Autopilot, privacy badges, test gateway is labelled", async ({ page }) => {
   await page.goto("/#/settings");
-  await expect(page.getByRole("heading", { name: "Autopilot a modely" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Modely", exact: true })).toBeVisible();
   await expect(page.getByText("testovací gateway")).toBeVisible();
   await expect(page.getByRole("cell", { name: "groq/openai/gpt-oss-120b" })).toBeVisible();
   await expect(page.getByText("bez tréninku").first()).toBeVisible();
+  await page.getByText(/Nepoužívané modely/).click();
   await expect(page.getByText("pod hranicí soukromí").first()).toBeVisible();
   // Claude/Codex are not offered anywhere in settings (ADR 0004); the one sentence that
   // says so is the only mention.

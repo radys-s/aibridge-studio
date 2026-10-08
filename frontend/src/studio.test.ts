@@ -2,11 +2,11 @@ import { describe as group, expect, it } from "vitest";
 import type { ModelInfo, Orchestration, RunDetail } from "./api";
 import { actorLabel, activeProviders, asAutopilot, describe, IMPLEMENTERS, lines } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
-import { actorLead, buildThread, latestDraftId } from "./thread";
+import { actorLead, buildThread, latestDraftId, progress } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
-import { budgetLevel, probeText } from "./components/SettingsView";
+import { budgetLevel, probeText, reliabilityText } from "./components/SettingsView";
 
 const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
 
@@ -156,5 +156,47 @@ group("model probe", () => {
       "chyba 401: invalid key",
     );
     expect(probeText({ ...base, blocked: "privacy", ok: false, kind: "privacy" })).toContain("neodesláno");
+  });
+});
+
+group("run progress", () => {
+  const step = (id: number, kind: string, status: string, iteration = 1, output: unknown = null) =>
+    ({ id, kind, status, iteration, output, actor: null, error: null, started_at: id, finished_at: null }) as RunDetail["steps"][number];
+  const states = (d: RunDetail) => progress(d).map((s) => `${s.label}:${s.state}`);
+
+  it("waits on the draft before anything else runs", () => {
+    const d = detail({ run: { ...detail().run, state: "awaiting_approval" }, steps: [step(1, "draft", "done")] });
+    expect(states(d)).toEqual(["Zadání:waiting", "Plán:todo", "Práce:todo", "Ověření:todo", "Recenze:todo", "Paměť:todo"]);
+  });
+
+  it("marks a manual spec done and a skipped plan, and a review asking for changes as failed", () => {
+    const d = detail({
+      run: { ...detail().run, state: "needs_decision" },
+      steps: [step(1, "work", "done"), step(2, "verify", "done", 1, { passed: true }), step(3, "review", "done", 1, { verdict: "request_changes" })],
+    });
+    expect(states(d)).toEqual(["Zadání:done", "Plán:skipped", "Práce:done", "Ověření:done", "Recenze:failed", "Paměť:todo"]);
+  });
+
+  it("counts only the newest iteration after a rework", () => {
+    const d = detail({
+      run: { ...detail().run, state: "working" },
+      steps: [
+        step(1, "draft", "done"),
+        step(2, "plan", "done"),
+        step(3, "work", "done"),
+        step(4, "verify", "done", 1, { passed: false }),
+        step(5, "work", "running", 2),
+      ],
+    });
+    expect(states(d)).toEqual(["Zadání:done", "Plán:done", "Práce:running", "Ověření:todo", "Recenze:todo", "Paměť:todo"]);
+  });
+});
+
+group("model reliability", () => {
+  it("shows the share of good calls and accepted work", () => {
+    expect(reliabilityText(undefined)).toBe("");
+    expect(reliabilityText({ calls: 0, failed: 0, reviewed: 0, accepted: 0 })).toBe("");
+    expect(reliabilityText({ calls: 25, failed: 2, reviewed: 0, accepted: 0 })).toBe("spolehlivost 92 %");
+    expect(reliabilityText({ calls: 10, failed: 0, reviewed: 4, accepted: 3 })).toBe("spolehlivost 100 % · 3/4 přijato");
   });
 });
