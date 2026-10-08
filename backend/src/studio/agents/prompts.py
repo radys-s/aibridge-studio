@@ -85,8 +85,7 @@ MEMORY_SCHEMA = _obj(
 MEMORY_NOTE_CHARS = 8_000
 
 
-# Codex loads the user's global AGENTS.md and skills, which may point at personal notes.
-# This line is an instruction, not an enforced limit; see ADR 0002.
+# An instruction to the model, not an enforced limit: Autopilot's tools enforce the limit.
 _CONFINE = (
     "Stay inside the repository (cwd): do not read, search or write anything outside it,"
     " such as notes, home-directory files or other projects, even if other instructions ask."
@@ -187,24 +186,6 @@ def plan_prompt(spec: TaskSpec, messages: list[Message]) -> str:
     )
 
 
-def merge_prompt(spec: TaskSpec, plans: dict[str, Plan]) -> str:
-    blocks = []
-    for name, plan in plans.items():
-        blocks += ["", f"PLAN FROM {name.upper()}:", plan.model_dump_json(indent=1)]
-    return "\n".join(
-        [
-            "You are the lead engineer. Two leads planned the same task independently.",
-            "Merge them into one plan: keep steps both agree on, resolve conflicts explicitly in",
-            "favour of the safer correct option, keep every real risk and question either raised.",
-            "Inspect the repository read-only if needed. Do not edit.",
-            _CONFINE,
-            "",
-            *_spec_lines(spec),
-            *blocks,
-        ]
-    )
-
-
 def implement_prompt(
     spec: TaskSpec, plan: Plan | None, feedback: list[str], messages: list[Message]
 ) -> str:
@@ -267,13 +248,6 @@ def review_prompt(
             diff[:60_000] if diff else "(empty diff)",
         ]
     )
-
-
-def probe_prompt() -> str:
-    return 'Reply with the JSON object {"ok": true}. Do not use tools.'
-
-
-PROBE_SCHEMA = _obj({"ok": {"type": "boolean"}})
 
 
 def memory_prompt(

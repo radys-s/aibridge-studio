@@ -1,19 +1,16 @@
-"""Sandbox, gateway guard, lead adapter process handling, API CSRF guard."""
+"""Sandbox, gateway guard, API CSRF guard."""
 
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from conftest import MODELS, FakeGateway, FakeLead
-from studio.agents.leads import CallContext, LeadError, _run
 from studio.api import create_app
 from studio.config import Settings
-from studio.domain import LeadConfig
 from studio.gateway import OmniRouteGateway
 from studio.sandbox import Denied, Sandbox, scrubbed_env, secret_findings
 
@@ -95,22 +92,12 @@ def test_gateway_unreachable_is_classified() -> None:
         )
 
 
-def test_lead_process_timeout_and_cancel(tmp_path: Path) -> None:
-    sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
-    with pytest.raises(LeadError) as err:
-        _run(sleeper, "", tmp_path, CallContext(LeadConfig(), 1, lambda: False), print)
-    assert err.value.kind == "timeout"
-    with pytest.raises(LeadError) as err:
-        _run(sleeper, "", tmp_path, CallContext(LeadConfig(), 30, lambda: True), print)
-    assert err.value.kind == "cancelled"
-
-
 def _client(tmp_path: Path) -> TestClient:
     settings = Settings(data_dir=tmp_path / "d", worker_models=MODELS)
     app = create_app(
         settings,
         gateway=FakeGateway([]),
-        leads={"claude": FakeLead("claude"), "codex": FakeLead("codex")},
+        leads={"autopilot": FakeLead("autopilot")},
         start_runner=False,
     )
     return TestClient(app)
@@ -147,15 +134,25 @@ def test_api_csrf_guard_and_validation(tmp_path: Path, repo: Path) -> None:
         c.post("/api/tasks", json=dict(body, goal=" "), headers={"X-Studio": "1"}).status_code
         == 422
     )
-    effort = dict(body, orchestration={"mode": "cross", "claude": {"effort": "minimal"}})
-    assert c.post("/api/tasks", json=effort, headers={"X-Studio": "1"}).status_code == 422
+    # Old Claude/Codex orchestration is accepted but always runs as Autopilot (ADR 0004).
+    legacy = dict(body, orchestration={"mode": "cross", "second_opinion": ["codex"]})
+    legacy_run = c.post("/api/tasks", json=legacy, headers={"X-Studio": "1"}).json()["run_id"]
+    orch = c.get(f"/api/runs/{legacy_run}").json()["run"]["spec"]["orchestration"]
+    assert orch == {"mode": "autopilot", "primary": "autopilot", "plan": True}
+    takeover = c.post(
+        f"/api/runs/{legacy_run}/takeover", json={"lead": "claude"}, headers={"X-Studio": "1"}
+    )
+    assert takeover.status_code == 422
+    assert c.post("/api/probe", json={"lead": "claude"}, headers={"X-Studio": "1"}).status_code in (
+        404,
+        405,
+    )
     # A prompt alone is a valid task: the lead drafts scope and criteria.
     prompt_only = {"goal": "Přidej funkci median", "repo_path": str(repo)}
     created = c.post("/api/tasks", json=prompt_only, headers={"X-Studio": "1"})
     assert created.status_code == 201
     detail = c.get(f"/api/runs/{created.json()['run_id']}").json()
     assert detail["messages"][0]["text"] == "Přidej funkci median"
-    assert detail["run"]["spec"]["orchestration"]["codex"]["model"]  # filled from defaults
 
 
 @pytest.mark.skipif(os.environ.get("STUDIO_LIVE") != "1", reason="live OmniRoute test is opt-in")

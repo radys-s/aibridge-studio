@@ -20,8 +20,8 @@ from studio.runner import Runner
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "synthetic_repo"
 MODELS = (
-    ModelSpec("test/model-a", frozenset({"coding", "tools"}), 2),
-    ModelSpec("test/model-b", frozenset({"coding", "tools"}), 1),
+    ModelSpec("test/model-a", frozenset({"coding", "tools"}), 2, privacy="no_train"),
+    ModelSpec("test/model-b", frozenset({"coding", "tools"}), 1, privacy="no_train"),
 )
 
 MEDIAN_OK = '''"""Small statistics helpers."""
@@ -82,8 +82,6 @@ def make_spec(repo: Path, **kw: Any) -> TaskSpec:
         "allowed_paths": ["calc/*.py", "tests/*.py"],
         "acceptance_criteria": ["median works for odd and even lengths", "tests pass"],
         "acceptance_commands": ["python -m unittest discover -s tests -t ."],
-        "planner": "claude",
-        "reviewer": "codex",
     }
     data.update(kw)
     return TaskSpec.model_validate(data)
@@ -123,6 +121,9 @@ class FakeGateway:
 
     def health(self) -> dict[str, Any]:
         return {"reachable": True, "status": 200}
+
+    def models(self) -> set[str] | None:
+        return None  # unknown: the router does not filter by availability
 
     def chat(self, model, messages, tools=None, timeout_s=None):  # type: ignore[no-untyped-def]
         self.calls.append(model)
@@ -170,7 +171,7 @@ class FakeLead:
         self.implement = implement
         self.errors = dict(errors or {})
         self.review_prompts: list[str] = []
-        self.calls: list[tuple[str, str, str | None, str | None]] = []  # kind, mode, model, effort
+        self.calls: list[tuple[str, str]] = []  # kind, mode
 
     def available(self) -> dict[str, Any]:
         return {"installed": True}
@@ -182,7 +183,7 @@ class FakeLead:
             id(REVIEW_SCHEMA): "review",
             id(IMPLEMENT_SCHEMA): "implement",
         }[id(schema)]
-        self.calls.append((kind, mode, ctx.config.model, ctx.config.effort))
+        self.calls.append((kind, mode))
         ctx.on_event(AgentEvent("text", f"{self.name} {kind}"))
         ctx.usage.actual_model = f"{self.name}-model"
         ctx.usage.tokens_in, ctx.usage.tokens_out = 1000, 100
@@ -227,17 +228,15 @@ def good_script() -> list[dict[str, Any] | GatewayError]:
 @pytest.fixture
 def studio(tmp_path: Path):  # type: ignore[no-untyped-def]
     def build(
-        gateway: FakeGateway, reviews: list[Review], claude: FakeLead | None = None
+        gateway: FakeGateway, reviews: list[Review], lead: FakeLead | None = None
     ) -> tuple[Runner, Database, FakeLead]:
+        """Autopilot is a scripted FakeLead here; the worker runs on the FakeGateway."""
         db = Database(tmp_path / "data" / "studio.sqlite")
-        reviewer = FakeLead("codex", reviews)
+        autopilot = lead or FakeLead("autopilot")
+        autopilot.reviews = list(reviews)
         runner = Runner(
-            db,
-            gateway,
-            ModelRouter(db, MODELS),
-            {"claude": claude or FakeLead("claude"), "codex": reviewer},
-            tmp_path / "data" / "ws",
+            db, gateway, ModelRouter(db, MODELS), {"autopilot": autopilot}, tmp_path / "data" / "ws"
         )
-        return runner, db, reviewer
+        return runner, db, autopilot
 
     return build

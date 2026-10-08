@@ -13,7 +13,6 @@ from studio.agents.leads import AgentEvent, CallContext, LeadError
 from studio.agents.prompts import IMPLEMENT_SCHEMA, PLAN_SCHEMA, REVIEW_SCHEMA
 from studio.config import ModelSpec
 from studio.db import Database
-from studio.domain import LeadConfig
 from studio.gateway import GatewayUnavailable, ProviderError
 from studio.routing import ModelRouter
 from studio.vault import Vault
@@ -51,7 +50,6 @@ def make_lead(env: dict[str, Any], gateway: FakeGateway, vault: Vault | None = N
 def ctx(env: dict[str, Any], **kw: Any) -> tuple[CallContext, list[AgentEvent]]:
     events: list[AgentEvent] = []
     base: dict[str, Any] = {
-        "config": LeadConfig(),
         "timeout_s": 60,
         "should_stop": lambda: False,
         "on_event": events.append,

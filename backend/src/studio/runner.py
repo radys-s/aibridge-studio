@@ -32,7 +32,6 @@ from studio.agents.prompts import (
     draft_prompt,
     implement_prompt,
     memory_prompt,
-    merge_prompt,
     plan_prompt,
     review_prompt,
 )
@@ -40,10 +39,9 @@ from studio.apply import ApplyError, apply_run
 from studio.db import Database
 from studio.domain import (
     AUTOPILOT,
-    LEADS,
+    LEGACY_LEADS,
     Draft,
     ImplementReport,
-    LeadConfig,
     MemoryProposal,
     Message,
     Plan,
@@ -218,7 +216,7 @@ class Runner:
         self.db.event(run_id, "decision", "Uživatel schválil zadání")
 
     def takeover(self, run_id: str, lead: str | None = None, note: str = "") -> None:
-        """A strong lead implements from the next iteration on (manual escalation)."""
+        """Autopilot implements from the next iteration on (manual escalation)."""
         run = self._require(run_id)
         if run["state"] not in (RunState.NEEDS_DECISION, RunState.INTERRUPTED):
             raise ValueError("takeover is possible only when the run is stopped")
@@ -226,8 +224,8 @@ class Runner:
             raise ValueError("the task is not ready for implementation yet")
         spec = TaskSpec.model_validate_json(run["spec_json"])
         name = lead or spec.orchestration.primary
-        if name not in (AUTOPILOT, *LEADS) or name not in self.leads:
-            raise ValueError(f"unknown lead {name}")
+        if name != AUTOPILOT or name not in self.leads:
+            raise ValueError(f"unknown lead {name}; Studio routes only through Autopilot")
         feedback = json.loads(run["feedback_json"] or "[]")
         if note.strip():
             feedback.append(f"- Note from the user: {note.strip()}")
@@ -493,8 +491,8 @@ class Runner:
     ) -> tuple[int, T | LeadError]:
         """One lead call as one step. Cancel raises Stopped; other failures are returned.
 
-        CLI leads are recorded here as one subscription call; Autopilot (`records_calls`)
-        records each of its gateway calls itself, against the run's API budget.
+        Autopilot (`records_calls`) records each of its gateway calls itself, against the
+        run's API budget; any other lead (test doubles) is recorded here as one call.
         """
         run_id = run["id"]
         step = self.db.start_step(run_id, kind, run["iteration"], actor or name)
@@ -503,9 +501,7 @@ class Runner:
             error = LeadError(f"lead {name} is not configured in this Studio", "not_installed")
             self.db.finish_step(step, "failed", error=str(error))
             return step, error
-        config = spec.orchestration.config(name)
         ctx = CallContext(
-            config=config,
             timeout_s=spec.budget.agent_timeout_s,
             should_stop=lambda: self._should_stop(run_id),
             on_event=lambda e: self.db.agent_event(run_id, step, name, e.kind, e.text, e.data),
@@ -525,7 +521,7 @@ class Runner:
         except LeadError as exc:
             result = exc
         if not getattr(lead, "records_calls", False):
-            self._record_lead_call(run_id, step, kind, name, config, ctx, result, started)
+            self._record_lead_call(run_id, step, kind, name, ctx, result, started)
         if isinstance(result, LeadError):
             if result.kind == "cancelled":
                 self.db.finish_step(step, "interrupted", error=str(result))
@@ -541,7 +537,6 @@ class Runner:
         step: int,
         kind: str,
         name: str,
-        config: LeadConfig,
         ctx: CallContext,
         result: object,
         started: float,
@@ -550,10 +545,9 @@ class Runner:
             run_id=run_id,
             step_id=step,
             role=kind,
-            requested_model=f"{name}:{config.model or 'default'}"
-            + (f"@{config.effort}" if config.effort else ""),
+            requested_model=name,
             actual_model=ctx.usage.actual_model,
-            provider=f"{name} CLI (own login)",
+            provider=name,
             tokens_in=ctx.usage.tokens_in,
             tokens_out=ctx.usage.tokens_out,
             cost_usd=ctx.usage.cost_usd,
@@ -753,23 +747,7 @@ class Runner:
                 run_id, "; ".join(f"planning by {n} failed: {e}" for n, e in failed.items())
             )
         plans: dict[str, Plan] = {n: r for n, r in results.items() if isinstance(r, Plan)}
-        if len(plans) > 1:
-            self.db.event(run_id, "plan", f"{orch.primary} slučuje oba plány")
-            _step, merged = self._ask_lead(
-                run,
-                spec,
-                orch.primary,
-                "plan",
-                merge_prompt(spec, plans),
-                PLAN_SCHEMA,
-                Plan,
-                actor=f"{orch.primary}:merge",
-            )
-            if isinstance(merged, LeadError):
-                return self._needs_decision(run_id, f"merging plans failed: {merged}")
-            plan = merged
-        else:
-            plan = next(iter(plans.values()))
+        plan = next(iter(plans.values()))
         self.db.update_run(run_id, plan_json=plan.model_dump_json(), phase="work")
         if plan.questions:
             self.db.message(
@@ -813,7 +791,7 @@ class Runner:
             )
         if who == "freebuff":
             return self._handoff(run, spec, plan, feedback)
-        if who == AUTOPILOT or who in LEADS:
+        if who == AUTOPILOT or who in LEGACY_LEADS:  # legacy names fail as not configured
             return self._lead_work(run, spec, who, plan, feedback)
         return self._worker_work(run, spec, plan, feedback)
 
@@ -983,24 +961,21 @@ class Runner:
         )
         implementer = (work or {}).get("actor") or "worker"
         impl_name = implementer.removeprefix("lead:")
-        orch = spec.orchestration
-        reviewers: list[str] = list(orch.reviewers(impl_name))
-        optional: list[str] = [n for n in orch.second_opinion if n != impl_name and n in self.leads]
+        reviewers: list[str] = list(spec.orchestration.reviewers())
         exclude = self._step_models(run_id, work["id"]) if work else frozenset()
-        who = " a ".join(reviewers + optional)
-        self.db.event(run_id, "review", f"{who} nezávisle reviduje diff")
+        self.db.event(run_id, "review", f"{' a '.join(reviewers)} nezávisle reviduje diff")
         prompt = review_prompt(spec, verification["diff"], verification, summary, implementer)
         results = self._ask_leads(
             run,
             spec,
-            reviewers + optional,
+            reviewers,
             "review",
             lambda _n: prompt,
             REVIEW_SCHEMA,
             Review,
             exclude_models=exclude,
         )
-        dependent = {n for n in reviewers if n == impl_name and n != AUTOPILOT}
+        dependent: set[str] = set()
         first = results.get(AUTOPILOT)
         if isinstance(first, LeadError) and first.kind == "no_model" and exclude:
             # No other free model is available: review on the same one, the user confirms.
@@ -1010,13 +985,6 @@ class Runner:
             )
             if self._step_models(run_id, step) & exclude:
                 dependent.add(AUTOPILOT)
-        for name in optional:
-            result = results.get(name)
-            if isinstance(result, LeadError):
-                del results[name]
-                why = "došel limit" if result.kind == "limit" else result.kind
-                self.db.message(run_id, "studio", f"Druhý názor od {name} přeskočen ({why}).")
-                self.db.event(run_id, "warning", f"second opinion from {name} skipped: {result}")
         failed = {n: r for n, r in results.items() if isinstance(r, LeadError)}
         if failed:
             # Never accept on fewer reviews than the mode requires.

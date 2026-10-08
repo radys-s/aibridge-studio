@@ -31,26 +31,14 @@ ACTIVE_STATES = frozenset(
 )
 TERMINAL_STATES = frozenset({RunState.ACCEPTED, RunState.ABANDONED})
 
-LeadName = Literal["claude", "codex"]
-LEADS: tuple[LeadName, LeadName] = ("claude", "codex")
-# Studio's own orchestrator on free models (see ADR 0003). Not a CLI: no model/effort config.
+# Studio's own orchestrator on free models (ADR 0003). Claude and Codex are never routed
+# through Studio (ADR 0004): Tomáš uses them directly; Studio is for after their limits.
 AUTOPILOT: Literal["autopilot"] = "autopilot"
-AnyLead = Literal["autopilot", "claude", "codex"]
-Effort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
-# Values each CLI accepts. Claude: `claude --help` 2.1.269. Codex: API error message for an
-# invalid `model_reasoning_effort`, gpt-5.6-sol via ChatGPT login, verified 2026-10-06.
-EFFORTS: dict[str, tuple[str, ...]] = {
-    "claude": ("low", "medium", "high", "xhigh", "max"),
-    "codex": ("none", "minimal", "low", "medium", "high", "xhigh", "max"),
-}
-# Above `high` the subscription limits drain fast; the UI asks before using these.
-HEAVY_EFFORTS = frozenset({"xhigh", "max"})
-Implementer = Literal["auto", "worker", "freebuff", "autopilot", "claude", "codex"]
+AnyLead = Literal["autopilot"]
+# Run history from before ADR 0004 still names these as authors and implementers.
+LEGACY_LEADS = ("claude", "codex")
+Implementer = Literal["auto", "worker", "freebuff", "autopilot"]
 Escalation = Literal["off", "ask", "auto"]
-
-
-def other_lead(name: str) -> LeadName:
-    return "codex" if name == "claude" else "claude"
 
 
 class StepKind(StrEnum):
@@ -78,81 +66,29 @@ class Budget(BaseModel):
     max_escalations: int = Field(1, ge=0, le=3)
 
 
-class LeadConfig(BaseModel):
-    """Model and effort for one lead CLI. None = the CLI's own default."""
-
-    model: str | None = Field(None, max_length=100, pattern=r"^[A-Za-z0-9._:/\[\]-]+$")
-    effort: Effort | None = None
-
-
 class Orchestration(BaseModel):
-    """Who leads. The single place that decides which lead drafts, plans and reviews.
+    """Who leads: always Autopilot (ADR 0004). `plan` says whether a plan step runs.
 
-    autopilot (default): Studio's free-model orchestrator drafts, plans and reviews; the
-        review runs on a different model than the implementation. `second_opinion` adds
-        optional Claude/Codex reviews that are skipped when their limit is used up.
-    claude / codex: one lead does everything (reduced independence, flagged in the UI).
-    cross: `primary` drafts and plans, the other lead reviews.
-    duo: both plan independently (primary merges), both review; accept needs both.
-    The last three are kept for older runs and for use while subscriptions have quota.
+    Specs stored before ADR 0004 (modes claude/codex/cross/duo, second opinions, CLI
+    model and effort) load as Autopilot; their other fields are dropped.
     """
 
-    mode: Literal["autopilot", "claude", "codex", "cross", "duo"] = "autopilot"
+    mode: Literal["autopilot"] = "autopilot"
     primary: AnyLead = "autopilot"
     plan: bool = True
-    second_opinion: list[LeadName] = Field(default_factory=list)
-    claude: LeadConfig = Field(default_factory=lambda: LeadConfig())
-    codex: LeadConfig = Field(default_factory=lambda: LeadConfig())
 
-    @model_validator(mode="after")
-    def _check(self) -> Orchestration:
-        if self.mode == "claude" or self.mode == "codex" or self.mode == AUTOPILOT:
-            self.primary = self.mode
-        elif self.primary == AUTOPILOT:
-            self.primary = "claude"  # cross/duo pair the two CLI leads
-        self.second_opinion = (
-            list(dict.fromkeys(self.second_opinion)) if self.mode == AUTOPILOT else []
-        )
-        for name in LEADS:
-            effort = self.config(name).effort
-            if effort and effort not in EFFORTS[name]:
-                raise ValueError(f"{name} does not support effort '{effort}'")
-        return self
-
-    def config(self, name: str) -> LeadConfig:
-        if name == "claude":
-            return self.claude
-        if name == "codex":
-            return self.codex
-        return LeadConfig()
-
-    @property
-    def solo(self) -> bool:
-        return self.mode in LEADS
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {"plan": bool(data.get("plan", True))}
+        return data
 
     def planners(self) -> list[AnyLead]:
-        if not self.plan:
-            return []
-        if self.mode == "duo":
-            return [self.primary, other_lead(self.primary)]
-        return [self.primary]
+        return [AUTOPILOT] if self.plan else []
 
-    def reviewers(self, implementer: str | None = None) -> list[AnyLead]:
-        """Required reviewers. Autopilot's optional second opinions are separate."""
-        if self.mode == AUTOPILOT:
-            return [AUTOPILOT]
-        if self.mode in LEADS:
-            return [self.primary]
-        if self.mode == "duo":
-            return [self.primary, other_lead(self.primary)]
-        # cross: never let a lead review its own implementation alone.
-        if implementer in LEADS:
-            return [other_lead(implementer or "")]
-        return [other_lead(self.primary)]
-
-    def heavy(self) -> list[str]:
-        used = {*self.planners(), *self.reviewers(), *self.second_opinion, self.primary}
-        return [n for n in LEADS if n in used and self.config(n).effort in HEAVY_EFFORTS]
+    def reviewers(self) -> list[AnyLead]:
+        return [AUTOPILOT]
 
 
 class Message(BaseModel):
@@ -181,7 +117,7 @@ class TaskSpec(BaseModel):
     implementer: Implementer = Field(
         "auto",
         description="auto = cheap worker, escalated by policy; worker = tool loop via "
-        "OmniRoute; freebuff = the user runs Freebuff by hand; claude/codex = lead implements",
+        "OmniRoute; freebuff = the user runs Freebuff by hand; autopilot = lead implements",
     )
     escalation: Escalation = "ask"
     auto_approve: bool = Field(False, description="skip approval of a draft without questions")
@@ -196,24 +132,20 @@ class TaskSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _legacy(cls, data: Any) -> Any:
-        """Specs stored by Phase 1 used planner/reviewer and implementer=external."""
+        """Older specs: Phase 1 planner/reviewer and implementer=external; before ADR 0004
+        claude/codex implementers. All of them continue as Autopilot runs."""
         if not isinstance(data, dict):
             return data
         data = dict(data)
         planner = data.pop("planner", None)
-        reviewer = data.pop("reviewer", None)
+        data.pop("reviewer", None)
         data.pop("external_agent", None)
         if data.get("implementer") == "external":
             data["implementer"] = "freebuff"
-        if (planner or reviewer) and "orchestration" not in data:
-            reviewer = reviewer or "codex"
-            if planner == reviewer:
-                orch: dict[str, Any] = {"mode": reviewer}
-            elif planner in (None, "none"):
-                orch = {"mode": "cross", "primary": other_lead(reviewer), "plan": False}
-            else:
-                orch = {"mode": "cross", "primary": planner}
-            data["orchestration"] = orch
+        if data.get("implementer") in LEGACY_LEADS:
+            data["implementer"] = AUTOPILOT
+        if planner == "none" and "orchestration" not in data:
+            data["orchestration"] = {"plan": False}
         return data
 
     @field_validator("allowed_paths", "acceptance_criteria", "acceptance_commands")
