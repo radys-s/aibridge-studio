@@ -40,6 +40,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "cloudflare-ai": "Cloudflare",
   cf: "Cloudflare",
   cerebras: "Cerebras",
+  // GitHub Models was retired 2026-07-30; labels stay for old runs.
   ghm: "GitHub Models",
   "github-models": "GitHub Models",
   nvidia: "NVIDIA",
@@ -55,20 +56,13 @@ const PROVIDER_LABELS: Record<string, string> = {
  * (ADR 0005). Only providers that do not train on inputs are offered. */
 export const KEY_SOURCES: { provider: string; label: string; signup: string; omniroute: string; note: string }[] = [
   { provider: "groq", label: "Groq", signup: "https://console.groq.com/keys", omniroute: "Groq", note: "V Data Controls zapni Zero Data Retention." },
-  { provider: "cerebras", label: "Cerebras", signup: "https://cloud.cerebras.ai", omniroute: "Cerebras", note: "API Keys v levém menu." },
+  { provider: "cerebras", label: "Cerebras", signup: "https://cloud.cerebras.ai", omniroute: "Cerebras", note: "Free tier chce platební kartu – bez ní ho přeskoč." },
   {
     provider: "cf",
     label: "Cloudflare Workers AI",
     signup: "https://dash.cloudflare.com/profile/api-tokens",
     omniroute: "Cloudflare AI",
-    note: "Token ze šablony „Workers AI“ a k němu Account ID (pravý panel na dash.cloudflare.com).",
-  },
-  {
-    provider: "ghm",
-    label: "GitHub Models",
-    signup: "https://github.com/settings/personal-access-tokens/new",
-    omniroute: "GitHub Models",
-    note: "Fine-grained token, Account permissions → Models → Read-only.",
+    note: "Token ze šablony „Workers AI“. V OmniRoute vyplň i Account ID (pravý panel na dash.cloudflare.com), jinak vrací 502.",
   },
 ];
 export const OMNIROUTE_PROVIDERS_URL = "http://localhost:20128/dashboard/providers";

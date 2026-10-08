@@ -33,7 +33,7 @@ def test_privacy_floor_skips_models_that_may_train(tmp_path: Path) -> None:
 
 def test_no_private_model_names_the_provider_to_connect(tmp_path: Path) -> None:
     r = router(tmp_path, OPEN, privacy_floor="no_train")
-    with pytest.raises(NoModelAvailable, match="connect Groq, Cerebras"):
+    with pytest.raises(NoModelAvailable, match="connect Groq, Cloudflare"):
         r.choose("run", BUDGET, set(), capability="lead")
 
 
@@ -179,7 +179,9 @@ def test_default_catalog_privacy_follows_the_provider() -> None:
     assert privacy["groq/openai/gpt-oss-120b"] == "no_train"
     assert privacy["cerebras/gpt-oss-120b"] == "no_train"
     assert privacy["cf/@cf/moonshotai/kimi-k2.6"] == "no_train"
-    assert privacy["ghm/openai/gpt-4.1"] == "no_train"
+    assert privacy["cf/@cf/zai-org/glm-4.7-flash"] == "no_train"
+    # GitHub Models was retired on 2026-07-30.
+    assert not any(m.provider in ("ghm", "github-models") for m in DEFAULT_MODELS)
     assert privacy["nvidia/moonshotai/kimi-k2.6"] == "may_train"
     assert privacy["mistral/devstral-latest"] == "may_train"
     assert privacy["zai/glm-4.7-flash"] == "unknown"

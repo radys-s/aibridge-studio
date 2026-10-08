@@ -51,8 +51,9 @@ Live run on Groq accepted 2026-10-08.
 ## Phase 2d — more private providers (in progress, ADR 0005)
 
 Providers from Prizma through OmniRoute, alias-based ids, per-provider privacy, key links and
-a model probe in Settings. Next: live run with Cerebras reviewing Groq's work, then worker
-context trimming (the history grows every turn) and router learning from outcomes.
+a model probe in Settings, worker context trimming. GitHub Models removed (retired), Cerebras
+skipped (needs a card). Next: live run with Cloudflare reviewing Groq's work once the Account
+ID is set in OmniRoute, then router learning from outcomes.
 
 ## Phase 2 — reliability and context
 

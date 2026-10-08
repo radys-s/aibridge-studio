@@ -47,7 +47,7 @@ Provider data policies, checked 2026-10-07/08:
   - `STUDIO_PRIVACY=unknown` relaxes the floor (explicit choice by Tomáš).
   - `STUDIO_OPENROUTER_NO_TRAIN=1` marks OpenRouter `:free` models as `no_train` after
     Tomáš turns off "allow providers that may train" in his OpenRouter privacy settings.
-- Default lead order: `groq/openai/gpt-oss-120b`, Cloudflare `kimi-k2.6` and `gpt-oss-120b`,
+- Default lead order: `groq/openai/gpt-oss-120b`, Cloudflare `kimi-k2.6` and `gpt-oss-120b` (later `glm-4.7-flash`, see ADR 0005),
   `groq/openai/gpt-oss-20b`, then OpenRouter `:free` (blocked by the default floor).
   ADR 0005 extends the catalog with the providers from Prizma and fixes the Cloudflare ids
   (`cf/...`, the alias OmniRoute lists).

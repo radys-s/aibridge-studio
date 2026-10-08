@@ -30,7 +30,7 @@ Options considered:
   | Alias | Class | Basis |
   | --- | --- | --- |
   | groq, cf, cerebras | no_train | ADR 0004 |
-  | ghm (GitHub Models) | no_train | prompts and outputs not shared with model vendors nor used for training; closed to new customers since 2026-06, existing keys keep working |
+  | ghm (GitHub Models) | removed | retired by GitHub on 2026-07-30 (see update below) |
   | nvidia (API trial) | may_train | trial terms let NVIDIA use content to improve its products and models |
   | gemini, mistral (free tiers) | may_train | ADR 0004 |
   | zai, cohere, hf, openrouter | unknown | no clear public commitment for free or trial keys |
@@ -39,13 +39,22 @@ Options considered:
   floor can only be relaxed to `unknown`. After Tomáš opts out of training with a provider
   (for example in the Mistral admin console), `STUDIO_NO_TRAIN_PROVIDERS=mistral` promotes it.
 - New lead order: Groq `gpt-oss-120b`, Cerebras `gpt-oss-120b`, Cloudflare `kimi-k2.6`,
-  Cerebras `zai-glm-4.7`, Cloudflare `gpt-oss-120b`, GitHub Models `gpt-4.1`, Groq
-  `gpt-oss-20b`.
+  Cerebras `zai-glm-4.7`, Cloudflare `glm-4.7-flash`, Groq `gpt-oss-20b`.
 
 ## Consequences
 
 - With Groq and Cerebras connected, the review runs on a different provider than the work,
   not only on a different model.
-- GitHub Models allows about 50 requests a day for `gpt-4.1` and has a small input cap per
-  request. Oversized requests fail and cool the model, and the router moves on.
 - Prizma keeps its own copy of the keys. A rotated key must be updated in both places.
+
+## Update 2026-10-08 (after the keys were added)
+
+- GitHub Models was retired by GitHub on 2026-07-30. `models.github.ai` now answers every
+  request, with or without a token, with `200 text/plain "OK"`, which OmniRoute reports as
+  "Invalid JSON response from provider" (502). Removed from the catalog and key links.
+- Cerebras' free tier asks for a payment method. Tomáš will not add one, so Cerebras stays in
+  the catalog (skipped while not connected) but is not the planned second provider.
+- OmniRoute's Cloudflare list has no `gpt-oss-120b`; `glm-4.7-flash` replaces it. Cloudflare
+  also needs the Account ID in the OmniRoute provider settings, otherwise every call is a 502
+  "requires an Account ID".
+- So the second no-train provider for independent review is Cloudflare Workers AI.
