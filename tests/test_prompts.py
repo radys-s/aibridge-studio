@@ -13,7 +13,6 @@ def test_every_lead_prompt_confines_the_agent_to_the_repository() -> None:
     texts = [
         prompts.draft_prompt(spec, []),
         prompts.plan_prompt(spec, []),
-        prompts.merge_prompt(spec, {"claude": plan, "codex": plan}),
         prompts.implement_prompt(spec, plan, [], []),
         prompts.review_prompt(spec, "", verification, "", "worker"),
     ]

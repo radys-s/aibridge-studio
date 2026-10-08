@@ -20,9 +20,12 @@ class GatewayError(Exception):
 
     kind = "error"
 
-    def __init__(self, message: str, *, status: int | None = None) -> None:
+    def __init__(
+        self, message: str, *, status: int | None = None, retry_after: float | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after  # seconds, from the provider's Retry-After header
 
 
 class GatewayUnavailable(GatewayError):
@@ -66,6 +69,10 @@ class ChatGateway(Protocol):
 
     def health(self) -> dict[str, Any]: ...
 
+    def models(self) -> set[str] | None:
+        """Model ids OmniRoute exposes now, or None when unknown."""
+        ...
+
 
 def _float(value: str | None) -> float:
     try:
@@ -81,6 +88,7 @@ class OmniRouteGateway:
         self._headers = {"Content-Type": "application/json"}
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
+        self._models: tuple[float, set[str]] | None = None
 
     def health(self) -> dict[str, Any]:
         try:
@@ -88,6 +96,19 @@ class OmniRouteGateway:
             return {"reachable": True, "status": r.status_code}
         except httpx.HTTPError as exc:
             return {"reachable": False, "error": type(exc).__name__}
+
+    def models(self) -> set[str] | None:
+        """Exposed model ids, cached for a minute (connected providers rarely change)."""
+        now = time.monotonic()
+        if self._models is not None and now - self._models[0] < 60:
+            return self._models[1]
+        try:
+            r = httpx.get(f"{self.base_url}/v1/models", headers=self._headers, timeout=5)
+            ids = {str(m["id"]) for m in r.json()["data"]}
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return None
+        self._models = (now, ids)
+        return ids
 
     def chat(
         self,
@@ -122,7 +143,10 @@ class OmniRouteGateway:
             detail = r.text[:400]
             with contextlib.suppress(ValueError, KeyError, TypeError):
                 detail = str(r.json()["error"]["message"])[:400]
-            raise ProviderError(f"{r.status_code}: {detail}", status=r.status_code)
+            retry_after = _float(r.headers.get("retry-after")) or None
+            raise ProviderError(
+                f"{r.status_code}: {detail}", status=r.status_code, retry_after=retry_after
+            )
         try:
             data = r.json()
             choice = data["choices"][0]

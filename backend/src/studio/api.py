@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import tempfile
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -22,14 +21,13 @@ from pydantic import BaseModel, Field
 
 from studio import __version__
 from studio.agents.api_lead import ApiLead
-from studio.agents.leads import CallContext, ClaudeLead, CodexLead, Lead, LeadError
-from studio.agents.prompts import PROBE_SCHEMA, probe_prompt
+from studio.agents.leads import Lead
 from studio.config import Settings
 from studio.db import Database
-from studio.domain import AUTOPILOT, LEADS, Effort, LeadConfig, TaskSpec
+from studio.domain import AUTOPILOT, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
 from studio.memory import project_memory
-from studio.preferences import Catalog, Defaults, Preferences
+from studio.preferences import Defaults, Preferences
 from studio.routing import ModelRouter
 from studio.runner import Runner
 from studio.sandbox import Denied
@@ -59,20 +57,13 @@ ACTIONS = (
 class ActionBody(BaseModel):
     note: str = Field("", max_length=20_000)
     text: str = Field("", max_length=20_000)
-    lead: Literal["autopilot", "claude", "codex"] | None = None
+    lead: Literal["autopilot"] | None = None  # Studio never routes to Claude/Codex
     edits: dict[str, Any] | None = None
     index: int | None = None  # which memory proposal (vault-write / vault-discard)
 
 
 class SettingsBody(BaseModel):
-    defaults: Defaults | None = None
-    catalog: Catalog | None = None
-
-
-class ProbeBody(BaseModel):
-    lead: Literal["autopilot", "claude", "codex"]
-    model: str | None = None
-    effort: Effort | None = None
+    defaults: Defaults
 
 
 def _decode(row: dict[str, Any], *keys: str) -> dict[str, Any]:
@@ -109,13 +100,18 @@ def create_app(
     gw = gateway or OmniRouteGateway(
         settings.omniroute_url, settings.omniroute_api_key, settings.gateway_timeout_s
     )
-    router = ModelRouter(db, settings.worker_models)
+    router = ModelRouter(
+        db,
+        settings.worker_models,
+        privacy_floor=settings.privacy_floor,
+        allow_paid=settings.allow_paid,
+        exposed=gw.models,
+        max_wait_s=settings.route_wait_s,
+    )
     lead_map: dict[str, Lead] = leads or {
         AUTOPILOT: ApiLead(db, gw, router, lambda: settings.vault()),
-        "claude": ClaudeLead(settings.claude_bin),
-        "codex": CodexLead(settings.codex_bin),
     }
-    prefs = Preferences(db, settings.codex_model)
+    prefs = Preferences(db)
     runner = Runner(db, gw, router, lead_map, settings.workspaces_dir, settings.vault)
     allowed_origins = {
         f"http://{settings.host}:{settings.port}",
@@ -152,6 +148,8 @@ def create_app(
             "worker_models": router.candidates(),
             "lead_models": router.candidates("lead", "hard"),
             "cooldowns": db.cooldowns(),
+            "models": router.catalog(),
+            "privacy_floor": router.privacy_floor,
             "api_calls_today": db.api_calls_since(_midnight_utc()),
         }
 
@@ -163,26 +161,8 @@ def create_app(
 
     @app.put("/api/settings")
     def put_settings(body: SettingsBody) -> dict[str, Any]:
-        prefs.save(body.defaults, body.catalog)
+        prefs.save(body.defaults)
         return prefs.snapshot()
-
-    @app.post("/api/probe")
-    def probe(body: ProbeBody) -> dict[str, Any]:
-        """One tiny live call: does this model + effort work with the user's CLI login?"""
-        config = LeadConfig(model=body.model or None, effort=body.effort)
-        ctx = CallContext(config=config, timeout_s=180, should_stop=lambda: False)
-        started = time.monotonic()
-        result: dict[str, Any]
-        with tempfile.TemporaryDirectory(prefix="studio-probe-") as tmp:
-            try:
-                lead_map[body.lead].ask(probe_prompt(), PROBE_SCHEMA, Path(tmp), ctx)
-                result = {"ok": True, "actual_model": ctx.usage.actual_model}
-            except LeadError as exc:
-                result = {"ok": False, "kind": exc.kind, "error": str(exc)[:500]}
-        result["latency_ms"] = int((time.monotonic() - started) * 1000)
-        result["tokens"] = ctx.usage.tokens_in + ctx.usage.tokens_out
-        prefs.record_probe(f"{body.lead}:{config.model or 'default'}:{config.effort or ''}", result)
-        return result
 
     # --- shared memory (Obsidian) ------------------------------------------------------
 
@@ -230,14 +210,11 @@ def create_app(
             vault = settings.vault()
             if vault is None or not vault.shareable(spec.project_note):
                 raise HTTPException(422, "project_note is not a shared note in the vault")
-        defaults = prefs.defaults().orchestration
-        for name in LEADS:  # a lead left on "default" gets the user's preferred model
-            config = spec.orchestration.config(name)
-            if not config.model:
-                config.model = defaults.config(name).model
         run_id = db.create_task_and_run(spec.model_dump_json())
         db.message(run_id, "user", spec.goal)
         prefs.remember_repo(str(repo))
+        if spec.project_note:
+            prefs.remember_project(spec.project_note)
         runner.wake()
         return {"run_id": run_id}
 

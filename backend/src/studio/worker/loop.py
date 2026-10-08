@@ -106,7 +106,11 @@ class Worker:
         route_budget = RouteBudget(self.budget.max_tokens, self.budget.max_cost_usd)
         for _ in range(MAX_MODEL_SWITCHES_PER_TURN):
             model = self.router.choose(
-                self.run_id, route_budget, excluded, complexity=self.complexity
+                self.run_id,
+                route_budget,
+                excluded,
+                complexity=self.complexity,
+                should_stop=self.should_stop,
             )
             try:
                 res = self.gateway.chat(model, messages, TOOLS)
@@ -124,7 +128,9 @@ class Worker:
                 )
                 if isinstance(exc, GatewayUnavailable):
                     raise
-                self.router.report_failure(model, exc.kind, exc.status, str(exc))
+                self.router.report_failure(
+                    model, exc.kind, exc.status, str(exc), getattr(exc, "retry_after", None)
+                )
                 excluded.add(model)
                 continue
             self.db.record_model_call(

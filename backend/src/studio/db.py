@@ -391,6 +391,10 @@ class Database:
                 (model, until, reason),
             )
 
+    def clear_cooldown(self, model: str) -> None:
+        with self.connect() as c:
+            c.execute("DELETE FROM cooldown WHERE model = ?", (model,))
+
     def cooldowns(self) -> dict[str, float]:
         with self.connect() as c:
             rows = c.execute("SELECT model, until FROM cooldown WHERE until > ?", (time.time(),))

@@ -184,6 +184,8 @@ class ApiLead:
                     excluded,
                     capability="lead",
                     complexity=ctx.complexity,
+                    never=frozenset(ctx.exclude_models),
+                    should_stop=ctx.should_stop,
                 )
             except NoModelAvailable as exc:
                 raise LeadError(str(exc), "no_model") from exc
@@ -196,7 +198,9 @@ class ApiLead:
                 self._record(ctx, model, outcome=exc.kind, error=str(exc)[:500])
                 if isinstance(exc, GatewayUnavailable):
                     raise LeadError(f"OmniRoute is not reachable: {exc}", "gateway_down") from exc
-                self.router.report_failure(model, exc.kind, exc.status, str(exc))
+                self.router.report_failure(
+                    model, exc.kind, exc.status, str(exc), getattr(exc, "retry_after", None)
+                )
                 excluded.add(model)
                 ctx.on_event(AgentEvent("error", f"{model}: {exc.kind}"))
                 continue
