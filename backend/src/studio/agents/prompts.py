@@ -294,7 +294,7 @@ def memory_prompt(
             "- handoff_to / handoff_topic: who should pick it up and a short topic.",
             "- handoff_done / handoff_open / handoff_files / handoff_avoid: bullet items for",
             "  'done (verified)', 'open points', 'files and places', 'what not to do'.",
-            "You do not need tools; call submit directly.",
+            "Call the submit tool once with these fields. Do not answer in prose.",
             "",
             *_spec_lines(spec),
             "",

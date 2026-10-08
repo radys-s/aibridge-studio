@@ -56,6 +56,7 @@ def build_proposals(
     run_id: str,
     title: str,
     today: date | None = None,
+    author: str = "Autopilot",
 ) -> list[dict[str, Any]]:
     day = (today or date.today()).isoformat()
     stem = PurePosixPath(note_rel).stem
@@ -66,7 +67,7 @@ def build_proposals(
             {
                 "kind": "append",
                 "path": note_rel,
-                "content": f"## {day} — AI Bridge Studio (Autopilot)\n"
+                "content": f"## {day} — AI Bridge Studio ({author})\n"
                 f"Běh `{run_id}`: {title}\n\n" + proposal.project_update.strip()[:MAX_UPDATE_CHARS],
                 "status": "proposed",
             }
@@ -100,12 +101,47 @@ def build_proposals(
         out.append(
             {
                 "kind": "new",
-                "path": handoff_name(topic, proposal.handoff_to),
+                "path": handoff_name(topic, proposal.handoff_to, day),
                 "content": "\n".join(body),
                 "status": "proposed",
             }
         )
     return out
+
+
+def fallback_proposal(
+    goal: str,
+    changed: list[str],
+    commands: list[str],
+    review_summary: str,
+) -> MemoryProposal:
+    """Studio's own proposal from run facts, used when the model does not deliver one.
+
+    Only facts Studio checked itself: changed files, the acceptance commands that passed,
+    and the review summary. Nothing is invented, so it is safe to show and edit.
+    """
+    files = changed[:MAX_ITEMS]
+    review = " ".join(review_summary.split())[:400]
+    done = [f"Přijato po nezávislém ověření: {c}" for c in commands[:5]] or [
+        "Přijato po nezávislém ověření (bez akceptačních příkazů)"
+    ]
+    lines = [f"- Cíl: {' '.join(goal.split())[:300]}"]
+    if files:
+        lines.append("- Změněné soubory: " + ", ".join(f"`{f}`" for f in files))
+    lines += [f"- {d}" for d in done]
+    if review:
+        lines.append(f"- Recenze: {review}")
+    lines.append("- Další krok: zkontrolovat změnu (vznikla na free modelech) a sloučit.")
+    return MemoryProposal(
+        project_update="\n".join(lines),
+        handoff_needed=True,
+        handoff_to="claude",
+        handoff_topic=" ".join(goal.split())[:80],
+        handoff_done=done + [f"Recenze: {review}"] * bool(review),
+        handoff_open=["Zkontrolovat změnu z AI Bridge Studia a rozhodnout o sloučení větve."],
+        handoff_files=files,
+        handoff_avoid=["Nepřepisovat změnu bez přečtení recenze a výsledků testů."],
+    )
 
 
 def _bullets(items: list[str]) -> list[str]:

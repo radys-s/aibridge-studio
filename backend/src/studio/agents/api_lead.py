@@ -91,8 +91,8 @@ class ApiLead:
         sandbox = Sandbox(cwd, list(ctx.scope) if mode == "write" else [])
         files = FileTools(sandbox)
         vault = self.vault()
-        tools: list[dict[str, Any]] = [*READ_TOOLS]
-        if vault and vault.available():
+        tools: list[dict[str, Any]] = [] if mode == "submit" else [*READ_TOOLS]
+        if mode != "submit" and vault and vault.available():
             tools += [VAULT_SEARCH, VAULT_READ]
         if mode == "write":
             tools += WRITE_TOOLS
@@ -109,7 +109,7 @@ class ApiLead:
         offered = {t["function"]["name"] for t in tools}
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": prompt + _tree(sandbox)},
+            {"role": "user", "content": prompt if mode == "submit" else prompt + _tree(sandbox)},
         ]
         deadline = time.monotonic() + ctx.timeout_s
         repairs = nudges = 0
@@ -135,7 +135,7 @@ class ApiLead:
                 nudges += 1
                 if nudges > MAX_NUDGES:
                     raise LeadError("model stopped calling tools without submitting", "bad_output")
-                messages.append({"role": "user", "content": "Use the tools; finish with submit."})
+                messages.append({"role": "user", "content": _nudge(schema)})
                 continue
             for call in calls:
                 fn = call.get("function") or {}
@@ -317,3 +317,14 @@ def schema_errors(value: Any, schema: dict[str, Any], path: str = "$") -> list[s
     elif kind == "boolean" and not isinstance(value, bool):
         errors.append(f"{path} must be true or false")
     return errors
+
+
+def _nudge(schema: dict[str, Any]) -> str:
+    """Remind the model that only a `submit` call counts, naming the fields it needs."""
+    fields = ", ".join(schema.get("properties", {})) or "the result"
+    required = ", ".join(schema.get("required", []))
+    need = f" Required: {required}." if required else ""
+    return (
+        "Your answer only counts when you call the `submit` tool. Do not answer in prose. "
+        f"Call submit now with these arguments: {fields}.{need}"
+    )

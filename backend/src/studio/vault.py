@@ -230,9 +230,9 @@ class Vault:
         return rel
 
 
-def handoff_name(topic: str, to: str = "claude") -> str:
+def handoff_name(topic: str, to: str = "claude", day: str | None = None) -> str:
     safe = " ".join(re.sub(r'[\\/:*?"<>|]+', " ", topic).split())[:80] or "pokračování"
-    return f"{HANDOFFS}/{date.today().isoformat()} studio → {to} - {safe}.md"
+    return f"{HANDOFFS}/{day or date.today().isoformat()} studio → {to} - {safe}.md"
 
 
 def redact(text: str) -> str:
