@@ -36,3 +36,58 @@ export function actorLead(actor: string | null): string | null {
   const name = actor.replace(/^lead:/, "").split(":")[0];
   return name === "claude" || name === "codex" || name === "autopilot" ? name : null;
 }
+
+export type StageState = "todo" | "running" | "done" | "failed" | "waiting" | "skipped";
+export interface Stage {
+  id: string;
+  label: string;
+  state: StageState;
+}
+
+const STAGES: { id: string; label: string; kinds: string[] }[] = [
+  { id: "spec", label: "Zadání", kinds: ["draft"] },
+  { id: "plan", label: "Plán", kinds: ["plan"] },
+  { id: "work", label: "Práce", kinds: ["work", "handoff"] },
+  { id: "verify", label: "Ověření", kinds: ["verify"] },
+  { id: "review", label: "Recenze", kinds: ["review"] },
+  { id: "memory", label: "Paměť", kinds: ["memory"] },
+];
+// Work, verification and review repeat on rework; only the newest iteration counts.
+const REPEATED = ["work", "handoff", "verify", "review"];
+
+/** Six plain stages for the run header: where the run is and what went wrong. */
+export function progress(d: RunDetail): Stage[] {
+  const { run, steps } = d;
+  const iteration = Math.max(0, ...steps.filter((s) => REPEATED.includes(s.kind)).map((s) => s.iteration));
+  const last = (kinds: string[]): Step | undefined =>
+    steps
+      .filter((s) => kinds.includes(s.kind) && (!REPEATED.includes(s.kind) || s.iteration === iteration))
+      .reduce<Step | undefined>((a, s) => (!a || s.id > a.id ? s : a), undefined);
+  const stages = STAGES.map((st): Stage => {
+    const step = last(st.kinds);
+    let state: StageState = "todo";
+    if (step) {
+      if (step.status === "running") state = "running";
+      else if (step.status === "done") state = "done";
+      // Stopped by a restart or Přerušit: it waits for the user to resume, it did not fail.
+      else if (step.status === "interrupted") state = "waiting";
+      else state = "failed";
+      // A review that asks for changes did not pass, even though the step finished.
+      const verdict = (step.output as { verdict?: string } | null)?.verdict;
+      if (st.id === "review" && state === "done" && verdict && verdict !== "accept") state = "failed";
+      const passed = (step.output as { passed?: boolean } | null)?.passed;
+      if (st.id === "verify" && state === "done" && passed === false) state = "failed";
+    }
+    return { id: st.id, label: st.label, state };
+  });
+  const later = (i: number) => stages.slice(i + 1).some((s) => s.state !== "todo");
+  stages.forEach((s, i) => {
+    if (s.state !== "todo") return;
+    // A full manual spec skips the draft; a run without planning skips the plan.
+    if (s.id === "spec") s.state = run.state === "awaiting_approval" ? "waiting" : later(i) ? "done" : "todo";
+    else if (s.id === "plan" && later(i)) s.state = "skipped";
+  });
+  if (run.state === "awaiting_approval") stages[0].state = "waiting";
+  if (run.state === "awaiting_external" && stages[2].state !== "done") stages[2].state = "waiting";
+  return stages;
+}

@@ -54,7 +54,7 @@ export function Sidebar(p: Props) {
         <span className="logo" aria-hidden="true">◆</span> AI Bridge Studio
       </div>
       <button type="button" className={`new-task${p.view === "new" ? " on" : ""}`} onClick={p.onNew}>
-        + Nový úkol
+        Nový úkol
       </button>
       <input
         className="search"
@@ -117,7 +117,7 @@ export function Sidebar(p: Props) {
         </div>
         <div className="foot-buttons">
           <button type="button" className={`small${p.view === "settings" ? " on" : ""}`} onClick={p.onSettings}>
-            ⚙ Nastavení
+            Nastavení
           </button>
           <button type="button" className="small" onClick={p.onTheme} aria-label="Přepnout motiv" title="Motiv">
             {p.theme === "dark" ? "☾" : p.theme === "light" ? "☀" : "◐"}

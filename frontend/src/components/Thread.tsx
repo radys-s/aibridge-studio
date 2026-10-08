@@ -21,7 +21,7 @@ import {
 } from "../api";
 import { absoluteTime, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
 import { actorLabel, describe, lines } from "../options";
-import { actorLead, buildThread, latestDraftId } from "../thread";
+import { actorLead, buildThread, latestDraftId, progress, type StageState } from "../thread";
 import { CopyButton, ExitBadge, latestOutput, List } from "./bits";
 import { StateBadge } from "./StateBadge";
 
@@ -329,7 +329,7 @@ function StepCard({ step, agent, act, latest }: { step: Step; agent: AgentEvent[
       <div className="step-head">
         <span className={`step-dot ${step.status}`} aria-hidden="true" />
         <strong>{stepTitle(step)}</strong>
-        <span className="muted small">iterace {step.iteration}</span>
+        {step.iteration > 1 && <span className="muted small">{step.iteration}. pokus</span>}
         <span className={`badge step-status-${step.status}`}>{STEP_STATUS_LABELS[step.status] ?? step.status}</span>
         <span className="muted small" title={absoluteTime(step.started_at)}>
           {dur}
@@ -395,7 +395,7 @@ function DraftCard({ message, editable, act }: { message: Message; editable: boo
       </div>
       {hasQuestions && (
         <div className="alert warn">
-          <strong>Lead se ptá:</strong>
+          <strong>Autopilot se ptá:</strong>
           <List items={draft.questions} />
         </div>
       )}
@@ -459,10 +459,10 @@ function files(n: number): string {
 
 /** Takeover: Autopilot (a stronger free model) writes the code itself. Claude/Codex are not
  * offered (ADR 0004). */
-function LeadButtons({ act, note }: { act: Act; note: string }) {
+function TakeoverButton({ act, note }: { act: Act; note: string }) {
   return (
     <button type="button" onClick={() => void act("takeover", { lead: AUTOPILOT, note })}>
-      Předat Autopilotovi (silnější model)
+      Předat silnějšímu modelu
     </button>
   );
 }
@@ -540,7 +540,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   if (run.state === "awaiting_approval") {
     return (
       <div className="decision-bar ask">
-        <span>{run.pending === "draft" ? "Lead se ptá – odpověz zprávou, nebo schval návrh." : "Návrh zadání čeká na schválení."}</span>
+        <span>{run.pending === "draft" ? "Autopilot se ptá – odpověz zprávou dole, nebo návrh rovnou schval." : "Návrh zadání čeká na schválení."}</span>
         <button type="button" onClick={() => void act("cancel")}>Přerušit</button>
         {abandon}
       </div>
@@ -583,7 +583,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
         <button type="button" className="primary" onClick={() => void act("resume")}>
           Pokračovat
         </button>
-        {implementable && <LeadButtons act={act} note={note} />}
+        {implementable && <TakeoverButton act={act} note={note} />}
         {abandon}
       </div>
     );
@@ -614,8 +614,8 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
     case "takeover":
       buttons = (
         <>
-          <LeadButtons act={act} note={note} />
-          {run.phase === "work" && <button type="button" onClick={() => void act("keep-worker")}>Ponechat workera</button>}
+          <TakeoverButton act={act} note={note} />
+          {run.phase === "work" && <button type="button" onClick={() => void act("keep-worker")}>Ponechat levný model</button>}
         </>
       );
       break;
@@ -644,7 +644,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
       break;
     case "draft":
     case "plan":
-      buttons = <span className="muted small">Odpověz zprávou dole; lead pak pokračuje.</span>;
+      buttons = <span className="muted small">Odpověz zprávou dole, Autopilot pak pokračuje.</span>;
       break;
     default:
       buttons = (
@@ -664,7 +664,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
               Vrátit k opravě
             </button>
           )}
-          {implementable && <LeadButtons act={act} note={note} />}
+          {implementable && <TakeoverButton act={act} note={note} />}
         </>
       );
   }
@@ -680,13 +680,24 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   );
 }
 
+const STAGE_HINTS: Record<StageState, string> = {
+  todo: "čeká",
+  running: "právě běží",
+  done: "hotovo",
+  failed: "neprošlo",
+  waiting: "čeká na tebe",
+  skipped: "přeskočeno",
+};
+
 interface Props {
   detail: RunDetail;
   live: boolean;
   onChanged: () => void;
+  detailsOpen: boolean;
+  onToggleDetails: () => void;
 }
 
-export function Thread({ detail, live, onChanged }: Props) {
+export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails }: Props) {
   const { run } = detail;
   const items = useMemo(() => buildThread(detail), [detail]);
   const draftId = latestDraftId(detail.messages);
@@ -730,21 +741,36 @@ export function Thread({ detail, live, onChanged }: Props) {
   }
 
   const closed = run.state === "accepted" || run.state === "abandoned";
+  const stages = progress(detail);
   const spec = run.spec;
 
   return (
     <section className="thread" aria-label="Průběh úkolu">
       <header className="thread-head">
         <div className="thread-title">
-          <h1>{spec.title || "Nový úkol"}</h1>
-          <div className="thread-meta small">
-            <StateBadge state={run.state} />
-            <span className="muted">{describe(spec.orchestration)}</span>
-            <span className="muted">· implementuje {run.implementer ?? spec.implementer}</span>
-            {run.escalations > 0 && <span className="badge warn">převzato silným agentem</span>}
-            <span className={`live-dot${live ? " on" : ""}`} title={live ? "Živé spojení" : "Bez živého spojení"} />
+          <div>
+            <h1>{spec.title || "Nový úkol"}</h1>
+            <div className="thread-meta small">
+              <StateBadge state={run.state} />
+              <span className="muted">{describe(spec.orchestration)}</span>
+              {run.escalations > 0 && <span className="badge warn">převzal silnější model</span>}
+              <span className={`live-dot${live ? " on" : ""}`} title={live ? "Živé spojení" : "Bez živého spojení"} />
+            </div>
           </div>
+          <button type="button" className="small" aria-expanded={detailsOpen} onClick={onToggleDetails}>
+            {detailsOpen ? "Skrýt podrobnosti" : "Podrobnosti"}
+          </button>
         </div>
+        <ol className="progress" aria-label="Průběh">
+          {stages.map((s) => (
+            <li key={s.id} className={`stage ${s.state}`} title={STAGE_HINTS[s.state]}>
+              <span>
+                {s.label}
+                <span className="sr-only">: {STAGE_HINTS[s.state]}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
       </header>
 
       <div className="thread-body">
@@ -780,8 +806,8 @@ export function Thread({ detail, live, onChanged }: Props) {
           <div className="reply">
             <textarea
               rows={2}
-              aria-label="Zpráva pro leada"
-              placeholder="Napiš leadovi – odpověď na otázky, poznámku k opravě nebo instrukci pro převzetí. (Ctrl+Enter)"
+              aria-label="Zpráva pro Autopilota"
+              placeholder="Napiš Autopilotovi – odpověď, poznámku k opravě nebo instrukci. (Ctrl+Enter odešle)"
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKey}
