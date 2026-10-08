@@ -207,11 +207,14 @@ function MemoryBody({ out, act, latest }: { out: MemoryOutput; act: Act; latest:
             <strong>{p.kind === "append" ? "Doplnit poznámku projektu" : "Nová předávka"}</strong>{" "}
             <code>{p.path}</code>
           </div>
-          <details open={p.status === "proposed"}>
+          <details open={p.status === "proposed" && latest}>
             <summary className="small">Text</summary>
             <pre className="output">{p.content}</pre>
           </details>
-          {p.status === "proposed" ? (
+          {p.status === "proposed" && !latest ? (
+            // The server acts on the latest memory step only; an older proposal is superseded.
+            <span className="badge">nahrazeno novějším návrhem</span>
+          ) : p.status === "proposed" ? (
             <div className="actions">
               <button type="button" className="primary small" disabled={busy !== null} onClick={() => void run("vault-write", i)}>
                 Zapsat
