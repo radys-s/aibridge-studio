@@ -125,6 +125,29 @@ which is waiting for Tomáš on `c3daa9ee51e6`.
 - **Playwright E2E** (`npm run e2e`, scripted gateway): 3/3 passed. The full run reached
   accepted, "Zapsat" appended to the fixture note only after the click, and apply created
   `studio/<run_id>` while the fixture repo stayed on `main`.
-- **Not done:** a live run on Groq. OmniRoute was not running on 127.0.0.1:20128. Earlier on
-  2026-10-08 a single non-streaming tool call to `groq/openai/gpt-oss-120b` through OmniRoute
-  worked; a full Studio run on it is still unmeasured.
+
+## 2026-10-08 — first live run on Groq (Claude Code)
+
+Run `6280086d4b75`, "Pokračovat projekt" on the Calc demo (test vault), auto-approved draft,
+`privacy_floor=no_train`. OmniRoute exposed only `groq/openai/gpt-oss-120b` and `-20b` of the
+private catalog. Result: **accepted** with an independent review, no `self_review`.
+
+| Step | Model | Calls |
+| --- | --- | --- |
+| draft | groq gpt-oss-120b | 4 |
+| plan | groq gpt-oss-120b | 4 |
+| worker | groq gpt-oss-120b | 11 turns |
+| verify | Studio | exit 0, in scope |
+| review | groq gpt-oss-20b (accept) | 4, after 2 `provider_error` on Cloudflare ids |
+| memory | groq gpt-oss-120b, `submit` on the first call | 1 |
+
+- 26 calls, 44.7k tokens, cost 0, wall time 205 s, sum of model latency 196 s.
+- The diff is correct: `median()` with `ValueError` on empty input, sorted copy, even/odd
+  cases, plus tests. Same style as `mean()`.
+- Memory proposals came from the model (`author: Autopilot`), facts only. Both were written
+  to the test vault with "Zapsat"; nothing before the click.
+- Finding: the review first tried the two Cloudflare ids although Cloudflare is not
+  connected. The `/v1/models` probe (2 s timeout) failed once while OmniRoute was busy, and
+  an unknown list means "no filter". Fixed: the gateway keeps the last good list when a probe
+  fails, with a 5 s timeout (tests in `test_routing.py`).
+- Capacity: about 26 Groq requests per small task against the 1000/day per-model cap.

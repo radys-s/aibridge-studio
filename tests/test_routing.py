@@ -118,3 +118,55 @@ def test_non_finite_retry_after_is_ignored() -> None:
     from studio.gateway import _float
 
     assert _float("nan") == 0.0 and _float("inf") == 0.0 and _float("12") == 12.0
+
+
+def test_failed_models_probe_keeps_the_last_good_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from studio.gateway import OmniRouteGateway
+
+    answers: list[object] = [{"data": [{"id": "groq/strong"}]}, httpx.ReadTimeout("busy")]
+
+    class Resp:
+        def __init__(self, body: object) -> None:
+            self.body = body
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> object:
+            return self.body
+
+    def fake_get(*_: object, **__: object) -> Resp:
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return Resp(answer)
+
+    clock = [1000.0]
+    monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    gw = OmniRouteGateway("http://omniroute")
+    assert gw.models() == {"groq/strong"}
+    clock[0] += 61  # cache expired, the probe times out
+    assert gw.models() == {"groq/strong"}
+    assert gw.models() == {"groq/strong"}  # served from cache, no third probe
+    assert answers == []
+
+
+def test_down_omniroute_is_not_probed_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from studio.gateway import OmniRouteGateway
+
+    calls = []
+
+    def fake_get(*_: object, **__: object) -> object:
+        calls.append(1)
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    gw = OmniRouteGateway("http://omniroute")
+    assert gw.models() is None
+    assert gw.models() is None
+    assert len(calls) == 1

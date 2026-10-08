@@ -91,6 +91,7 @@ class OmniRouteGateway:
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
         self._models: tuple[float, set[str] | None] | None = None
+        self._known: set[str] | None = None  # last successful probe
 
     def health(self) -> dict[str, Any]:
         try:
@@ -108,11 +109,17 @@ class OmniRouteGateway:
             return self._models[1]
         ids: set[str] | None
         try:
-            r = httpx.get(f"{self.base_url}/v1/models", headers=self._headers, timeout=2)
+            r = httpx.get(f"{self.base_url}/v1/models", headers=self._headers, timeout=5)
             r.raise_for_status()
             ids = {str(m["id"]) for m in r.json()["data"]}
+            self._known = ids
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
-            ids = None
+            # A busy OmniRoute can miss one probe mid-run (seen live 2026-10-08): keep the
+            # last good list so the router does not try providers that were never connected.
+            ids = self._known
+            # Either way the next probe comes in about 15 s.
+            self._models = (now - 45 if ids else now, ids)
+            return ids
         self._models = (now, ids)
         return ids
 

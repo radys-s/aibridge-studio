@@ -1,9 +1,9 @@
 # Status
 
 Last update: 2026-10-08 (Claude Code). Phase 2c "private free Autopilot only" (ADR 0004)
-implemented and tested (pytest, vitest, Playwright E2E). Studio no longer calls Claude or
-Codex. The live run on Groq is still open: OmniRoute was not running at the end of the
-session.
+implemented, tested (pytest, vitest, Playwright E2E) and run live on Groq: run
+`6280086d4b75` was accepted with an independent review (gpt-oss-20b) and a model-written memory
+proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
 
 ## Phase 2c — private free Autopilot only (2026-10-08, ADR 0004)
 
@@ -25,7 +25,9 @@ session.
 - E2E: `npm run e2e` (Playwright) starts Studio with `STUDIO_FAKE_GATEWAY=1` (scripted
   gateway, test-only, labelled in the UI) on a fixture repo and vault. 3 specs: settings,
   composer, full run to accepted with "Zapsat" and apply-to-branch.
-- Tests: 99 backend passed (1 live skipped), 14 vitest, 3 Playwright. ruff and mypy clean.
+- Tests: 101 backend passed (1 live skipped), 14 vitest, 3 Playwright. ruff and mypy clean.
+- Older memory proposals show "nahrazeno novějším návrhem" instead of "Zapsat" (the server
+  acts on the latest memory step only).
 
 ## Phase 2b — Autopilot, the after-the-limit tool (2026-10-07)
 
@@ -109,12 +111,8 @@ Provider keys live only in the OmniRoute dashboard; Studio never reads them.
 
 ## Known blockers and gaps
 
-- **Live Groq run not done**: OmniRoute was not running on 20128 at the end of Phase 2c.
-  Start `omniroute serve`, then run Pokračovat projekt on the demo project.
 - Cloudflare Workers AI is in the catalog but not connected in OmniRoute; with Groq only,
   review independence is `gpt-oss-20b` reviewing `gpt-oss-120b` (same provider).
-- Superseded memory proposals still show "Zapsat" (only "Navrhnout znovu" is limited to the
-  latest one).
 - Worker resends the whole history each turn; tokens grow fast on real repos.
 - Lead (CLI) token use is not recorded.
 - Narrow crash window: if Studio dies between the pre-iteration commit and the DB write of
