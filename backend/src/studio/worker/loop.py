@@ -28,6 +28,11 @@ from studio.sandbox import Denied, Sandbox
 
 MAX_MODEL_SWITCHES_PER_TURN = 4
 MAX_NUDGES = 3
+# Context trimming: the history grows every turn and is re-sent in full. Tool results and
+# write_file contents older than the last KEEP_RECENT_TOOL_RESULTS results shrink to a stub, so a
+# long run does not hit free-tier token caps (seen live: 44.7k tokens for 11 worker turns).
+KEEP_RECENT_TOOL_RESULTS = 6
+TRIM_ABOVE_CHARS = 600
 
 TOOLS: list[dict[str, Any]] = [LIST_FILES, READ_FILE, *WRITE_TOOLS, RUN_COMMAND, FINISH]
 
@@ -189,7 +194,7 @@ class Worker:
                     outcome.status = "time_limit"
                     return outcome
                 outcome.turns += 1
-                msg = self._call(messages)
+                msg = self._call(compact(messages))
                 calls = msg.get("tool_calls") or []
                 assistant: dict[str, Any] = {
                     "role": "assistant",
@@ -239,6 +244,80 @@ class Worker:
         except GatewayUnavailable as exc:
             outcome.status, outcome.detail = "gateway_down", str(exc)
         return outcome
+
+
+def compact(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """What is sent to the model: old bulky tool results and file contents shortened.
+
+    The full history stays in `messages`; this returns a trimmed copy. Never changed: system
+    and user messages, the last KEEP_RECENT_TOOL_RESULTS tool results with the assistant
+    turns that issued them, the latest read of each file (replace_in_file needs its exact
+    text) and replace_in_file arguments. Old write_file content becomes a placeholder; the
+    file itself is on disk. Tool call ids stay, so the history remains valid.
+    """
+    tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    if len(tool_idx) <= KEEP_RECENT_TOOL_RESULTS:
+        return messages
+    first_kept = tool_idx[-KEEP_RECENT_TOOL_RESULTS]
+    # The boundary is the assistant turn that issued the first kept result.
+    cutoff = max(
+        (i for i in range(first_kept) if messages[i].get("role") == "assistant"), default=0
+    )
+    calls: dict[str, tuple[str, str]] = {}  # tool_call_id -> (tool name, path)
+    for m in messages:
+        for c in m.get("tool_calls") or []:
+            fn = c.get("function") or {}
+            calls[str(c.get("id", ""))] = (str(fn.get("name")), _path(fn.get("arguments")))
+    latest_read: dict[str, int] = {}
+    for i in tool_idx:
+        name, path = calls.get(str(messages[i].get("tool_call_id", "")), ("", ""))
+        if name == "read_file" and path:
+            latest_read[path] = i
+    keep = set(latest_read.values())
+    out: list[dict[str, Any]] = []
+    for i, m in enumerate(messages):
+        if i >= cutoff or i in keep:
+            out.append(m)
+        elif m.get("role") == "tool":
+            out.append({**m, "content": _stub(str(m.get("content") or ""))})
+        elif m.get("role") == "assistant" and m.get("tool_calls"):
+            out.append({**m, "tool_calls": [_trim_write(c) for c in m["tool_calls"]]})
+        else:
+            out.append(m)
+    return out
+
+
+def _path(raw: Any) -> str:
+    try:
+        args = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return ""
+    return str(args.get("path", "")) if isinstance(args, dict) else ""
+
+
+def _stub(text: str) -> str:
+    """Head and tail: a failing command prints the error at the end."""
+    if len(text) <= TRIM_ABOVE_CHARS:
+        return text
+    return (
+        f"{text[:300]}\n[... older result trimmed, {len(text)} chars in total; "
+        f"call the tool again if you need it ...]\n{text[-300:]}"
+    )
+
+
+def _trim_write(call: dict[str, Any]) -> dict[str, Any]:
+    fn = call.get("function") or {}
+    if fn.get("name") != "write_file":
+        return call
+    try:
+        args = json.loads(fn.get("arguments") or "{}")
+    except (TypeError, ValueError):
+        return call
+    content = args.get("content") if isinstance(args, dict) else None
+    if not isinstance(content, str) or len(content) <= TRIM_ABOVE_CHARS:
+        return call
+    short = {**args, "content": f"<{len(content)} chars written; read the file to see it>"}
+    return {**call, "function": {**fn, "arguments": json.dumps(short, ensure_ascii=False)}}
 
 
 def _brief(args: dict[str, Any]) -> str:

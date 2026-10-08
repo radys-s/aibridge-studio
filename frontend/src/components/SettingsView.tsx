@@ -96,7 +96,7 @@ function Models({ health }: { health: Health }) {
       </p>
       {!providers.length && (
         <p className="alert warn">
-          Žádný povolený model. Připoj v OmniRoute Groq, Cerebras, Cloudflare Workers AI nebo GitHub Models
+          Žádný povolený model. Připoj v OmniRoute Groq, Cloudflare Workers AI nebo Cerebras
           (netrénují na tvých datech).
         </p>
       )}

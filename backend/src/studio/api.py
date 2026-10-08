@@ -88,13 +88,13 @@ def _rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-PER_MODEL_CAPS = ("groq", "ghm")
+PER_MODEL_CAPS = ("groq",)
 
 
 def _providers_today(by_model: dict[str, int]) -> list[dict[str, Any]]:
     """Requests per provider today against its known free daily cap.
 
-    Groq and GitHub Models cap each model separately, so the busiest model counts;
+    Groq caps each model separately, so the busiest model counts;
     OpenRouter caps the pool.
     """
     out: dict[str, dict[str, Any]] = {}

@@ -13,17 +13,26 @@ proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
   cooldown cleared on success. Models below the privacy floor or paid are never sent.
 - Live: Groq 120b and 20b call tools (554 / 588 ms); Cerebras answers "No active credentials
   for provider: cerebras" until its key is added.
-- GitHub Models' daily cap is counted per model, like Groq.
+- Keys added 2026-10-08: GitHub Models is retired (GitHub, 2026-07-30; the endpoint answers
+  "OK" to everything) and was removed. Cerebras needs a card, so it stays unconnected.
+  Cloudflare is connected but answers 502 until the Account ID is set in OmniRoute.
+- Worker context trimming: tool results and `write_file` contents older than the last 6 tool
+  results shrink before each call (`worker.loop.compact`: head and tail of outputs kept,
+  latest read of each file and `replace_in_file` arguments never trimmed); the stored
+  history is unchanged.
+- OneDrive had turned `frontend/e2e/*` into cloud reparse points; Node reports them as
+  symlinks and Playwright skipped them ("No tests found"). Recreated as regular files; if it
+  recurs, mark the project folder "Always keep on this device".
 - E2E waits on the run state through the API first, so a rare failure of the full-run spec
   (seen twice, not reproduced in 5 reruns) now reports where the run stopped.
-- Tests: 109 backend passed (1 live skipped), 15 vitest, 3 Playwright.
+- Tests: 116 backend passed (1 live skipped), 15 vitest, 3 Playwright.
 
 ## Prizma's providers (2026-10-08, ADR 0005)
 
-- The catalog lists the providers whose keys Prizma holds: Cerebras and GitHub Models
-  (no_train), Z.ai, Cohere and Hugging Face (unknown), NVIDIA, Gemini and Mistral (may_train,
+- The catalog lists the providers whose keys Prizma holds: Cerebras
+  (no_train; GitHub Models removed, see ADR 0005 update), Z.ai, Cohere and Hugging Face (unknown), NVIDIA, Gemini and Mistral (may_train,
   never routed). Tomáš copies the keys into the OmniRoute dashboard; Studio never sees them.
-- Ids use OmniRoute's provider alias (`cf/`, `ghm/`, `hf/`); the old `cloudflare-ai/` ids
+- Ids use OmniRoute's provider alias (`cf/`, `hf/`); the old `cloudflare-ai/` ids
   could never match `/v1/models`.
 - Not live-verified until the keys are in OmniRoute.
 
@@ -35,7 +44,7 @@ proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
 - Model catalog with privacy classes (`no_train` / `unknown` / `may_train`) and a `paid`
   flag. The router never goes below `privacy_floor` (default `no_train`) and never picks a
   paid model unless `STUDIO_ALLOW_PAID=1`. It skips ids OmniRoute does not expose.
-  Default order: Groq `gpt-oss-120b`, Cloudflare `kimi-k2.6` and `gpt-oss-120b`, Groq
+  Default order: Groq `gpt-oss-120b`, Cloudflare `kimi-k2.6` and `glm-4.7-flash`, Groq
   `gpt-oss-20b`; OpenRouter `:free` only with `STUDIO_OPENROUTER_NO_TRAIN=1`.
 - Rate limits: 429 cools for 60 s or `Retry-After`, daily caps for 1 h, 5xx/empty for 30 s.
   The router waits up to `STUDIO_ROUTE_WAIT` s (default 45) for a cooling model; cancel
