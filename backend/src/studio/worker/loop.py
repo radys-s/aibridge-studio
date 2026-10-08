@@ -233,6 +233,8 @@ class Worker:
         except BudgetExceeded as exc:
             outcome.status, outcome.detail = "budget", str(exc)
         except NoModelAvailable as exc:
+            if self.should_stop():  # stopped while waiting for a cooling model
+                raise WorkerStopped() from exc
             outcome.status, outcome.detail = "no_model", str(exc)
         except GatewayUnavailable as exc:
             outcome.status, outcome.detail = "gateway_down", str(exc)

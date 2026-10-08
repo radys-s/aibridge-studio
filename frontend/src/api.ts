@@ -1,14 +1,11 @@
 // Typed client for the AI Bridge Studio backend (FastAPI).
 // All requests use relative /api/... paths; every mutating request carries X-Studio: 1 (CSRF).
 
-/** Claude and Codex: CLI leads on the user's subscription (second opinion, takeover). */
-export type Lead = "claude" | "codex";
-export const LEADS: Lead[] = ["claude", "codex"];
-/** Autopilot: Studio's own orchestrator on free models through OmniRoute. */
-export type AnyLead = Lead | "autopilot";
+/** Autopilot: Studio's own orchestrator on free, private models through OmniRoute (ADR 0004). */
+export type AnyLead = "autopilot";
 export const AUTOPILOT = "autopilot" as const;
-export type Mode = "autopilot" | "claude" | "codex" | "cross" | "duo";
-export type Implementer = "auto" | "worker" | "freebuff" | "autopilot" | "claude" | "codex";
+export type Mode = "autopilot";
+export type Implementer = "auto" | "worker" | "freebuff" | "autopilot";
 export type Escalation = "off" | "ask" | "auto";
 
 export interface Budget {
@@ -22,19 +19,10 @@ export interface Budget {
   max_escalations: number;
 }
 
-export interface LeadConfig {
-  model: string | null;
-  effort: string | null;
-}
-
 export interface Orchestration {
   mode: Mode;
   primary: AnyLead;
   plan: boolean;
-  /** Optional Claude/Codex reviews in autopilot mode; skipped when their limit is used up. */
-  second_opinion: Lead[];
-  claude: LeadConfig;
-  codex: LeadConfig;
 }
 
 export interface TaskSpec {
@@ -56,25 +44,44 @@ export interface TaskSpec {
 /** What the composer sends: everything but goal and repo is optional. */
 export type NewTask = Pick<TaskSpec, "goal" | "repo_path"> & Partial<Omit<TaskSpec, "goal" | "repo_path">>;
 
+export type Privacy = "no_train" | "unknown" | "may_train";
+
+/** One configured model and why the router may not use it right now. */
+export interface ModelInfo {
+  id: string;
+  provider: string;
+  privacy: Privacy;
+  paid: boolean;
+  lead: boolean;
+  coding: boolean;
+  strength: number;
+  /** privacy: below the privacy floor; paid: paid models are off; not_connected: OmniRoute
+   * does not offer it (provider not connected). */
+  blocked: "privacy" | "paid" | "not_connected" | null;
+  cooldown_until: number | null;
+}
+
 export interface Health {
   version: string;
-  gateway: { reachable: boolean; status?: number; error?: string };
+  /** `fake`: scripted test gateway (STUDIO_FAKE_GATEWAY=1), never a live model. */
+  gateway: { reachable: boolean; status?: number; error?: string; fake?: boolean };
   leads: Partial<Record<AnyLead, { installed: boolean; path?: string | null }>>;
   worker_models: string[];
   lead_models: string[];
   cooldowns: Record<string, number>;
   /** Gateway calls since 00:00 UTC, when the free daily limit resets. */
   api_calls_today: number;
+  models: ModelInfo[];
+  privacy_floor: Privacy;
+  providers_today: ProviderToday[];
 }
 
-export interface CatalogModel {
-  id: string;
-  label: string;
-}
-
-export interface EffortOption {
-  id: string;
-  heavy: boolean;
+/** Requests to one provider today; `used` is what counts against its free daily `cap`. */
+export interface ProviderToday {
+  provider: string;
+  calls: number;
+  used: number;
+  cap: number | null;
 }
 
 export interface Defaults {
@@ -84,22 +91,11 @@ export interface Defaults {
   auto_approve: boolean;
 }
 
-export interface Probe {
-  ok: boolean;
-  kind?: string;
-  error?: string;
-  actual_model?: string | null;
-  latency_ms: number;
-  tokens: number;
-  at: number;
-}
-
 export interface SettingsSnapshot {
   defaults: Defaults;
-  catalog: Record<Lead, CatalogModel[]>;
-  efforts: Record<Lead, EffortOption[]>;
   recent_repos: string[];
-  probes: Record<string, Probe>;
+  /** Vault project note of the last task, for one-click resume. */
+  last_project: string | null;
 }
 
 export type RunState =
@@ -338,7 +334,8 @@ export type RunAction =
   | "open-terminal"
   | "apply"
   | "vault-write"
-  | "vault-discard";
+  | "vault-discard"
+  | "memory-retry";
 
 export interface ActionBody {
   note?: string;
@@ -358,6 +355,8 @@ export interface MemoryProposal {
 
 export interface MemoryOutput {
   proposals: MemoryProposal[];
+  /** "Autopilot", or "studio" when Studio built it from verified run facts. */
+  author?: string;
 }
 
 export interface VaultFolder {
@@ -455,10 +454,7 @@ const runPath = (id: string) => `/api/runs/${encodeURIComponent(id)}`;
 export const api = {
   health: () => request<Health>("/api/health"),
   settings: () => request<SettingsSnapshot>("/api/settings"),
-  saveSettings: (body: { defaults?: Defaults; catalog?: Record<Lead, CatalogModel[]> }) =>
-    send<SettingsSnapshot>("PUT", "/api/settings", body),
-  probe: (lead: Lead, model: string | null, effort: string | null) =>
-    send<Probe>("POST", "/api/probe", { lead, model, effort }),
+  saveSettings: (body: { defaults: Defaults }) => send<SettingsSnapshot>("PUT", "/api/settings", body),
   listRuns: () => request<RunSummary[]>("/api/runs"),
   getRun: (id: string) => request<RunDetail>(runPath(id)),
   createTask: (task: NewTask) => send<{ run_id: string }>("POST", "/api/tasks", task),

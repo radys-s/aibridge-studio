@@ -60,6 +60,9 @@ DEFAULT_MODELS: tuple[ModelSpec, ...] = (
     ModelSpec("openrouter/google/gemma-4-31b-it:free", frozenset({"tools", "lead"}), 2),
 )
 PRIVATE_PROVIDERS = ("groq", "cloudflare-ai", "cf", "cerebras")
+# Known free-tier requests per day (per model on Groq; the whole :free pool on OpenRouter
+# without credits). Cloudflare counts neurons, not requests, so it has no entry.
+DAILY_REQUEST_CAPS: dict[str, int] = {"groq": 1000, "openrouter": 50}
 
 
 def _privacy(model_id: str) -> Privacy:
@@ -122,6 +125,8 @@ class Settings:
     allow_paid: bool = False
     # Seconds a run waits for a briefly cooling model instead of stopping (0 = never wait).
     route_wait_s: float = 0.0
+    # End-to-end UI tests only: a scripted gateway instead of OmniRoute (studio/testing.py).
+    fake_gateway: bool = False
     gateway_timeout_s: float = 180.0
     # Shared Obsidian memory (Autopilot reads non-personal notes; see vault.py).
     vault_path: Path | None = field(default_factory=lambda: _default_vault())
@@ -154,6 +159,7 @@ class Settings:
             ),
             allow_paid=os.environ.get("STUDIO_ALLOW_PAID") == "1",
             route_wait_s=float(os.environ.get("STUDIO_ROUTE_WAIT", "45")),
+            fake_gateway=os.environ.get("STUDIO_FAKE_GATEWAY") == "1",
             gateway_timeout_s=float(os.environ.get("STUDIO_GATEWAY_TIMEOUT", "180")),
             port=int(os.environ.get("STUDIO_PORT", "8765")),
             vault_path=(

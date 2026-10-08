@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ModelCall, ReviewOutput, RunDetail, Step, Usage, VerifyOutput } from "../api";
 import { absoluteTime, formatCost, formatDuration, formatTokens } from "../format";
-import { LEAD_LABELS } from "../options";
+import { actorLabel } from "../options";
 import { actorLead } from "../thread";
 import { ExitBadge, latestOutput, List } from "./bits";
 import { DiffView } from "./DiffView";
@@ -55,7 +55,7 @@ function Reviews({ steps }: { steps: Step[] }) {
       <p className="small muted">Iterace {last}</p>
       {current.map((s) => (
         <div key={s.id} className={`review-card by-${actorLead(s.actor) ?? "x"}`}>
-          <h3>{LEAD_LABELS[actorLead(s.actor) ?? "claude"] ?? s.actor}</h3>
+          <h3>{actorLabel(actorLead(s.actor)) ?? s.actor}</h3>
           {s.error ? <p className="error">{s.error}</p> : s.output ? <ReviewBody review={s.output as ReviewOutput} /> : <p className="muted">Běží…</p>}
         </div>
       ))}
@@ -94,7 +94,7 @@ function Models({ calls, usage }: { calls: ModelCall[]; usage: RunDetail["usage"
     <>
       <div className="usage">
         <UsageLine label="Free modely přes OmniRoute (Autopilot + worker, rozpočet)" u={usage.api} />
-        <UsageLine label="Claude/Codex (předplatné, orientačně)" u={usage.subscription} />
+        {usage.subscription.calls > 0 && <UsageLine label="Claude/Codex (starší běh, předplatné)" u={usage.subscription} />}
       </div>
       {calls.length === 0 ? (
         <p className="muted">Zatím žádná volání.</p>

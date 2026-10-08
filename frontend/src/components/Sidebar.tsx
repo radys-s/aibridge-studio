@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { isActive, type Health, type RunSummary } from "../api";
+import { activeProviders } from "../options";
 import { relativeTime, STATE_LABELS } from "../format";
 
 interface Props {
@@ -103,9 +104,14 @@ export function Sidebar(p: Props) {
             <span className="error">Backend nedostupný</span>
           ) : (
             <>
-              <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> OmniRoute
-              <span className={`hdot ${h?.leads.claude?.installed ? "ok" : "bad"}`} /> claude
-              <span className={`hdot ${h?.leads.codex?.installed ? "ok" : "bad"}`} /> codex
+              {h?.gateway.fake ? (
+                <span className="badge warn">testovací gateway</span>
+              ) : (
+                <>
+                  <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> OmniRoute
+                </>
+              )}
+              <span className={`hdot ${h && activeProviders(h.models ?? []).length ? "ok" : "bad"}`} /> soukromé modely
             </>
           )}
         </div>

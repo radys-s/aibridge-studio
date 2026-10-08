@@ -1,17 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  api,
-  LEADS,
-  type CatalogModel,
-  type Health,
-  type Lead,
-  type Probe,
-  type SettingsSnapshot,
-  type VaultOverview,
-} from "../api";
-import { formatDuration, relativeTime } from "../format";
-import { asAutopilot, LEAD_LABELS } from "../options";
-import { LeadPicker } from "./LeadPicker";
+import { api, type Health, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
+import { activeProviders, asAutopilot, BLOCKED_LABELS, PRIVACY_LABELS, providerLabel } from "../options";
 
 interface Props {
   settings: SettingsSnapshot;
@@ -19,97 +8,100 @@ interface Props {
   onSaved: (s: SettingsSnapshot) => void;
 }
 
-function ProbeResult({ probe }: { probe: Probe | undefined }) {
-  if (!probe) return <span className="muted small">neověřeno</span>;
-  return probe.ok ? (
-    <span className="badge good" title={probe.actual_model ?? ""}>
-      funguje · {formatDuration(probe.latency_ms / 1000)} · {relativeTime(probe.at)}
-    </span>
-  ) : (
-    <span className="badge bad" title={probe.error}>
-      {probe.kind === "not_logged_in" ? "nepřihlášeno" : (probe.kind ?? "chyba")} · {relativeTime(probe.at)}
-    </span>
+/** Share of the free daily cap used; warn from 80 %. */
+export function budgetLevel(p: ProviderToday): "ok" | "warn" | "out" | null {
+  if (!p.cap) return null;
+  const share = p.used / p.cap;
+  return share >= 1 ? "out" : share >= 0.8 ? "warn" : "ok";
+}
+
+function Models({ health }: { health: Health }) {
+  const providers = activeProviders(health.models);
+  return (
+    <>
+      <p className="small">
+        Kód a poznámky dostanou jen:{" "}
+        {providers.length ? <strong>{providers.join(", ")}</strong> : <span className="badge bad">nikdo</span>}
+        <span className="muted"> (hranice soukromí: {PRIVACY_LABELS[health.privacy_floor]})</span>
+      </p>
+      {!providers.length && (
+        <p className="alert warn">
+          Žádný povolený model. Připoj v OmniRoute Groq nebo Cloudflare Workers AI (netrénují na tvých datech).
+        </p>
+      )}
+      <div className="table-wrap">
+      <table className="models">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Poskytovatel</th>
+            <th>Soukromí</th>
+            <th>Role</th>
+            <th>Stav</th>
+          </tr>
+        </thead>
+        <tbody>
+          {health.models.map((m) => (
+            <tr key={m.id} className={m.blocked ? "muted" : undefined}>
+              <td>
+                <code>{m.id}</code>
+              </td>
+              <td>{providerLabel(m.provider)}</td>
+              <td>
+                <span className={`badge ${m.privacy === "no_train" ? "good" : "warn"}`}>{PRIVACY_LABELS[m.privacy]}</span>
+              </td>
+              <td className="small">{[m.lead && "Autopilot", m.coding && "worker"].filter(Boolean).join(", ")}</td>
+              <td className="small">
+                {m.blocked
+                  ? BLOCKED_LABELS[m.blocked]
+                  : !health.gateway.reachable
+                    ? "OmniRoute nedostupný"
+                    : m.cooldown_until
+                    ? `pauza do ${new Date(m.cooldown_until * 1000).toLocaleTimeString("cs-CZ")}`
+                    : "připraven"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
+      <p className="hint">
+        Pořadí a výběr: <code>STUDIO_LEAD_MODELS</code>, <code>STUDIO_WORKER_MODELS</code>. OpenRouter :free povolíš
+        až po vypnutí tréninku v jeho nastavení soukromí a <code>STUDIO_OPENROUTER_NO_TRAIN=1</code>. Placený hlavní
+        model: <code>STUDIO_PAID_MODELS</code> + <code>STUDIO_ALLOW_PAID=1</code>.
+      </p>
+    </>
   );
 }
 
-function CatalogEditor({
-  lead,
-  models,
-  probes,
-  effort,
-  onChange,
-  onProbed,
-}: {
-  lead: Lead;
-  models: CatalogModel[];
-  probes: Record<string, Probe>;
-  effort: string | null;
-  onChange: (m: CatalogModel[]) => void;
-  onProbed: () => void;
-}) {
-  const [id, setId] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function probe(model: string) {
-    setBusy(model);
-    setError(null);
-    try {
-      await api.probe(lead, model, effort);
-      onProbed();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
+function Budget({ health }: { health: Health }) {
+  const rows = health.providers_today ?? [];
+  if (!rows.length) return <li>Dnes zatím žádné requesty na modely.</li>;
   return (
-    <div className="catalog">
-      <h3>{LEAD_LABELS[lead]} – modely v nabídce</h3>
-      <ul className="catalog-list">
-        {models.map((m) => (
-          <li key={m.id}>
-            <code>{m.id}</code> <span className="muted small">{m.label}</span>
-            <ProbeResult probe={probes[`${lead}:${m.id}:${effort ?? ""}`]} />
-            <button type="button" className="small" disabled={!!busy} onClick={() => void probe(m.id)}>
-              {busy === m.id ? "Ověřuji…" : "Ověřit"}
-            </button>
-            <button
-              type="button"
-              className="small"
-              aria-label={`Odebrat ${m.id}`}
-              onClick={() => onChange(models.filter((x) => x.id !== m.id))}
-            >
-              ✕
-            </button>
+    <>
+      {rows.map((p) => {
+        const level = budgetLevel(p);
+        return (
+          <li key={p.provider}>
+            {providerLabel(p.provider)}: {p.calls} requestů dnes
+            {p.cap ? (
+              <>
+                {" "}
+                · <span className={`badge ${level === "ok" ? "good" : level === "warn" ? "warn" : "bad"}`}>
+                  {Math.round((p.used / p.cap) * 100)} % denního limitu
+                </span>
+              </>
+            ) : null}
+            {level === "warn" && <span className="small"> blíží se limit; po vyčerpání (429) router přejde na další model</span>}
           </li>
-        ))}
-      </ul>
-      <form
-        className="inline-add"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const v = id.trim();
-          if (v && !models.some((m) => m.id === v)) onChange([...models, { id: v, label: "" }]);
-          setId("");
-        }}
-      >
-        <input value={id} placeholder="id modelu, např. claude-sonnet-5-5" spellCheck={false} onChange={(e) => setId(e.target.value)} />
-        <button type="submit" className="small">Přidat</button>
-      </form>
-      <p className="hint">
-        Ověření pošle jeden malý dotaz přes tvoje přihlášené CLI (s výchozím effortem {effort ?? "–"}). Spotřebuje
-        trochu limitu.
-      </p>
-      {error && <p className="error small">{error}</p>}
-    </div>
+        );
+      })}
+    </>
   );
 }
 
 export function SettingsView({ settings, health, onSaved }: Props) {
   const [defaults, setDefaults] = useState(settings.defaults);
-  const [catalog, setCatalog] = useState(settings.catalog);
   const [status, setStatus] = useState<string | null>(null);
   const [vault, setVault] = useState<VaultOverview | null>(null);
 
@@ -117,25 +109,16 @@ export function SettingsView({ settings, health, onSaved }: Props) {
     api.vault().then(setVault, () => setVault({ available: false, path: "" }));
   }, []);
 
-  const second = defaults.orchestration.second_opinion ?? [];
-  function toggleSecond(lead: Lead, on: boolean) {
-    const next = on ? [...second.filter((l) => l !== lead), lead] : second.filter((l) => l !== lead);
-    setDefaults({ ...defaults, orchestration: { ...defaults.orchestration, second_opinion: next } });
-  }
-
   async function save() {
     try {
-      // Studio always orchestrates with Autopilot; older saved modes are upgraded here.
-      onSaved(await api.saveSettings({ defaults: { ...defaults, orchestration: asAutopilot(defaults.orchestration) }, catalog }));
+      onSaved(await api.saveSettings({ defaults: { ...defaults, orchestration: asAutopilot(defaults.orchestration) } }));
       setStatus("Uloženo.");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function reload() {
-    onSaved(await api.settings());
-  }
+  const cooling = Object.entries(health?.cooldowns ?? {});
 
   return (
     <div className="settings">
@@ -145,43 +128,36 @@ export function SettingsView({ settings, health, onSaved }: Props) {
         <h2>Připojení</h2>
         <ul className="plain">
           <li>
-            OmniRoute: {health?.gateway.reachable ? <span className="badge good">dostupný</span> : <span className="badge bad">nedostupný</span>}
-            <span className="muted small"> worker modely: {health?.worker_models.join(", ") || "–"}</span>
+            OmniRoute:{" "}
+            {health?.gateway.reachable ? <span className="badge good">dostupný</span> : <span className="badge bad">nedostupný</span>}
           </li>
-          <li>
-            Autopilot modely: <span className="muted small">{health?.lead_models?.join(", ") || "–"}</span>
-          </li>
-          <li>
-            Dnes {health?.api_calls_today ?? 0} requestů na free modely{" "}
-            <span className="muted small">(sdílený denní limit OpenRouter :free, nuluje se o půlnoci UTC)</span>
-          </li>
-          {LEADS.map((l) => (
-            <li key={l}>
-              {LEAD_LABELS[l]} CLI:{" "}
-              {health?.leads[l]?.installed ? <span className="badge good">nainstalováno</span> : <span className="badge bad">chybí</span>}
+          {health && <Budget health={health} />}
+          {cooling.map(([model, until]) => (
+            <li key={model} className="small muted">
+              {model}: pauza po chybě do {new Date(until * 1000).toLocaleTimeString("cs-CZ")}
             </li>
           ))}
         </ul>
-        <p className="hint">
-          Leady běží přes tvoje přihlášení v terminálu (claude / codex). Když ověření hlásí „nepřihlášeno“, spusť v
-          terminálu <code>claude</code> a <code>/login</code>, nebo <code>codex login</code>.
-        </p>
+        <p className="hint">Limity se nulují o půlnoci UTC. API klíče žijí jen v OmniRoute, Studio je nevidí.</p>
       </section>
 
       <section className="card">
-        <h2>Autopilot</h2>
+        <h2>Autopilot a modely</h2>
         <p className="hint">
-          Studio řídí Autopilot na free modelech. Pořadí modelů nastavíš proměnnou <code>STUDIO_LEAD_MODELS</code>{" "}
-          (OpenRouter <code>:free</code> id, nejsilnější první).
+          Studio řídí jen Autopilot na free modelech, které netrénují na tvých datech. Claude ani Codex přes Studio
+          nejdou.
         </p>
-        <h3>Druhý názor</h3>
-        {LEADS.map((lead) => (
-          <label key={lead} className="check">
-            <input type="checkbox" checked={second.includes(lead)} onChange={(e) => toggleSecond(lead, e.target.checked)} />
-            Přidat review od {LEAD_LABELS[lead]}, když má volný limit
-          </label>
-        ))}
-        <p className="hint">Když došel limit nebo není přihlášený, review se přeskočí a běh pokračuje.</p>
+        {health ? <Models health={health} /> : <p className="muted">Načítám…</p>}
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={defaults.orchestration.plan}
+            onChange={(e) =>
+              setDefaults({ ...defaults, orchestration: { ...defaults.orchestration, plan: e.target.checked } })
+            }
+          />
+          Před prací nechat Autopilota naplánovat postup
+        </label>
       </section>
 
       <section className="card">
@@ -214,38 +190,6 @@ export function SettingsView({ settings, health, onSaved }: Props) {
             </p>
           </>
         )}
-      </section>
-
-      <section className="card">
-        <h2>Claude a Codex (druhý názor a převzetí)</h2>
-        <div className="lead-pickers">
-          {LEADS.map((lead) => (
-            <LeadPicker
-              key={lead}
-              lead={lead}
-              config={defaults.orchestration[lead]}
-              catalog={catalog[lead]}
-              efforts={settings.efforts[lead]}
-              primary={defaults.orchestration.primary === lead}
-              onChange={(c) => setDefaults({ ...defaults, orchestration: { ...defaults.orchestration, [lead]: c } })}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="card">
-        <h2>Katalog modelů</h2>
-        {LEADS.map((lead) => (
-          <CatalogEditor
-            key={lead}
-            lead={lead}
-            models={catalog[lead]}
-            probes={settings.probes}
-            effort={defaults.orchestration[lead].effort}
-            onChange={(m) => setCatalog({ ...catalog, [lead]: m })}
-            onProbed={() => void reload()}
-          />
-        ))}
       </section>
 
       <div className="actions">

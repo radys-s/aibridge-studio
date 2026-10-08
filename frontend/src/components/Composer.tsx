@@ -9,7 +9,7 @@ import {
   type VaultOverview,
   type VaultProject,
 } from "../api";
-import { asAutopilot, COMPOSER_IMPLEMENTERS, describe, ESCALATIONS, lines } from "../options";
+import { activeProviders, asAutopilot, describe, ESCALATIONS, IMPLEMENTERS, lines } from "../options";
 import { List } from "./bits";
 
 interface Props {
@@ -48,6 +48,26 @@ function PoolLine({ health }: { health: Health | null }) {
   );
 }
 
+/** Who will receive the code and notes: only providers that do not train on them. */
+export function PrivacyLine({ health, summary }: { health: Health | null; summary: string }) {
+  const providers = health ? activeProviders(health.models ?? []) : [];
+  return (
+    <p className="hint privacy-line">
+      {summary}.{" "}
+      {!health ? null : providers.length ? (
+        <>
+          {health.privacy_floor === "no_train"
+            ? "Data jdou jen k poskytovatelům bez tréninku: "
+            : "Data jdou i k poskytovatelům s neověřeným soukromím: "}
+          <strong>{providers.join(", ")}</strong>. Posílá se kód z repozitáře a sdílené poznámky bez osobního obsahu.
+        </>
+      ) : (
+        <span className="badge bad">Žádný poskytovatel bez tréninku není připojený, běh se zastaví.</span>
+      )}
+    </p>
+  );
+}
+
 /** New task. Main path: continue a project from the shared Obsidian memory; or a free prompt. */
 export function Composer({ settings, health, onCreated, onSettingsSaved }: Props) {
   const d = settings.defaults;
@@ -72,9 +92,9 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
 
   // Settings may load after the first render or change in the settings view.
   useEffect(() => {
-    // Claude/Codex are not offered as implementers here; an old default falls back to auto.
+    // An old default (Claude/Codex, removed in ADR 0004) falls back to auto.
     const impl = settings.defaults.implementer;
-    setImplementer(COMPOSER_IMPLEMENTERS.some((i) => i.id === impl) ? impl : "auto");
+    setImplementer(IMPLEMENTERS.some((i) => i.id === impl) ? impl : "auto");
     setEscalation(settings.defaults.escalation);
     setAutoApprove(settings.defaults.auto_approve);
   }, [settings.defaults]);
@@ -84,12 +104,15 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
       (v) => {
         setVault(v);
         if (!v.available || !v.projects?.length) setStart("free");
+        // One-click resume: preselect the project of the last task.
+        else if (settings.last_project && v.projects.includes(settings.last_project)) setNote(settings.last_project);
       },
       () => {
         setVault({ available: false, path: "" });
         setStart("free");
       },
     );
+    // Only on mount: later settings changes must not override the user's pick.
   }, []);
 
   useEffect(() => {
@@ -244,7 +267,11 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
               className="composer-input"
               aria-label="Na co se zaměřit"
               rows={2}
-              placeholder="Na co se zaměřit (nepovinné). Jinak Autopilot navrhne další krok sám.  (Ctrl+Enter odešle)"
+              placeholder={
+                project?.handoffs.length
+                  ? `Na co se zaměřit (nepovinné). Jinak Autopilot naváže na předávku ${noteTitle(project.handoffs[0])}.  (Ctrl+Enter odešle)`
+                  : "Na co se zaměřit (nepovinné). Jinak Autopilot navrhne další krok sám.  (Ctrl+Enter odešle)"
+              }
               value={focus}
               onChange={(e) => setFocus(e.target.value)}
               onKeyDown={onKey}
@@ -285,10 +312,10 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
         </div>
 
         <div className="composer-options">
-          <label className="chip-field" title={COMPOSER_IMPLEMENTERS.find((i) => i.id === implementer)?.hint}>
+          <label className="chip-field" title={IMPLEMENTERS.find((i) => i.id === implementer)?.hint}>
             <span>Implementuje</span>
             <select value={implementer} onChange={(e) => setImplementer(e.target.value as Implementer)}>
-              {COMPOSER_IMPLEMENTERS.map((i) => (
+              {IMPLEMENTERS.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.label}
                 </option>
@@ -310,10 +337,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
             Schválit návrh zadání automaticky
           </label>
         </div>
-        <p className="hint">
-          {describe(orchestration)}. Free modely mohou data použít k tréninku: posílá se jen kód z repozitáře a
-          sdílené poznámky bez osobního obsahu.
-        </p>
+        <PrivacyLine health={health} summary={describe(orchestration)} />
         <PoolLine health={health} />
 
         <details className="advanced" open={advanced} onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>

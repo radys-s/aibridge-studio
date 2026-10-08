@@ -18,9 +18,9 @@ from studio.routing import ModelRouter
 from studio.vault import Vault
 
 LEADS = (
-    ModelSpec("test/lead-strong", frozenset({"tools", "lead"}), 4),
-    ModelSpec("test/lead-other", frozenset({"tools", "lead"}), 2),
-    ModelSpec("test/coder", frozenset({"coding", "tools"}), 3),
+    ModelSpec("test/lead-strong", frozenset({"tools", "lead"}), 4, privacy="no_train"),
+    ModelSpec("test/lead-other", frozenset({"tools", "lead"}), 2, privacy="no_train"),
+    ModelSpec("test/coder", frozenset({"coding", "tools"}), 3, privacy="no_train"),
 )
 PLAN = {
     "summary": "Add median",

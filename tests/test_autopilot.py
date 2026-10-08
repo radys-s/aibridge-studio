@@ -25,8 +25,8 @@ from studio.runner import Runner
 A = "test/lead-a"
 B = "test/lead-b"
 TWO_LEADS = (
-    ModelSpec(A, frozenset({"coding", "tools", "lead"}), 3),
-    ModelSpec(B, frozenset({"tools", "lead"}), 2),
+    ModelSpec(A, frozenset({"coding", "tools", "lead"}), 3, privacy="no_train"),
+    ModelSpec(B, frozenset({"tools", "lead"}), 2, privacy="no_train"),
 )
 PLAN = {
     "summary": "Add median",
@@ -155,8 +155,8 @@ def test_strong_task_is_implemented_by_autopilot_and_reviewed_elsewhere(
     )
     # hard: the strongest lead model (B here) plans and implements, A reviews
     models = (
-        ModelSpec(A, frozenset({"coding", "tools", "lead"}), 2),
-        ModelSpec(B, frozenset({"tools", "lead"}), 5),
+        ModelSpec(A, frozenset({"coding", "tools", "lead"}), 2, privacy="no_train"),
+        ModelSpec(B, frozenset({"tools", "lead"}), 5, privacy="no_train"),
     )
     runner, db = build(tmp_path, gw, models=models)
     run_id = start(db, autopilot_spec(repo, escalation="auto"))

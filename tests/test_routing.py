@@ -100,3 +100,21 @@ def test_env_marks_private_providers_and_openrouter_opt_in(
     assert models["openrouter/poolside/laguna-s-2.1:free"].privacy == "no_train"
     assert models["paid/orchestrator"].paid and not settings.allow_paid
     assert settings.privacy_floor == "no_train"
+
+
+def test_a_model_that_failed_this_turn_is_not_waited_for(tmp_path: Path) -> None:
+    slept: list[float] = []
+    r = router(tmp_path, PRIVATE, max_wait_s=45, sleep=slept.append)
+    r.db.set_cooldown("groq/strong", time.time() + 0.05, "transient")
+    with pytest.raises(NoModelAvailable):
+        r.choose("run", BUDGET, {"groq/strong"}, capability="lead")
+    assert not slept
+    with pytest.raises(NoModelAvailable):  # `never` holds even for a fresh model
+        r.db.clear_cooldown("groq/strong")
+        r.choose("run", BUDGET, set(), capability="lead", never=frozenset({"groq/strong"}))
+
+
+def test_non_finite_retry_after_is_ignored() -> None:
+    from studio.gateway import _float
+
+    assert _float("nan") == 0.0 and _float("inf") == 0.0 and _float("12") == 12.0

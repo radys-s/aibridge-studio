@@ -227,7 +227,8 @@ def test_memory_retry_only_for_accepted_project_runs(
     gw, runner, db, run_id = accepted_run(tmp_path, repo, vault, [submit(MEMORY)])
     gw.script.append(submit({**MEMORY, "project_update": "- znovu navrženo"}))
     runner.memory_retry(run_id)
-    for _ in range(100):
+    deadline = time.monotonic() + 30  # the retry runs in a thread; slow under a full suite
+    while time.monotonic() < deadline:
         step = db.last_step(run_id, "memory")
         if step and "znovu navrženo" in str(step["output_json"]):
             break
@@ -236,3 +237,11 @@ def test_memory_retry_only_for_accepted_project_runs(
     other = start(db, TaskSpec(goal="Jiný úkol", repo_path=str(repo)))
     with pytest.raises(ValueError):
         runner.memory_retry(other)
+
+
+def test_clip_cuts_at_a_word_boundary() -> None:
+    from studio.memory import clip
+
+    assert clip("  krátký   text ", 50) == "krátký text"
+    assert clip("ověřit příkazem python -m unittest discover", 30) == "ověřit příkazem python -m…"
+    assert len(clip("x" * 100, 20)) <= 20

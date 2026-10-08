@@ -188,6 +188,8 @@ class ApiLead:
                     should_stop=ctx.should_stop,
                 )
             except NoModelAvailable as exc:
+                if ctx.should_stop():  # stopped while waiting for a cooling model
+                    raise LeadError("cancelled by user", "cancelled") from exc
                 raise LeadError(str(exc), "no_model") from exc
             except BudgetExceeded as exc:
                 raise LeadError(str(exc), "budget") from exc
