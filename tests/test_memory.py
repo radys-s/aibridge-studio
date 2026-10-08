@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -173,3 +174,65 @@ def test_vault_api_lists_only_shared_projects(tmp_path: Path, repo: Path, vault:
         assert denied.status_code == 403
         body = {"goal": "Pokračuj", "repo_path": str(repo), "project_note": "02 Projekty/Tajne.md"}
         assert c.post("/api/tasks", json=body, headers={"X-Studio": "1"}).status_code == 422
+
+
+class ToolSpy(Spy):
+    def __init__(self, script: list[Any]) -> None:
+        super().__init__(script)
+        self.tools: list[list[str]] = []
+
+    def chat(self, model, messages, tools=None, timeout_s=None):  # type: ignore[no-untyped-def]
+        self.tools.append([t["function"]["name"] for t in tools or []])
+        return super().chat(model, messages, tools, timeout_s)
+
+
+def accepted_run(tmp_path: Path, repo: Path, vault: Vault, memory: list[Any]) -> Any:
+    gw = ToolSpy([submit(DRAFT), submit(PLAN), *good_script(), submit(ACCEPT), *memory])
+    runner, db = build(tmp_path, gw, vault)
+    spec = TaskSpec(
+        goal="Pokračuj v projektu Calc", repo_path=str(repo), project_note="02 Projekty/Calc.md"
+    )
+    run_id = start(db, spec)
+    runner.execute(run_id)
+    runner.approve(run_id)
+    runner.execute(run_id)
+    assert db.run(run_id)["state"] == "accepted"
+    return gw, runner, db, run_id
+
+
+def test_memory_call_offers_only_submit(tmp_path: Path, repo: Path, vault: Vault) -> None:
+    gw, runner, _db, run_id = accepted_run(tmp_path, repo, vault, [submit(MEMORY)])
+    assert gw.tools[-1] == ["submit"]
+    assert runner._proposals(run_id)[0]["actor"] == "autopilot"
+
+
+def test_prose_instead_of_submit_falls_back_to_studio_facts(
+    tmp_path: Path, repo: Path, vault: Vault
+) -> None:
+    prose = [assistant(content="Nejde mi to, tady je text bez submit.") for _ in range(3)]
+    _gw, runner, db, run_id = accepted_run(tmp_path, repo, vault, prose)
+    step, proposals = runner._proposals(run_id)
+    assert step["actor"] == "studio"
+    assert [p["kind"] for p in proposals] == ["append", "new"]
+    update = proposals[0]["content"]
+    assert "AI Bridge Studio (studio)" in update and "calc/stats.py" in update
+    assert "python -m unittest discover" in update  # the passed acceptance command
+    assert "jan@example.com" not in update
+    assert any("Studio ho sestavilo" in e["message"] for e in db.events(run_id))
+
+
+def test_memory_retry_only_for_accepted_project_runs(
+    tmp_path: Path, repo: Path, vault: Vault
+) -> None:
+    gw, runner, db, run_id = accepted_run(tmp_path, repo, vault, [submit(MEMORY)])
+    gw.script.append(submit({**MEMORY, "project_update": "- znovu navrženo"}))
+    runner.memory_retry(run_id)
+    for _ in range(100):
+        step = db.last_step(run_id, "memory")
+        if step and "znovu navrženo" in str(step["output_json"]):
+            break
+        time.sleep(0.05)
+    assert "znovu navrženo" in runner._proposals(run_id)[1][0]["content"]
+    other = start(db, TaskSpec(goal="Jiný úkol", repo_path=str(repo)))
+    with pytest.raises(ValueError):
+        runner.memory_retry(other)

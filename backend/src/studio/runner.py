@@ -52,7 +52,7 @@ from studio.domain import (
     TaskSpec,
 )
 from studio.gateway import ChatGateway
-from studio.memory import build_proposals, project_memory
+from studio.memory import build_proposals, fallback_proposal, project_memory
 from studio.routing import ModelRouter
 from studio.sandbox import Denied, Sandbox, sensitive_files
 from studio.vault import Vault
@@ -1090,16 +1090,32 @@ class Runner:
         self.db.update_run(run_id, state=RunState.ACCEPTED, finished_at=time.time(), pending=None)
         self.db.event(run_id, "accepted", message, {"patch": str(patch_path)})
 
-    def _propose_memory(self, run_id: str) -> None:
-        """After acceptance: Autopilot proposes project-note and handoff updates.
+    def memory_retry(self, run_id: str) -> None:
+        """Propose the memory update again for an accepted run (on click)."""
+        run = self._require(run_id)
+        if run["state"] != RunState.ACCEPTED:
+            raise ValueError("memory proposals are only for an accepted change")
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        if not spec.project_note:
+            raise ValueError("this run did not continue a project note")
+        if self.vault() is None:
+            raise ValueError("the shared memory (Obsidian vault) is not available")
+        threading.Thread(
+            target=self._propose_memory, args=(run_id,), name="studio-memory", daemon=True
+        ).start()
 
-        Never blocks or changes the accepted run; failures are only reported.
+    def _propose_memory(self, run_id: str) -> None:
+        """After acceptance: propose project-note and handoff updates.
+
+        Autopilot writes the proposal (strongest lead, submit-only call). If it fails, Studio
+        builds one from facts it checked itself, so an accepted run always ends with a
+        proposal to approve. Never blocks or changes the accepted run.
         """
         try:
             run = self._require(run_id)
             spec = TaskSpec.model_validate_json(run["spec_json"])
             vault = self.vault()
-            if not spec.project_note or vault is None or AUTOPILOT not in self.leads:
+            if not spec.project_note or vault is None:
                 return
             note = vault.read(spec.project_note)
             review = self.db.last_step(run_id, "review")
@@ -1109,27 +1125,53 @@ class Runner:
                 else ""
             )
             changed = workspace.changed_files(Path(run["workspace"]), run["source_commit"])
-            step, result = self._ask_lead(
-                run,
-                spec,
-                AUTOPILOT,
-                "memory",
-                memory_prompt(spec, (note.path, note.text), "\n".join(changed), summary),
-                MEMORY_SCHEMA,
-                MemoryProposal,
-            )
+            result: MemoryProposal | LeadError = LeadError("Autopilot is not configured")
+            step: int | None = None
+            if AUTOPILOT in self.leads:
+                step, result = self._ask_lead(
+                    run,
+                    spec,
+                    AUTOPILOT,
+                    "memory",
+                    memory_prompt(spec, (note.path, note.text), "\n".join(changed), summary),
+                    MEMORY_SCHEMA,
+                    MemoryProposal,
+                    mode="submit",
+                    complexity="hard",
+                )
+            author = "Autopilot"
             if isinstance(result, LeadError):
-                self.db.event(run_id, "warning", f"Návrh zápisu do paměti selhal: {result}")
-                return
-            proposals = build_proposals(vault, result, note.path, run_id, spec.title)
+                self.db.event(
+                    run_id,
+                    "warning",
+                    f"Autopilot návrh do paměti nedodal ({result}); "
+                    "Studio ho sestavilo z ověřených faktů",
+                )
+                verify_step = self.db.last_step(run_id, "verify")
+                commands = (
+                    [
+                        c["command"]
+                        for c in json.loads(verify_step["output_json"]).get("commands", [])
+                        if c.get("exit_code") == 0
+                    ]
+                    if verify_step and verify_step["output_json"]
+                    else []
+                )
+                result = fallback_proposal(spec.goal, changed, commands, summary)
+                author = "studio"
+                step = self.db.start_step(run_id, "memory", run["iteration"], "studio")
+            assert step is not None  # the Autopilot step, or the fallback step above
+            proposals = build_proposals(vault, result, note.path, run_id, spec.title, author=author)
             self.db.finish_step(
-                step, "done", {"memory": result.model_dump(), "proposals": proposals}
+                step,
+                "done",
+                {"memory": result.model_dump(), "proposals": proposals, "author": author},
             )
             self.db.event(
                 run_id,
                 "vault",
-                "Autopilot navrhuje zápis do paměti; zapíše se až po schválení",
-                {"proposals": len(proposals)},
+                "Návrh zápisu do paměti je připravený; zapíše se až po schválení",
+                {"proposals": len(proposals), "author": author},
             )
         except Exception as exc:  # the run is already accepted; this is a convenience
             self.db.event(run_id, "warning", f"Návrh zápisu do paměti selhal: {exc}")

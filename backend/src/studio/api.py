@@ -52,6 +52,7 @@ ACTIONS = (
     "apply",
     "vault-write",
     "vault-discard",
+    "memory-retry",
 )
 
 
@@ -385,6 +386,8 @@ def create_app(
                     runner.apply_to_repo(run_id)
                 case "vault-write":
                     runner.vault_write(run_id, -1 if body.index is None else body.index)
+                case "memory-retry":
+                    runner.memory_retry(run_id)
                 case "vault-discard":
                     runner.vault_discard(run_id, -1 if body.index is None else body.index)
         except KeyError as exc:

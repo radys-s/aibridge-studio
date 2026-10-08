@@ -38,7 +38,7 @@ from studio.agents.prompts import (
 )
 from studio.domain import LeadConfig
 
-Mode = Literal["read", "write"]
+Mode = Literal["read", "write", "submit"]  # submit = no tools but the final submit
 
 
 class LeadError(Exception):
