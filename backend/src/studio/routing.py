@@ -52,7 +52,7 @@ class ModelRouter:
         self,
         db: Database,
         models: tuple[ModelSpec, ...],
-        privacy_floor: Privacy = "unknown",
+        privacy_floor: Privacy = "no_train",
         allow_paid: bool = False,
         exposed: Callable[[], set[str] | None] = lambda: None,
         sleep: Callable[[float], None] = time.sleep,
@@ -142,13 +142,18 @@ class ModelRouter:
         candidates = self.candidates(capability, complexity)
         cooling = self.db.cooldowns()
         for model in candidates:
-            if model in excluded or model in cooling:
+            if model in excluded or model in never or model in cooling:
                 continue
             return model
         # Nothing fresh. A short cooldown (a per-minute limit, a flaky upstream) is worth
-        # waiting for rather than stopping the run; `never` (e.g. the implementer's models
-        # for an independent review) stays out even then.
-        waitable = [(cooling[m], m) for m in candidates if m in cooling and m not in never]
+        # waiting for rather than stopping the run. Models that failed in this turn
+        # (`excluded`) and `never` (the implementer's models during an independent review)
+        # stay out even then.
+        waitable = [
+            (cooling[m], m)
+            for m in candidates
+            if m in cooling and m not in never and m not in excluded
+        ]
         if waitable and self.max_wait_s > 0:
             until, model = min(waitable)
             delay = until - time.time()
@@ -157,7 +162,7 @@ class ModelRouter:
                 while time.time() < end:
                     if should_stop():
                         break
-                    self.sleep(min(1.0, end - time.time()))
+                    self.sleep(max(0.0, min(1.0, end - time.time())))
                 else:
                     self.db.clear_cooldown(model)
                     return model

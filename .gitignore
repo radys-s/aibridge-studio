@@ -15,3 +15,6 @@ frontend/dist/
 *.sqlite-shm
 .env
 .env.*
+frontend/e2e/.tmp/
+frontend/test-results/
+frontend/playwright-report/

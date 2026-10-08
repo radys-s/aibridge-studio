@@ -109,11 +109,21 @@ def build_proposals(
     return out
 
 
+def clip(text: str, limit: int) -> str:
+    """Collapse whitespace and shorten at a word boundary, marking the cut with an ellipsis."""
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    cut = flat[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return cut + "…"
+
+
 def fallback_proposal(
     goal: str,
     changed: list[str],
     commands: list[str],
     review_summary: str,
+    title: str = "",
 ) -> MemoryProposal:
     """Studio's own proposal from run facts, used when the model does not deliver one.
 
@@ -121,11 +131,11 @@ def fallback_proposal(
     and the review summary. Nothing is invented, so it is safe to show and edit.
     """
     files = changed[:MAX_ITEMS]
-    review = " ".join(review_summary.split())[:400]
+    review = clip(review_summary, 400)
     done = [f"Přijato po nezávislém ověření: {c}" for c in commands[:5]] or [
         "Přijato po nezávislém ověření (bez akceptačních příkazů)"
     ]
-    lines = [f"- Cíl: {' '.join(goal.split())[:300]}"]
+    lines = [f"- Cíl: {clip(goal, 300)}"]
     if files:
         lines.append("- Změněné soubory: " + ", ".join(f"`{f}`" for f in files))
     lines += [f"- {d}" for d in done]
@@ -136,7 +146,7 @@ def fallback_proposal(
         project_update="\n".join(lines),
         handoff_needed=True,
         handoff_to="claude",
-        handoff_topic=" ".join(goal.split())[:80],
+        handoff_topic=clip(title or goal, 80),
         handoff_done=done + [f"Recenze: {review}"] * bool(review),
         handoff_open=["Zkontrolovat změnu z AI Bridge Studia a rozhodnout o sloučení větve."],
         handoff_files=files,
@@ -145,5 +155,5 @@ def fallback_proposal(
 
 
 def _bullets(items: list[str]) -> list[str]:
-    kept = [i.strip()[:MAX_ITEM_CHARS] for i in items if i.strip()][:MAX_ITEMS]
+    kept = [clip(i, MAX_ITEM_CHARS) for i in items if i.strip()][:MAX_ITEMS]
     return [f"- {i}" for i in kept] or ["- —"]

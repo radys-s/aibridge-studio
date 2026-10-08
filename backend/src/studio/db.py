@@ -315,6 +315,15 @@ class Database:
             ).fetchone()
         return int(row["n"])
 
+    def api_calls_by_model_since(self, since: float) -> dict[str, int]:
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT requested_model AS m, COUNT(*) AS n FROM model_call "
+                "WHERE billing = 'api' AND at >= ? GROUP BY requested_model",
+                (since,),
+            ).fetchall()
+        return {str(r["m"]): int(r["n"]) for r in rows}
+
     # --- conversation & live agent output ----------------------------------------------
 
     def message(self, run_id: str, author: str, text: str, data: Any = None) -> int:

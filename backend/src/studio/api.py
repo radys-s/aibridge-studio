@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from studio import __version__
 from studio.agents.api_lead import ApiLead
 from studio.agents.leads import Lead
-from studio.config import Settings
+from studio.config import DAILY_REQUEST_CAPS, Settings
 from studio.db import Database
 from studio.domain import AUTOPILOT, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
@@ -83,6 +83,21 @@ def _rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _providers_today(by_model: dict[str, int]) -> list[dict[str, Any]]:
+    """Requests per provider today against its known free daily cap.
+
+    Groq caps each model separately, so its busiest model counts; OpenRouter caps the pool.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for model, n in by_model.items():
+        provider = model.split("/", 1)[0]
+        row = out.setdefault(provider, {"provider": provider, "calls": 0, "used": 0, "cap": None})
+        row["calls"] += n
+        row["used"] = max(row["used"], n) if provider == "groq" else row["calls"]
+        row["cap"] = DAILY_REQUEST_CAPS.get(provider)
+    return sorted(out.values(), key=lambda r: -int(r["calls"]))
+
+
 def _midnight_utc() -> float:
     """OpenRouter's free daily limit resets at 00:00 UTC."""
     now = time.time()
@@ -97,6 +112,10 @@ def create_app(
     start_runner: bool = True,
 ) -> FastAPI:
     db = Database(settings.db_path)
+    if gateway is None and settings.fake_gateway:
+        from studio.testing import ScriptedGateway
+
+        gateway = ScriptedGateway()
     gw = gateway or OmniRouteGateway(
         settings.omniroute_url, settings.omniroute_api_key, settings.gateway_timeout_s
     )
@@ -151,6 +170,7 @@ def create_app(
             "models": router.catalog(),
             "privacy_floor": router.privacy_floor,
             "api_calls_today": db.api_calls_since(_midnight_utc()),
+            "providers_today": _providers_today(db.api_calls_by_model_since(_midnight_utc())),
         }
 
     # --- preferences --------------------------------------------------------------------

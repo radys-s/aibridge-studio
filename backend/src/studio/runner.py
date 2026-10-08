@@ -1125,7 +1125,7 @@ class Runner:
                     if verify_step and verify_step["output_json"]
                     else []
                 )
-                result = fallback_proposal(spec.goal, changed, commands, summary)
+                result = fallback_proposal(spec.goal, changed, commands, summary, spec.title)
                 author = "studio"
                 step = self.db.start_step(run_id, "memory", run["iteration"], "studio")
             assert step is not None  # the Autopilot step, or the fallback step above

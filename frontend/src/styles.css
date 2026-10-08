@@ -594,49 +594,6 @@ textarea {
   box-shadow: var(--shadow);
   font-weight: 600;
 }
-.lead-pickers {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 0.6rem;
-  margin-top: 0.6rem;
-}
-.lead-picker {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--muted);
-  border-radius: 10px;
-  padding: 0.55rem 0.7rem;
-  background: var(--raised);
-  display: grid;
-  gap: 0.35rem;
-}
-.lead-picker.lead-claude {
-  border-left-color: var(--claude);
-}
-.lead-picker.lead-codex {
-  border-left-color: var(--codex);
-}
-.lead-picker.heavy {
-  border-color: var(--warn);
-  background: var(--warn-bg);
-}
-.lead-picker-head {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.lead-dot {
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background: var(--muted);
-}
-.lead-dot.lead-claude {
-  background: var(--claude);
-}
-.lead-dot.lead-codex {
-  background: var(--codex);
-}
 .inline-field {
   display: grid;
   grid-template-columns: 4rem minmax(0, 1fr);

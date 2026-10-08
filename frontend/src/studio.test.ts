@@ -1,25 +1,29 @@
 import { describe as group, expect, it } from "vitest";
-import type { EffortOption, Orchestration, RunDetail } from "./api";
-import { asAutopilot, COMPOSER_IMPLEMENTERS, describe, heavyLeads, leadsIn, lines, withMode } from "./options";
+import type { ModelInfo, Orchestration, RunDetail } from "./api";
+import { actorLabel, activeProviders, asAutopilot, describe, IMPLEMENTERS, lines } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
 import { actorLead, buildThread, latestDraftId } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
+import { budgetLevel } from "./components/SettingsView";
 
-const EFFORTS: Record<"claude" | "codex", EffortOption[]> = {
-  claude: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, heavy: id === "xhigh" || id === "max" })),
-  codex: ["none", "low", "high", "xhigh"].map((id) => ({ id, heavy: id === "xhigh" })),
-};
+const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
 
-const ORCH: Orchestration = {
-  mode: "cross",
-  primary: "claude",
-  plan: true,
-  second_opinion: [],
-  claude: { model: "opus", effort: "high" },
-  codex: { model: "gpt-5.6-sol", effort: "medium" },
-};
+function model(id: string, over: Partial<ModelInfo> = {}): ModelInfo {
+  return {
+    id,
+    provider: id.split("/")[0],
+    privacy: "no_train",
+    paid: false,
+    lead: true,
+    coding: true,
+    strength: 1,
+    blocked: null,
+    cooldown_until: null,
+    ...over,
+  };
+}
 
 function detail(over: Partial<RunDetail> = {}): RunDetail {
   return {
@@ -38,31 +42,31 @@ function detail(over: Partial<RunDetail> = {}): RunDetail {
   };
 }
 
-group("effort warning", () => {
-  it("flags only leads that take part and use a heavy effort", () => {
-    expect(heavyLeads(ORCH, EFFORTS)).toEqual([]);
-    const heavy = { ...ORCH, claude: { model: "opus", effort: "max" }, codex: { model: null, effort: "xhigh" } };
-    expect(heavyLeads(heavy, EFFORTS)).toEqual(["claude", "codex"]);
-    expect(heavyLeads({ ...heavy, mode: "codex", primary: "codex" }, EFFORTS)).toEqual(["codex"]);
+group("orchestration", () => {
+  it("is only Autopilot; old saved Claude/Codex orchestration is upgraded", () => {
+    const old = { mode: "cross", primary: "claude", plan: false, second_opinion: ["codex"] } as unknown as Orchestration;
+    expect(asAutopilot(old)).toEqual({ mode: "autopilot", primary: "autopilot", plan: false });
+    expect(describe(ORCH)).toBe("Autopilot · free modely");
+    expect(IMPLEMENTERS.map((i) => i.id)).toEqual(["auto", "worker", "autopilot", "freebuff"]);
+    expect(actorLabel("codex")).toBe("Codex"); // history from before ADR 0004
   });
 
-  it("solo modes force their own lead as primary", () => {
-    expect(withMode(ORCH, "codex").primary).toBe("codex");
-    expect(withMode({ ...ORCH, primary: "codex" }, "duo").primary).toBe("codex");
-    expect(leadsIn("claude")).toEqual(["claude"]);
-    expect(describe(withMode(ORCH, "duo"))).toBe("Oba · Claude opus/high + Codex gpt-5.6-sol/medium");
+  it("lists only providers that will receive data, in router order", () => {
+    const models = [
+      model("groq/openai/gpt-oss-120b"),
+      model("cloudflare-ai/@cf/x", { blocked: "not_connected" }),
+      model("openrouter/x:free", { privacy: "unknown", blocked: "privacy" }),
+      model("groq/openai/gpt-oss-20b"),
+    ];
+    expect(activeProviders(models)).toEqual(["Groq"]);
+    expect(activeProviders([])).toEqual([]);
   });
 
-  it("autopilot is Studio's orchestration; Claude/Codex only as a second opinion", () => {
-    const auto = asAutopilot(ORCH);
-    expect(auto.mode).toBe("autopilot");
-    expect(auto.primary).toBe("autopilot");
-    expect(auto.claude).toEqual(ORCH.claude);
-    expect(leadsIn("autopilot")).toEqual([]);
-    expect(heavyLeads({ ...auto, claude: { model: "opus", effort: "max" } }, EFFORTS)).toEqual([]);
-    expect(describe(auto)).toBe("Autopilot · free modely");
-    expect(describe({ ...auto, second_opinion: ["codex"] })).toBe("Autopilot · druhý názor Codex");
-    expect(COMPOSER_IMPLEMENTERS.map((i) => i.id)).toEqual(["auto", "worker", "autopilot", "freebuff"]);
+  it("warns at 80 % of a free daily cap", () => {
+    expect(budgetLevel({ provider: "groq", calls: 10, used: 10, cap: 1000 })).toBe("ok");
+    expect(budgetLevel({ provider: "groq", calls: 900, used: 800, cap: 1000 })).toBe("warn");
+    expect(budgetLevel({ provider: "openrouter", calls: 50, used: 50, cap: 50 })).toBe("out");
+    expect(budgetLevel({ provider: "cloudflare-ai", calls: 5, used: 5, cap: null })).toBeNull();
   });
 
   it("continues a project by its note title", () => {

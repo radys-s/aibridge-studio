@@ -4,10 +4,8 @@ import {
   ApiError,
   AUTOPILOT,
   isActive,
-  LEADS,
   type ActionBody,
   type AgentEvent,
-  type AnyLead,
   type Applied,
   type Draft,
   type HandoffOutput,
@@ -22,7 +20,7 @@ import {
   type WorkOutput,
 } from "../api";
 import { absoluteTime, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
-import { describe, LEAD_LABELS, lines } from "../options";
+import { actorLabel, describe, lines } from "../options";
 import { actorLead, buildThread, latestDraftId } from "../thread";
 import { CopyButton, ExitBadge, latestOutput, List } from "./bits";
 import { StateBadge } from "./StateBadge";
@@ -174,17 +172,32 @@ export function ReviewBody({ review }: { review: ReviewOutput }) {
 function MemoryBody({ out, act }: { out: MemoryOutput; act: Act }) {
   const [busy, setBusy] = useState<number | null>(null);
   const proposals = out.proposals ?? [];
-  if (proposals.length === 0) return <p className="muted small">Autopilot nenavrhl nic k zápisu.</p>;
 
-  async function run(action: "vault-write" | "vault-discard", index: number) {
+  async function run(action: "vault-write" | "vault-discard" | "memory-retry", index: number) {
     setBusy(index);
-    await act(action, { index });
+    await act(action, action === "memory-retry" ? {} : { index });
     setBusy(null);
   }
+
+  const again = (
+    <button type="button" className="small" disabled={busy !== null} onClick={() => void run("memory-retry", -1)}>
+      Navrhnout znovu
+    </button>
+  );
+  if (proposals.length === 0)
+    return (
+      <div className="actions">
+        <span className="muted small">Autopilot nenavrhl nic k zápisu.</span>
+        {again}
+      </div>
+    );
 
   return (
     <>
       <p className="small muted">
+        {out.author === "studio"
+          ? "Model návrh nedodal, Studio ho sestavilo z ověřených faktů běhu. "
+          : "Návrh od Autopilota. "}
         Zapíše se do Obsidianu až po kliknutí, jen připojením na konec poznámky nebo jako nová předávka. Nic se
         nepřepisuje.
       </p>
@@ -214,6 +227,7 @@ function MemoryBody({ out, act }: { out: MemoryOutput; act: Act }) {
           )}
         </div>
       ))}
+      <div className="actions">{again}</div>
     </>
   );
 }
@@ -295,10 +309,10 @@ function stepTitle(step: Step): string {
   const label = STEP_LABELS[step.kind] ?? step.kind;
   const actor = step.actor ?? "";
   if (actor.endsWith(":merge")) return "Sloučený plán";
-  if (actor.startsWith("lead:")) return `${label} · implementuje ${LEAD_LABELS[actor.slice(5) as AnyLead] ?? actor}`;
+  if (actor.startsWith("lead:")) return `${label} · implementuje ${actorLabel(actor.slice(5))}`;
   if (actor.startsWith("external:")) return `${label} · ${actor.slice(9)} (ručně)`;
   const lead = actorLead(actor);
-  if (lead) return `${label} · ${LEAD_LABELS[lead]}`;
+  if (lead) return `${label} · ${actorLabel(lead)}`;
   return actor && actor !== "studio" ? `${label} · ${actor}` : label;
 }
 
@@ -318,6 +332,13 @@ function StepCard({ step, agent, act }: { step: Step; agent: AgentEvent[]; act: 
         </span>
       </div>
       {step.error && <p className="error small">{step.error}</p>}
+      {step.kind === "memory" && step.status === "failed" && (
+        <div className="actions">
+          <button type="button" className="small" onClick={() => void act("memory-retry")}>
+            Navrhnout znovu
+          </button>
+        </div>
+      )}
       <StepBody step={step} act={act} />
       {(lead || agent.length > 0) && <AgentStream events={agent} running={running} />}
     </div>
@@ -432,18 +453,13 @@ function files(n: number): string {
   return `${n} ${n === 1 ? "soubor" : n >= 2 && n <= 4 ? "soubory" : "souborů"}`;
 }
 
-/** Takeover targets: Autopilot first; Claude/Codex only help while they still have quota. */
-const TAKEOVER: AnyLead[] = [AUTOPILOT, ...LEADS];
-
-function LeadButtons({ act, note, verb }: { act: Act; note: string; verb: string }) {
+/** Takeover: Autopilot (a stronger free model) writes the code itself. Claude/Codex are not
+ * offered (ADR 0004). */
+function LeadButtons({ act, note }: { act: Act; note: string }) {
   return (
-    <>
-      {TAKEOVER.map((lead) => (
-        <button key={lead} type="button" onClick={() => void act("takeover", { lead, note })}>
-          {verb} {LEAD_LABELS[lead]}
-        </button>
-      ))}
-    </>
+    <button type="button" onClick={() => void act("takeover", { lead: AUTOPILOT, note })}>
+      Předat Autopilotovi (silnější model)
+    </button>
   );
 }
 
@@ -563,7 +579,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
         <button type="button" className="primary" onClick={() => void act("resume")}>
           Pokračovat
         </button>
-        {implementable && <LeadButtons act={act} note={note} verb="Předat" />}
+        {implementable && <LeadButtons act={act} note={note} />}
         {abandon}
       </div>
     );
@@ -594,7 +610,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
     case "takeover":
       buttons = (
         <>
-          <LeadButtons act={act} note={note} verb="Předat" />
+          <LeadButtons act={act} note={note} />
           {run.phase === "work" && <button type="button" onClick={() => void act("keep-worker")}>Ponechat workera</button>}
         </>
       );
@@ -610,6 +626,13 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
             }}
           >
             Přijmout změnu
+          </button>
+          <button
+            type="button"
+            title="Jiný model byl v pauze po limitu. Recenze se zkusí znovu s modelem, který změnu nepsal."
+            onClick={() => void act("retry")}
+          >
+            Zkusit nezávislou recenzi znovu
           </button>
           <button type="button" onClick={() => void act("rework", { note })}>Vrátit k opravě</button>
         </>
@@ -637,7 +660,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
               Vrátit k opravě
             </button>
           )}
-          {implementable && <LeadButtons act={act} note={note} verb="Předat" />}
+          {implementable && <LeadButtons act={act} note={note} />}
         </>
       );
   }

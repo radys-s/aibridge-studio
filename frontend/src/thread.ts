@@ -1,5 +1,5 @@
 // Builds the chronological thread of a run: chat messages and steps with their agent output.
-import type { AgentEvent, AnyLead, Message, RunDetail, Step } from "./api";
+import type { AgentEvent, Message, RunDetail, Step } from "./api";
 
 export type ThreadItem =
   | { type: "message"; at: number; message: Message }
@@ -29,8 +29,9 @@ export function latestDraftId(messages: Message[]): number | null {
   return null;
 }
 
-/** Name of the lead behind a step actor ("lead:claude", "claude:merge", "autopilot" → that lead). */
-export function actorLead(actor: string | null): AnyLead | null {
+/** Lead behind a step actor ("lead:autopilot", "autopilot" → autopilot). Runs from before
+ * ADR 0004 may still show "claude" or "codex". */
+export function actorLead(actor: string | null): string | null {
   if (!actor) return null;
   const name = actor.replace(/^lead:/, "").split(":")[0];
   return name === "claude" || name === "codex" || name === "autopilot" ? name : null;

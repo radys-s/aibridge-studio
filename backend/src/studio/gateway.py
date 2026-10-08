@@ -8,6 +8,7 @@ Model choice and fallback belong to `routing.ModelRouter`, never to this module.
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -76,9 +77,10 @@ class ChatGateway(Protocol):
 
 def _float(value: str | None) -> float:
     try:
-        return float(value) if value else 0.0
+        number = float(value) if value else 0.0
     except ValueError:
         return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 class OmniRouteGateway:
@@ -88,7 +90,7 @@ class OmniRouteGateway:
         self._headers = {"Content-Type": "application/json"}
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
-        self._models: tuple[float, set[str]] | None = None
+        self._models: tuple[float, set[str] | None] | None = None
 
     def health(self) -> dict[str, Any]:
         try:
@@ -100,13 +102,17 @@ class OmniRouteGateway:
     def models(self) -> set[str] | None:
         """Exposed model ids, cached for a minute (connected providers rarely change)."""
         now = time.monotonic()
-        if self._models is not None and now - self._models[0] < 60:
+        # A failed probe is cached too (shorter), so a down OmniRoute does not add a 5 s
+        # timeout to every routing decision or health poll.
+        if self._models is not None and now - self._models[0] < (60 if self._models[1] else 15):
             return self._models[1]
+        ids: set[str] | None
         try:
-            r = httpx.get(f"{self.base_url}/v1/models", headers=self._headers, timeout=5)
+            r = httpx.get(f"{self.base_url}/v1/models", headers=self._headers, timeout=2)
+            r.raise_for_status()
             ids = {str(m["id"]) for m in r.json()["data"]}
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
-            return None
+            ids = None
         self._models = (now, ids)
         return ids
 
