@@ -19,7 +19,7 @@ export default defineConfig({
   webServer: {
     command: "npm run build && node e2e/prepare.mjs && uv run studio serve",
     url: `http://127.0.0.1:${PORT}/api/health`,
-    timeout: 120_000,
+    timeout: 240_000, // cold start: vite build + uv sync can exceed 2 min on Windows
     reuseExistingServer: false,
     env: {
       STUDIO_PORT: String(PORT),
