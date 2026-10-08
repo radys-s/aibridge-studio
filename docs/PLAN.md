@@ -55,6 +55,12 @@ a model probe in Settings, worker context trimming. GitHub Models removed (retir
 skipped (needs a card). Next: live run with Cloudflare reviewing Groq's work once the Account
 ID is set in OmniRoute, then router learning from outcomes.
 
+## v0.3 — simple UI and router learning (implemented 2026-10-08, ADR 0006)
+
+Apple-like UI with progressive disclosure and a six-stage run header; router demotes
+unreliable models and favours accepted work for hard tasks; setup hint in Settings. Next:
+live Groq run through the new UI; Cloudflare review run once the Account ID is set.
+
 ## Phase 2 — reliability and context
 
 - Port the AI Bridge memory kernel (selective context, source, age, conflicts,
@@ -63,7 +69,7 @@ ID is set in OmniRoute, then router learning from outcomes.
   agent reviews. Done in Phase 2a.
 - Apply flow: accepted change → branch in the source repository on explicit approval.
   Done in Phase 2b.
-- Router learns from outcomes (success rate per model and task kind).
+- Router learns from outcomes: done in v0.3 (ADR 0006).
 - External implementer, manual (Freebuff): done 2026-10-06, see `docs/adr/0001-...`.
 - Watch: headless Freebuff adapter in `agents/` once `--print` NDJSON or free SDK auth
   exists (github.com/CodebuffAI/freebuff/issues/947). Plugs in as an implementer, never via

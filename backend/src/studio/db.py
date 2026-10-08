@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS model_call (
     at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS model_call_run ON model_call(run_id);
+CREATE INDEX IF NOT EXISTS model_call_at ON model_call(at);
+CREATE INDEX IF NOT EXISTS model_call_step ON model_call(step_id);
 CREATE TABLE IF NOT EXISTS cooldown (
     model TEXT PRIMARY KEY,
     until REAL NOT NULL,
@@ -324,6 +326,56 @@ class Database:
             ).fetchall()
         return {str(r["m"]): int(r["n"]) for r in rows}
 
+    def call_outcomes_since(
+        self, since: float
+    ) -> tuple[dict[str, int], list[tuple[str, str, str]]]:
+        """Gateway calls since a timestamp, for the router's reliability stats: successful
+        calls per model, and (model, outcome, error) of every failed one."""
+        with self.connect() as c:
+            ok = c.execute(
+                "SELECT requested_model AS m, COUNT(*) AS n FROM model_call "
+                "WHERE billing = 'api' AND at >= ? AND outcome = 'ok' GROUP BY requested_model",
+                (since,),
+            ).fetchall()
+            failed = c.execute(
+                "SELECT requested_model AS m, outcome, COALESCE(error, '') AS error "
+                "FROM model_call WHERE billing = 'api' AND at >= ? AND outcome != 'ok'",
+                (since,),
+            ).fetchall()
+        return (
+            {str(r["m"]): int(r["n"]) for r in ok},
+            [(str(r["m"]), str(r["outcome"]), str(r["error"])) for r in failed],
+        )
+
+    def reviewed_work_since(self, since: float) -> list[tuple[dict[str, Any], str]]:
+        """(review output, model that wrote the reviewed change) for each finished review
+        since a timestamp. The author is the model with most successful calls in the last
+        work step of the same run and iteration: the attempt the review actually saw."""
+        with self.connect() as c:
+            reviews = c.execute(
+                "SELECT run_id, iteration, output_json FROM step WHERE kind = 'review' "
+                "AND status = 'done' AND output_json IS NOT NULL AND started_at >= ?",
+                (since,),
+            ).fetchall()
+            out: list[tuple[dict[str, Any], str]] = []
+            for r in reviews:
+                try:
+                    review = json.loads(r["output_json"])
+                except ValueError:
+                    continue
+                if not isinstance(review, dict):
+                    continue
+                author = c.execute(
+                    "SELECT requested_model AS m, COUNT(*) AS n FROM model_call "
+                    "WHERE outcome = 'ok' AND step_id = (SELECT MAX(id) FROM step "
+                    "WHERE run_id = ? AND iteration = ? AND kind = 'work') "
+                    "GROUP BY requested_model ORDER BY n DESC, MAX(id) DESC LIMIT 1",
+                    (r["run_id"], r["iteration"]),
+                ).fetchone()
+                if author:
+                    out.append((review, str(author["m"])))
+        return out
+
     # --- conversation & live agent output ----------------------------------------------
 
     def message(self, run_id: str, author: str, text: str, data: Any = None) -> int:
@@ -408,6 +460,12 @@ class Database:
         with self.connect() as c:
             rows = c.execute("SELECT model, until FROM cooldown WHERE until > ?", (time.time(),))
             return {r["model"]: float(r["until"]) for r in rows.fetchall()}
+
+    def cooldown_reasons(self) -> dict[str, str]:
+        """Why each active cooldown started ("setup: 502: Workers AI requires …")."""
+        with self.connect() as c:
+            rows = c.execute("SELECT model, reason FROM cooldown WHERE until > ?", (time.time(),))
+            return {r["model"]: str(r["reason"]) for r in rows.fetchall()}
 
     # --- recovery ---------------------------------------------------------------------
 
