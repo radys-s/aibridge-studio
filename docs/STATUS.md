@@ -1,9 +1,37 @@
 # Status
 
-Last update: 2026-10-08 (Claude Code). Phase 2c "private free Autopilot only" (ADR 0004)
+Last update: 2026-10-08 (Claude Code), v0.3 below. Earlier: Phase 2c "private free Autopilot only" (ADR 0004)
 implemented, tested (pytest, vitest, Playwright E2E) and run live on Groq: run
 `6280086d4b75` was accepted with an independent review (gpt-oss-20b) and a model-written memory
 proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
+
+## v0.3 — simple UI and router learning (2026-10-08, branch `v0.3-simple-ui`)
+
+- **Apple-like UI.**
+  - The stylesheet is rewritten: neutral greys, one blue accent, system font, 8-pt spacing.
+    Light and dark come from one token set (`light-dark()`).
+  - Composer:
+    - one primary action (Spustit) and the auto-approve switch;
+    - "Kdo píše kód", "Když to nezvládne", manual scope and "Uložit jako výchozí" sit
+      behind "Další možnosti";
+    - one quiet status line covers the gateway, the no-train providers and today's requests.
+  - Run view:
+    - a six-stage progress header (Zadání, Plán, Práce, Ověření, Recenze, Paměť), built by
+      `thread.progress()`;
+    - the Inspector opens only through "Podrobnosti", and the choice is remembered.
+  - Plain wording: Autopilot instead of "lead", Recenze instead of Review, "2. pokus"
+    instead of "iterace".
+  - Settings cards: Modely, Klíče, Dnes, Paměť. Models that may train or are paid sit
+    behind a collapsed table.
+- **Router learning (ADR 0006).**
+  - Reliability: failures over 3 days and reviews over 14 days. Capacity, auth and setup
+    errors are not counted. Stats are cached for 60 s.
+  - A model failing ≥50 % of ≥5 calls is demoted, never removed.
+  - Hard tasks get a bonus of up to +1 strength for accepted work after ≥3 reviews.
+  - Settings shows "spolehlivost … · x/y přijato".
+- Indexes `model_call(at)` and `model_call(step_id)` back the stats queries.
+- **Setup hint.** A model paused by a setup error shows "Chybí nastavení v OmniRoute" with
+  the provider hint (Cloudflare Account ID) and a link to OmniRoute.
 
 ## Phase 2d — provider setup (2026-10-08)
 

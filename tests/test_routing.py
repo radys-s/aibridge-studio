@@ -21,6 +21,7 @@ BUDGET = RouteBudget(100_000, 1.0)
 
 def router(tmp_path: Path, *models: ModelSpec, **kw: object) -> ModelRouter:
     db = Database(tmp_path / "studio.sqlite")
+    kw.setdefault("stats_ttl_s", 0.0)  # tests change the history between calls
     return ModelRouter(db, models, **kw)  # type: ignore[arg-type]
 
 
@@ -209,3 +210,124 @@ def test_may_train_is_never_routed_even_with_a_relaxed_floor(tmp_path: Path) -> 
     trains = ModelSpec("nvidia/strong", LEAD, 9, privacy="may_train")
     r = router(tmp_path, trains, OPEN, privacy_floor="unknown")
     assert r.choose("run", BUDGET, set(), complexity="hard") == OPEN.id
+
+
+def _run(db: Database) -> str:
+    return db.create_task_and_run('{"goal": "learn", "repo_path": "."}')
+
+
+def _calls(db: Database, run_id: str, model: str, outcome: str, n: int, error: str = "") -> None:
+    for _ in range(n):
+        db.record_model_call(
+            run_id=run_id, role="worker", requested_model=model, outcome=outcome, error=error
+        )
+
+
+def _reviewed(
+    db: Database, model: str, verdict: str, criteria_met: bool = True, earlier: str = ""
+) -> None:
+    run_id = _run(db)
+    if earlier:  # an interrupted attempt in the same iteration that the review never saw
+        first = db.start_step(run_id, "work", 1, "worker")
+        _calls(db, run_id, earlier, "ok", 3)
+        db.record_model_call(
+            run_id=run_id, step_id=first, role="worker", requested_model=earlier, outcome="ok"
+        )
+        db.finish_step(first, "interrupted", None)
+    work = db.start_step(run_id, "work", 1, "lead:autopilot")
+    db.record_model_call(
+        run_id=run_id, step_id=work, role="work", requested_model=model, outcome="ok"
+    )
+    db.finish_step(work, "done", {})
+    review = db.start_step(run_id, "review", 1, "autopilot")
+    criteria = [{"criterion": "works", "met": criteria_met}]
+    db.finish_step(
+        review, "done", {"verdict": verdict, "summary": "", "findings": [], "criteria": criteria}
+    )
+
+
+def test_a_model_that_keeps_failing_is_demoted_not_removed(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL)
+    run_id = _run(r.db)
+    _calls(r.db, run_id, "groq/strong", "ok", 2)
+    _calls(r.db, run_id, "groq/strong", "provider_error", 3, "unparseable response")
+    assert r.candidates("lead") == ["groq/small", "groq/strong"]
+    info = {m["id"]: m for m in r.catalog()}
+    assert info["groq/strong"]["demoted"] is True
+    assert info["groq/strong"]["stats"] == {"calls": 5, "failed": 3, "reviewed": 0, "accepted": 0}
+
+
+def test_too_few_calls_do_not_demote(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL)
+    _calls(r.db, _run(r.db), "groq/strong", "timeout", 4)
+    assert r.candidates("lead") == ["groq/strong", "groq/small"]
+
+
+def test_rate_limits_setup_errors_and_a_down_gateway_are_not_held_against_a_model(
+    tmp_path: Path,
+) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL)
+    run_id = _run(r.db)
+    _calls(r.db, run_id, "groq/strong", "ok", 1)
+    _calls(r.db, run_id, "groq/strong", "provider_error", 3, "429: Rate limit reached")
+    _calls(r.db, run_id, "groq/strong", "provider_error", 3, "502: requires an Account ID")
+    _calls(r.db, run_id, "groq/strong", "provider_error", 3, "401: invalid api key")
+    _calls(r.db, run_id, "groq/strong", "gateway_unavailable", 5, "connection refused")
+    assert r.candidates("lead") == ["groq/strong", "groq/small"]
+    assert r.stats()["groq/strong"].calls == 1
+
+
+def test_accepted_work_lifts_a_model_for_hard_tasks_only(tmp_path: Path) -> None:
+    a = ModelSpec("groq/a", LEAD, 5, privacy="no_train")
+    b = ModelSpec("groq/b", LEAD, 5, privacy="no_train")
+    r = router(tmp_path, a, b)
+    for verdict in ("accept", "accept", "request_changes"):
+        _reviewed(r.db, "groq/b", verdict)
+    assert r.stats()["groq/b"].reviewed == 3
+    assert r.candidates("lead", "hard") == ["groq/b", "groq/a"]
+    assert r.candidates("lead") == ["groq/a", "groq/b"]  # catalog order otherwise
+    # Two reviews are not enough evidence for a bonus.
+    (tmp_path / "two").mkdir()
+    r2 = router(tmp_path / "two", a, b)
+    _reviewed(r2.db, "groq/b", "accept")
+    _reviewed(r2.db, "groq/b", "accept")
+    assert r2.candidates("lead", "hard") == ["groq/a", "groq/b"]
+
+
+def test_learning_never_overrides_the_privacy_floor(tmp_path: Path) -> None:
+    r = router(tmp_path, OPEN, PRIVATE, privacy_floor="no_train")
+    run_id = _run(r.db)
+    _calls(r.db, run_id, "groq/strong", "timeout", 10)
+    for _ in range(3):
+        _reviewed(r.db, OPEN.id, "accept")
+    assert r.candidates("lead", "hard") == ["groq/strong"]
+
+
+def test_catalog_says_why_a_model_is_paused(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE)
+    r.report_failure("groq/strong", "provider_error", 502, "502: requires an Account ID")
+    assert r.catalog()[0]["cooldown_kind"] == "setup"
+
+
+def test_only_the_reviewed_attempt_and_passing_reviews_count(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL)
+    _reviewed(r.db, "groq/small", "accept", earlier="groq/strong")
+    _reviewed(r.db, "groq/small", "accept", criteria_met=False)  # runner would not accept
+    stats = r.stats()
+    assert stats["groq/small"].reviewed == 2 and stats["groq/small"].accepted == 1
+    assert stats["groq/strong"].reviewed == 0
+
+
+def test_rate_limit_words_in_a_real_error_still_count(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL)
+    _calls(r.db, _run(r.db), "groq/strong", "provider_error", 5, "400: see rate limits docs")
+    assert r.candidates("lead") == ["groq/small", "groq/strong"]
+
+
+def test_stats_are_cached_between_turns(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL, stats_ttl_s=60.0)
+    assert r.candidates("lead") == ["groq/strong", "groq/small"]
+    _calls(r.db, _run(r.db), "groq/strong", "timeout", 5)
+    assert r.candidates("lead") == ["groq/strong", "groq/small"]  # cached
+    r._stats = None
+    assert r.candidates("lead") == ["groq/small", "groq/strong"]

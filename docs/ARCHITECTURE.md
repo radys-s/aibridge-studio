@@ -66,6 +66,8 @@ boundaries are Python packages with narrow interfaces.
 4. **Routing** (`routing.py`, derived from Prizma `routing/selector.py`): choose a model by
    capability, privacy class (`privacy_floor`, default `no_train`), paid flag, whether
    OmniRoute exposes it (`/v1/models`), availability (cooldowns, short waits) and budget.
+   Within those limits it learns from outcomes (ADR 0006). Models that keep failing are
+   demoted. For hard tasks, models whose work reviews accept get a bonus.
 5. **OmniRoute** (`gateway.py`): gateway to providers. Integrated as an external dependency
    behind an adapter. Studio does not copy OmniRoute code and does not implement its own
    provider gateway.
