@@ -169,7 +169,7 @@ export function ReviewBody({ review }: { review: ReviewOutput }) {
   );
 }
 
-function MemoryBody({ out, act }: { out: MemoryOutput; act: Act }) {
+function MemoryBody({ out, act, latest }: { out: MemoryOutput; act: Act; latest: boolean }) {
   const [busy, setBusy] = useState<number | null>(null);
   const proposals = out.proposals ?? [];
 
@@ -188,7 +188,7 @@ function MemoryBody({ out, act }: { out: MemoryOutput; act: Act }) {
     return (
       <div className="actions">
         <span className="muted small">Autopilot nenavrhl nic k zápisu.</span>
-        {again}
+        {latest && again}
       </div>
     );
 
@@ -227,17 +227,17 @@ function MemoryBody({ out, act }: { out: MemoryOutput; act: Act }) {
           )}
         </div>
       ))}
-      <div className="actions">{again}</div>
+      {latest && <div className="actions">{again}</div>}
     </>
   );
 }
 
-function StepBody({ step, act }: { step: Step; act: Act }) {
+function StepBody({ step, act, latest }: { step: Step; act: Act; latest: boolean }) {
   const out = step.output as Record<string, unknown> | null;
   if (!out || typeof out !== "object") return null;
   switch (step.kind) {
     case "memory":
-      return <MemoryBody out={out as unknown as MemoryOutput} act={act} />;
+      return <MemoryBody out={out as unknown as MemoryOutput} act={act} latest={latest} />;
     case "plan":
       return <PlanBody plan={out as unknown as Plan} />;
     case "review":
@@ -316,7 +316,8 @@ function stepTitle(step: Step): string {
   return actor && actor !== "studio" ? `${label} · ${actor}` : label;
 }
 
-function StepCard({ step, agent, act }: { step: Step; agent: AgentEvent[]; act: Act }) {
+/** `latest`: the newest step of its kind; only that one offers "Navrhnout znovu". */
+function StepCard({ step, agent, act, latest }: { step: Step; agent: AgentEvent[]; act: Act; latest: boolean }) {
   const lead = actorLead(step.actor);
   const running = step.status === "running";
   const dur = step.started_at ? formatDuration((step.finished_at ?? nowSec()) - step.started_at) : "";
@@ -332,14 +333,14 @@ function StepCard({ step, agent, act }: { step: Step; agent: AgentEvent[]; act: 
         </span>
       </div>
       {step.error && <p className="error small">{step.error}</p>}
-      {step.kind === "memory" && step.status === "failed" && (
+      {latest && step.kind === "memory" && step.status === "failed" && (
         <div className="actions">
           <button type="button" className="small" onClick={() => void act("memory-retry")}>
             Navrhnout znovu
           </button>
         </div>
       )}
-      <StepBody step={step} act={act} />
+      <StepBody step={step} act={act} latest={latest} />
       {(lead || agent.length > 0) && <AgentStream events={agent} running={running} />}
     </div>
   );
@@ -686,6 +687,7 @@ export function Thread({ detail, live, onChanged }: Props) {
   const { run } = detail;
   const items = useMemo(() => buildThread(detail), [detail]);
   const draftId = latestDraftId(detail.messages);
+  const lastMemoryId = detail.steps.filter((s) => s.kind === "memory").reduce((m, s) => Math.max(m, s.id), -1);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -752,7 +754,13 @@ export function Thread({ detail, live, onChanged }: Props) {
               act={act}
             />
           ) : (
-            <StepCard key={`s${it.step.id}`} step={it.step} agent={it.agent} act={act} />
+            <StepCard
+              key={`s${it.step.id}`}
+              step={it.step}
+              agent={it.agent}
+              act={act}
+              latest={it.step.id === lastMemoryId}
+            />
           ),
         )}
         <div ref={bottom} />
