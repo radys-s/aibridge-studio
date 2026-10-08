@@ -40,6 +40,14 @@ const PROVIDER_LABELS: Record<string, string> = {
   "cloudflare-ai": "Cloudflare",
   cf: "Cloudflare",
   cerebras: "Cerebras",
+  ghm: "GitHub Models",
+  "github-models": "GitHub Models",
+  nvidia: "NVIDIA",
+  gemini: "Gemini",
+  mistral: "Mistral",
+  cohere: "Cohere",
+  zai: "Z.ai",
+  hf: "Hugging Face",
   openrouter: "OpenRouter",
 };
 

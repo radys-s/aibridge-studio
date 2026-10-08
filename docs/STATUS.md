@@ -5,6 +5,15 @@ implemented, tested (pytest, vitest, Playwright E2E) and run live on Groq: run
 `6280086d4b75` was accepted with an independent review (gpt-oss-20b) and a model-written memory
 proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
 
+## Prizma's providers (2026-10-08, ADR 0005)
+
+- The catalog lists the providers whose keys Prizma holds: Cerebras and GitHub Models
+  (no_train), Z.ai, Cohere and Hugging Face (unknown), NVIDIA, Gemini and Mistral (may_train,
+  never routed). Tomáš copies the keys into the OmniRoute dashboard; Studio never sees them.
+- Ids use OmniRoute's provider alias (`cf/`, `ghm/`, `hf/`); the old `cloudflare-ai/` ids
+  could never match `/v1/models`.
+- Not live-verified until the keys are in OmniRoute.
+
 ## Phase 2c — private free Autopilot only (2026-10-08, ADR 0004)
 
 - Claude/Codex routing removed: no second opinion, no takeover by Claude/Codex, no CLI
@@ -25,7 +34,7 @@ proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
 - E2E: `npm run e2e` (Playwright) starts Studio with `STUDIO_FAKE_GATEWAY=1` (scripted
   gateway, test-only, labelled in the UI) on a fixture repo and vault. 3 specs: settings,
   composer, full run to accepted with "Zapsat" and apply-to-branch.
-- Tests: 101 backend passed (1 live skipped), 14 vitest, 3 Playwright. ruff and mypy clean.
+- Tests: 104 backend passed (1 live skipped), 14 vitest, 3 Playwright. ruff and mypy clean.
 - Older memory proposals show "nahrazeno novějším návrhem" instead of "Zapsat" (the server
   acts on the latest memory step only).
 
@@ -104,7 +113,8 @@ uv run studio serve                # http://127.0.0.1:8765
 
 Environment: `STUDIO_DATA_DIR`, `STUDIO_OMNIROUTE_URL`, `OMNIROUTE_API_KEY`,
 `STUDIO_LEAD_MODELS`, `STUDIO_WORKER_MODELS` (comma-separated explicit OmniRoute ids),
-`STUDIO_PRIVACY` (`no_train` default, `unknown` relaxes), `STUDIO_OPENROUTER_NO_TRAIN`,
+`STUDIO_PRIVACY` (`no_train` default, `unknown` relaxes), `STUDIO_NO_TRAIN_PROVIDERS`,
+`STUDIO_OPENROUTER_NO_TRAIN`,
 `STUDIO_PAID_MODELS`, `STUDIO_ALLOW_PAID`, `STUDIO_ROUTE_WAIT`, `STUDIO_GATEWAY_TIMEOUT`,
 `STUDIO_VAULT`, `STUDIO_PORT`. `STUDIO_FAKE_GATEWAY=1` is for E2E tests only.
 Provider keys live only in the OmniRoute dashboard; Studio never reads them.

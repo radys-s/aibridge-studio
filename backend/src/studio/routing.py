@@ -183,8 +183,9 @@ class ModelRouter:
         ):
             return (
                 f"no {capability} model that does not train on your data is connected; "
-                "connect Groq or Cloudflare Workers AI in OmniRoute, or turn off "
-                "training for free models in OpenRouter and set STUDIO_OPENROUTER_NO_TRAIN=1"
+                "connect Groq, Cerebras, Cloudflare Workers AI or GitHub Models in OmniRoute, "
+                "or turn off training for free models in OpenRouter and set "
+                "STUDIO_OPENROUTER_NO_TRAIN=1"
             )
         return f"no {capability} model is usable: " + ", ".join(
             f"{m} ({r})" for m, r in reasons.items()

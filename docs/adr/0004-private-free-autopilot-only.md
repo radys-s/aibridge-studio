@@ -49,6 +49,8 @@ Provider data policies, checked 2026-10-07/08:
     Tomáš turns off "allow providers that may train" in his OpenRouter privacy settings.
 - Default lead order: `groq/openai/gpt-oss-120b`, Cloudflare `kimi-k2.6` and `gpt-oss-120b`,
   `groq/openai/gpt-oss-20b`, then OpenRouter `:free` (blocked by the default floor).
+  ADR 0005 extends the catalog with the providers from Prizma and fixes the Cloudflare ids
+  (`cf/...`, the alias OmniRoute lists).
 - The router asks the gateway which ids OmniRoute exposes (`GET /v1/models`, cached for 60
   s) and skips the rest, so the catalog can list providers that are not connected yet.
 - Paid orchestrator later: `STUDIO_LEAD_MODELS=<id>,…`, `STUDIO_PAID_MODELS=<id>` and
