@@ -28,6 +28,7 @@ from studio.domain import AUTOPILOT, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
 from studio.memory import project_memory
 from studio.preferences import Defaults, Preferences
+from studio.probe import UnknownModel, probe_model
 from studio.routing import ModelRouter
 from studio.runner import Runner
 from studio.sandbox import Denied
@@ -66,6 +67,10 @@ class SettingsBody(BaseModel):
     defaults: Defaults
 
 
+class ProbeBody(BaseModel):
+    model: str
+
+
 def _decode(row: dict[str, Any], *keys: str) -> dict[str, Any]:
     out = dict(row)
     for key in keys:
@@ -83,17 +88,21 @@ def _rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+PER_MODEL_CAPS = ("groq", "ghm")
+
+
 def _providers_today(by_model: dict[str, int]) -> list[dict[str, Any]]:
     """Requests per provider today against its known free daily cap.
 
-    Groq caps each model separately, so its busiest model counts; OpenRouter caps the pool.
+    Groq and GitHub Models cap each model separately, so the busiest model counts;
+    OpenRouter caps the pool.
     """
     out: dict[str, dict[str, Any]] = {}
     for model, n in by_model.items():
         provider = model.split("/", 1)[0]
         row = out.setdefault(provider, {"provider": provider, "calls": 0, "used": 0, "cap": None})
         row["calls"] += n
-        row["used"] = max(row["used"], n) if provider == "groq" else row["calls"]
+        row["used"] = max(row["used"], n) if provider in PER_MODEL_CAPS else row["calls"]
         row["cap"] = DAILY_REQUEST_CAPS.get(provider)
     return sorted(out.values(), key=lambda r: -int(r["calls"]))
 
@@ -172,6 +181,14 @@ def create_app(
             "api_calls_today": db.api_calls_since(_midnight_utc()),
             "providers_today": _providers_today(db.api_calls_by_model_since(_midnight_utc())),
         }
+
+    @app.post("/api/models/probe")
+    def probe(body: ProbeBody) -> dict[str, Any]:
+        """One tiny tool call to one catalog model, e.g. right after adding its key."""
+        try:
+            return probe_model(gw, router, body.model)
+        except UnknownModel:
+            raise HTTPException(404, "model not in the catalog") from None
 
     # --- preferences --------------------------------------------------------------------
 

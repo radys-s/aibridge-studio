@@ -113,7 +113,7 @@ class ScriptedGateway:
     def health(self) -> dict[str, Any]:
         return {"reachable": True, "status": 200, "fake": True}
 
-    def models(self) -> set[str] | None:
+    def models(self, fresh: bool = False) -> set[str] | None:
         return None
 
     def chat(
@@ -124,7 +124,9 @@ class ScriptedGateway:
         timeout_s: float | None = None,
     ) -> ChatResult:
         by_name = {t["function"]["name"]: t["function"] for t in tools or []}
-        if "submit" in by_name:
+        if "ping" in by_name:  # Settings: "Otestovat"
+            calls = [_call("ping", {"ok": True})]
+        elif "submit" in by_name:
             props = by_name["submit"].get("parameters", {}).get("properties", {})
             calls = [_call("submit", ANSWERS[_phase(props)])]
         else:  # the worker: write, check, finish

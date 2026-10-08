@@ -46,7 +46,13 @@ No Claude/Codex routing at all. The router picks the strongest free model whose 
 does not train on inputs (Groq, Cloudflare), never below `privacy_floor`, and waits out
 short cooldowns. A paid orchestrator later is configuration only. Memory proposals always
 end with a card (model or fact-only fallback). Playwright E2E with a scripted gateway.
-Open: the live run on Groq (needs OmniRoute running) and connecting Cloudflare.
+Live run on Groq accepted 2026-10-08.
+
+## Phase 2d — more private providers (in progress, ADR 0005)
+
+Providers from Prizma through OmniRoute, alias-based ids, per-provider privacy, key links and
+a model probe in Settings. Next: live run with Cerebras reviewing Groq's work, then worker
+context trimming (the history grows every turn) and router learning from outcomes.
 
 ## Phase 2 — reliability and context
 

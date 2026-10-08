@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, type Health, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
-import { activeProviders, asAutopilot, BLOCKED_LABELS, PRIVACY_LABELS, providerLabel } from "../options";
+import { api, type Health, type ProbeResult, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
+import {
+  activeProviders,
+  asAutopilot,
+  BLOCKED_LABELS,
+  KEY_SOURCES,
+  OMNIROUTE_PROVIDERS_URL,
+  PRIVACY_LABELS,
+  providerLabel,
+} from "../options";
 
 interface Props {
   settings: SettingsSnapshot;
@@ -15,6 +23,68 @@ export function budgetLevel(p: ProviderToday): "ok" | "warn" | "out" | null {
   return share >= 1 ? "out" : share >= 0.8 ? "warn" : "ok";
 }
 
+/** One line for a probe result. */
+export function probeText(r: ProbeResult): string {
+  if (r.ok) {
+    const ms = r.latency_ms ? ` · ${r.latency_ms} ms` : "";
+    return r.tools ? `funguje, volá nástroje${ms}` : `odpovídá, ale nevolá nástroje (pro Studio nepoužitelný)${ms}`;
+  }
+  if (r.kind === "privacy" || r.kind === "paid") return "neodesláno: blokuje to pravidlo soukromí / placení";
+  return `chyba${r.status ? ` ${r.status}` : ""}: ${r.detail ?? r.kind ?? "neznámá"}`;
+}
+
+function ProbeCell({ model, disabled }: { model: string; disabled: boolean }) {
+  const [state, setState] = useState<"idle" | "busy" | ProbeResult>("idle");
+  const [error, setError] = useState("");
+  async function run() {
+    setState("busy");
+    setError("");
+    try {
+      setState(await api.probeModel(model));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setState("idle");
+    }
+  }
+  return (
+    <td className="small probe">
+      <button type="button" className="small" disabled={disabled || state === "busy"} onClick={() => void run()}>
+        {state === "busy" ? "Testuji…" : "Otestovat"}
+      </button>
+      {typeof state === "object" && (
+        <span className={`badge ${state.ok && state.tools ? "good" : "bad"}`}>{probeText(state)}</span>
+      )}
+      {error && <span className="badge bad">{error}</span>}
+    </td>
+  );
+}
+
+function KeySources() {
+  return (
+    <details className="key-sources">
+      <summary>Kde vzít klíče a kam je vložit</summary>
+      <p className="small">
+        Klíč si založ u poskytovatele a vlož ho v{" "}
+        <a href={OMNIROUTE_PROVIDERS_URL} target="_blank" rel="noreferrer">
+          OmniRoute → Providers
+        </a>
+        . Studio klíče nikdy nevidí. Potom u modelu klikni na „Otestovat“.
+      </p>
+      <ul className="small">
+        {KEY_SOURCES.map((k) => (
+          <li key={k.provider}>
+            <strong>{k.label}</strong>:{" "}
+            <a href={k.signup} target="_blank" rel="noreferrer">
+              založit klíč
+            </a>{" "}
+            → v OmniRoute „{k.omniroute}“. {k.note}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function Models({ health }: { health: Health }) {
   const providers = activeProviders(health.models);
   return (
@@ -26,9 +96,11 @@ function Models({ health }: { health: Health }) {
       </p>
       {!providers.length && (
         <p className="alert warn">
-          Žádný povolený model. Připoj v OmniRoute Groq nebo Cloudflare Workers AI (netrénují na tvých datech).
+          Žádný povolený model. Připoj v OmniRoute Groq, Cerebras, Cloudflare Workers AI nebo GitHub Models
+          (netrénují na tvých datech).
         </p>
       )}
+      <KeySources />
       <div className="table-wrap">
       <table className="models">
         <thead>
@@ -38,6 +110,7 @@ function Models({ health }: { health: Health }) {
             <th>Soukromí</th>
             <th>Role</th>
             <th>Stav</th>
+            <th>Test</th>
           </tr>
         </thead>
         <tbody>
@@ -60,6 +133,7 @@ function Models({ health }: { health: Health }) {
                     ? `pauza do ${new Date(m.cooldown_until * 1000).toLocaleTimeString("cs-CZ")}`
                     : "připraven"}
               </td>
+              <ProbeCell model={m.id} disabled={m.blocked === "privacy" || m.blocked === "paid"} />
             </tr>
           ))}
         </tbody>

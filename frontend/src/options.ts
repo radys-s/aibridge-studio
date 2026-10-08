@@ -51,6 +51,28 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
 };
 
+/** Where Tomáš creates a free key and which provider to pick in the OmniRoute dashboard
+ * (ADR 0005). Only providers that do not train on inputs are offered. */
+export const KEY_SOURCES: { provider: string; label: string; signup: string; omniroute: string; note: string }[] = [
+  { provider: "groq", label: "Groq", signup: "https://console.groq.com/keys", omniroute: "Groq", note: "V Data Controls zapni Zero Data Retention." },
+  { provider: "cerebras", label: "Cerebras", signup: "https://cloud.cerebras.ai", omniroute: "Cerebras", note: "API Keys v levém menu." },
+  {
+    provider: "cf",
+    label: "Cloudflare Workers AI",
+    signup: "https://dash.cloudflare.com/profile/api-tokens",
+    omniroute: "Cloudflare AI",
+    note: "Token ze šablony „Workers AI“ a k němu Account ID (pravý panel na dash.cloudflare.com).",
+  },
+  {
+    provider: "ghm",
+    label: "GitHub Models",
+    signup: "https://github.com/settings/personal-access-tokens/new",
+    omniroute: "GitHub Models",
+    note: "Fine-grained token, Account permissions → Models → Read-only.",
+  },
+];
+export const OMNIROUTE_PROVIDERS_URL = "http://localhost:20128/dashboard/providers";
+
 export function providerLabel(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider;
 }
