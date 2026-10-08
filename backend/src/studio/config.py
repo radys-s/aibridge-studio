@@ -31,10 +31,7 @@ class ModelSpec:
     capabilities: frozenset[str]
     strength: int = 1  # higher = stronger; used to order candidates for hard tasks
     free: bool = True
-    # no_train: the provider contractually does not train on inputs (checked 2026-10-08:
-    # Groq "does not retain customer data", ZDR available; Cloudflare Workers AI does not use
-    # customer content to train). unknown: OpenRouter :free endpoints are often providers
-    # that may train, unless the account toggle for them is off.
+    # no_train | unknown | may_train; set from PROVIDER_PRIVACY (see below).
     privacy: Privacy = "unknown"
     paid: bool = False
 
@@ -44,34 +41,79 @@ class ModelSpec:
 
 
 _LEAD = frozenset({"coding", "tools", "lead"})
+_CODE = frozenset({"coding", "tools"})
 
-# Explicit model ids only; never `auto/*` combos (see docs/ARCHITECTURE.md).
+# Explicit model ids only; never `auto/*` combos (see docs/ARCHITECTURE.md). OmniRoute lists
+# models under the provider's *alias* (`cf/...` for cloudflare-ai, `ghm/...` for
+# github-models, `hf/...` for huggingface), so ids here use the alias too.
 # Order and strength: strongest no-train lead first. Models OmniRoute does not expose (a
 # provider not connected yet) are skipped by the router, so listing them is harmless.
+# The provider set mirrors the keys Prizma (`../multiagent`) already uses; Tomáš adds the
+# same keys in the OmniRoute dashboard (ADR 0005). Privacy comes from PROVIDER_PRIVACY.
 # Verified live through OmniRoute on 2026-10-08: groq/openai/gpt-oss-120b (tool calling).
-DEFAULT_MODELS: tuple[ModelSpec, ...] = (
-    ModelSpec("groq/openai/gpt-oss-120b", _LEAD, 6, privacy="no_train"),
-    ModelSpec("cloudflare-ai/@cf/moonshotai/kimi-k2.6", _LEAD, 5, privacy="no_train"),
-    ModelSpec("cloudflare-ai/@cf/openai/gpt-oss-120b", _LEAD, 5, privacy="no_train"),
-    ModelSpec("groq/openai/gpt-oss-20b", _LEAD, 3, privacy="no_train"),
+_CATALOG: tuple[ModelSpec, ...] = (
+    ModelSpec("groq/openai/gpt-oss-120b", _LEAD, 6),
+    ModelSpec("cerebras/gpt-oss-120b", _LEAD, 6),
+    ModelSpec("cf/@cf/moonshotai/kimi-k2.6", _LEAD, 5),
+    ModelSpec("cerebras/zai-glm-4.7", _LEAD, 5),
+    ModelSpec("cf/@cf/openai/gpt-oss-120b", _LEAD, 5),
+    # GitHub Models free tier: ~50 requests/day and a small input cap per request; a
+    # rejected request just cools the model.
+    ModelSpec("ghm/openai/gpt-4.1", _LEAD, 4),
+    ModelSpec("groq/openai/gpt-oss-20b", _LEAD, 3),
+    # unknown: no clear public no-training commitment for free/trial keys.
+    ModelSpec("zai/glm-4.7-flash", _LEAD, 3),
+    ModelSpec("cohere/command-a-03-2025", frozenset({"tools", "lead"}), 3),
+    ModelSpec("hf/deepseek-ai/DeepSeek-V3", _LEAD, 3),
     ModelSpec("openrouter/poolside/laguna-s-2.1:free", _LEAD, 3),
-    ModelSpec("openrouter/cohere/north-mini-code:free", frozenset({"coding", "tools"}), 2),
+    ModelSpec("openrouter/cohere/north-mini-code:free", _CODE, 2),
     ModelSpec("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", frozenset({"tools", "lead"}), 4),
     ModelSpec("openrouter/google/gemma-4-31b-it:free", frozenset({"tools", "lead"}), 2),
+    # may_train: free tiers whose terms allow training on inputs. Never routed unless Tomáš
+    # opts out with the provider and lists it in STUDIO_NO_TRAIN_PROVIDERS.
+    ModelSpec("nvidia/moonshotai/kimi-k2.6", _LEAD, 6),
+    ModelSpec("nvidia/deepseek-ai/deepseek-v4-pro", _LEAD, 6),
+    ModelSpec("gemini/gemini-3.5-flash", _LEAD, 5),
+    ModelSpec("mistral/devstral-latest", _LEAD, 4),
+    ModelSpec("mistral/codestral-latest", _CODE, 3),
 )
-PRIVATE_PROVIDERS = ("groq", "cloudflare-ai", "cf", "cerebras")
+
+# Training on inputs by provider alias, checked 2026-10-08 (sources in ADR 0004/0005):
+# - no_train: Groq (no retention beyond abuse logs, ZDR toggle), Cloudflare Workers AI (no
+#   training, no sharing), Cerebras (inputs not retained), GitHub Models (prompts not shared
+#   with model vendors nor used for training).
+# - may_train: NVIDIA API trial (content may improve NVIDIA products and models), Gemini free
+#   tier, Mistral free tier.
+# - unknown: OpenRouter :free (depends on the upstream), Cohere trial, Z.ai, Hugging Face
+#   inference providers.
+PROVIDER_PRIVACY: dict[str, Privacy] = {
+    "groq": "no_train",
+    "cloudflare-ai": "no_train",
+    "cf": "no_train",
+    "cerebras": "no_train",
+    "github-models": "no_train",
+    "ghm": "no_train",
+    "nvidia": "may_train",
+    "gemini": "may_train",
+    "mistral": "may_train",
+}
+DEFAULT_MODELS: tuple[ModelSpec, ...] = tuple(
+    replace(m, privacy=PROVIDER_PRIVACY.get(m.provider, "unknown")) for m in _CATALOG
+)
 # Known free-tier requests per day (per model on Groq; the whole :free pool on OpenRouter
-# without credits). Cloudflare counts neurons, not requests, so it has no entry.
-DAILY_REQUEST_CAPS: dict[str, int] = {"groq": 1000, "openrouter": 50}
+# without credits; GitHub Models "high" tier per model). Cloudflare counts neurons and
+# Cerebras tokens, so they have no entry.
+DAILY_REQUEST_CAPS: dict[str, int] = {"groq": 1000, "openrouter": 50, "ghm": 50}
 
 
 def _privacy(model_id: str) -> Privacy:
     provider = model_id.split("/", 1)[0]
-    if provider in PRIVATE_PROVIDERS:
+    # Tomáš opted out of training with these providers (e.g. Mistral admin console).
+    if provider in _ids("STUDIO_NO_TRAIN_PROVIDERS"):
         return "no_train"
     if provider == "openrouter" and os.environ.get("STUDIO_OPENROUTER_NO_TRAIN") == "1":
         return "no_train"  # Tomáš turned off "may train" for free models in his account
-    return "unknown"
+    return PROVIDER_PRIVACY.get(provider, "unknown")
 
 
 def _ids(name: str) -> list[str]:

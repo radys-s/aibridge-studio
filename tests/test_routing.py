@@ -33,7 +33,7 @@ def test_privacy_floor_skips_models_that_may_train(tmp_path: Path) -> None:
 
 def test_no_private_model_names_the_provider_to_connect(tmp_path: Path) -> None:
     r = router(tmp_path, OPEN, privacy_floor="no_train")
-    with pytest.raises(NoModelAvailable, match="connect Groq or Cloudflare"):
+    with pytest.raises(NoModelAvailable, match="connect Groq, Cerebras"):
         r.choose("run", BUDGET, set(), capability="lead")
 
 
@@ -170,3 +170,33 @@ def test_down_omniroute_is_not_probed_on_every_call(monkeypatch: pytest.MonkeyPa
     assert gw.models() is None
     assert gw.models() is None
     assert len(calls) == 1
+
+
+def test_default_catalog_privacy_follows_the_provider() -> None:
+    from studio.config import DEFAULT_MODELS
+
+    privacy = {m.id: m.privacy for m in DEFAULT_MODELS}
+    assert privacy["groq/openai/gpt-oss-120b"] == "no_train"
+    assert privacy["cerebras/gpt-oss-120b"] == "no_train"
+    assert privacy["cf/@cf/moonshotai/kimi-k2.6"] == "no_train"
+    assert privacy["ghm/openai/gpt-4.1"] == "no_train"
+    assert privacy["nvidia/moonshotai/kimi-k2.6"] == "may_train"
+    assert privacy["mistral/devstral-latest"] == "may_train"
+    assert privacy["zai/glm-4.7-flash"] == "unknown"
+    # OmniRoute lists models under the provider alias, never the long provider id.
+    assert not any(m.id.startswith(("cloudflare-ai/", "github-models/")) for m in DEFAULT_MODELS)
+
+
+def test_opted_out_provider_counts_as_no_train(monkeypatch: pytest.MonkeyPatch) -> None:
+    from studio.config import _models_from_env
+
+    monkeypatch.setenv("STUDIO_NO_TRAIN_PROVIDERS", "mistral")
+    privacy = {m.id: m.privacy for m in _models_from_env()}
+    assert privacy["mistral/devstral-latest"] == "no_train"
+    assert privacy["gemini/gemini-3.5-flash"] == "may_train"
+
+
+def test_may_train_is_never_routed_even_with_a_relaxed_floor(tmp_path: Path) -> None:
+    trains = ModelSpec("nvidia/strong", LEAD, 9, privacy="may_train")
+    r = router(tmp_path, trains, OPEN, privacy_floor="unknown")
+    assert r.choose("run", BUDGET, set(), complexity="hard") == OPEN.id
