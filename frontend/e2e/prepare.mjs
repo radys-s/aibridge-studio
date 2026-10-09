@@ -1,16 +1,16 @@
 // Fresh fixture for the end-to-end tests: a git copy of the synthetic repo and a small vault
 // whose project note points at it. Everything lives in e2e/.tmp and is rebuilt on each run.
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const TMP = join(here, ".tmp");
+export const TMP = process.env.STUDIO_E2E_TMP ?? mkdtempSync(join(tmpdir(), "aibridge-studio-e2e-"));
 export const REPO = join(TMP, "calc");
 export const VAULT = join(TMP, "vault");
 
-rmSync(TMP, { recursive: true, force: true });
 cpSync(resolve(here, "../../fixtures/synthetic_repo"), REPO, { recursive: true });
 const git = (...args) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@test", ...args], { cwd: REPO });
 git("init", "-q", "-b", "main");

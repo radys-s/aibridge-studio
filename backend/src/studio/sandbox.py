@@ -22,7 +22,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Final
+from typing import Any, Final
 
 MAX_OUTPUT_CHARS = 12_000
 MAX_READ_BYTES = 200_000
@@ -98,6 +98,24 @@ class Denied(Exception):
 
 def secret_findings(text: str) -> tuple[str, ...]:
     return tuple(code for code, pattern in SECRET_PATTERNS if pattern.search(text))
+
+
+SENSITIVE_OUTPUT = "[SENSITIVE_OUTPUT_BLOCKED: detected secrets; content withheld]"
+
+
+def safe_text(text: str) -> str:
+    """Scan the full value before clipping or persisting; never echo matched values."""
+    return SENSITIVE_OUTPUT if secret_findings(text) else text
+
+
+def safe_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return safe_text(value)
+    if isinstance(value, list):
+        return [safe_value(v) for v in value]
+    if isinstance(value, dict):
+        return {safe_text(str(k)): safe_value(v) for k, v in value.items()}
+    return value
 
 
 def sensitive_files(root: Path, limit: int = 50) -> list[str]:
@@ -212,7 +230,10 @@ class Sandbox:
         path = self.resolve(raw)
         if not path.is_file():
             raise Denied(f"{raw!r} is not a file.")
-        data = path.read_bytes()[:MAX_READ_BYTES]
+        with path.open("rb") as fh:
+            data = fh.read(MAX_READ_BYTES + 1)
+        if len(data) > MAX_READ_BYTES:
+            raise Denied("File exceeds the supported read limit; not sent.")
         text = data.decode("utf-8", errors="replace")
         found = secret_findings(text)
         if found:
@@ -297,7 +318,7 @@ class Sandbox:
             return CommandResult(
                 command,
                 None,
-                clip(partial + f"\n[timed out after {timeout}s]"),
+                clip(safe_text(partial + f"\n[timed out after {timeout}s]")),
                 True,
                 time.monotonic() - started,
             )
@@ -305,5 +326,9 @@ class Sandbox:
             return CommandResult(command, None, f"failed to start: {exc}", False, 0.0)
         output = (proc.stdout or "") + (proc.stderr or "")
         return CommandResult(
-            command, proc.returncode, clip(output), False, time.monotonic() - started
+            safe_text(command),
+            proc.returncode,
+            clip(safe_text(output)),
+            False,
+            time.monotonic() - started,
         )

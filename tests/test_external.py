@@ -47,6 +47,8 @@ def test_handoff_waits_then_verifies_and_reviews(studio, repo: Path) -> None:
     assert db.run(run_id)["state"] == "queued"
     runner.execute(run_id)
 
+    assert db.run(run_id)["pending"] == "self_review"  # external model identity is unknown
+    runner.accept(run_id)
     run = db.run(run_id)
     assert run["state"] == "accepted"
     work = db.last_step(run_id, "work")
@@ -74,6 +76,8 @@ def test_failed_verification_hands_off_again_with_feedback(studio, repo: Path) -
     freebuff_writes(ws)
     runner.external_done(run_id)
     runner.execute(run_id)
+    assert db.run(run_id)["pending"] == "self_review"
+    runner.accept(run_id)
     assert db.run(run_id)["state"] == "accepted"
 
 
@@ -127,6 +131,8 @@ def test_restart_while_awaiting_keeps_waiting(studio, repo: Path) -> None:
     freebuff_writes(ws)
     runner.external_done(run_id)
     runner.execute(run_id)
+    assert db.run(run_id)["pending"] == "self_review"
+    runner.accept(run_id)
     assert db.run(run_id)["state"] == "accepted"
 
 

@@ -94,6 +94,7 @@ def test_review_request_changes_loops_back(studio, repo: Path) -> None:
     changes = Review(
         verdict="request_changes",
         summary="missing docstring",
+        criteria=ACCEPT.criteria,
         findings=[
             Finding(severity="major", file="calc/stats.py", problem="no docstring", fix="add")
         ],

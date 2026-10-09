@@ -185,7 +185,7 @@ class FakeLead:
         }[id(schema)]
         self.calls.append((kind, mode))
         ctx.on_event(AgentEvent("text", f"{self.name} {kind}"))
-        ctx.usage.actual_model = f"{self.name}-model"
+        ctx.usage.actual_model = f"{self.name}-{kind}-model"
         ctx.usage.tokens_in, ctx.usage.tokens_out = 1000, 100
         if kind in self.errors:
             raise self.errors.pop(kind)
@@ -208,7 +208,15 @@ class FakeLead:
         return {"summary": f"{self.name} implemented", "files_changed": [], "concerns": []}
 
 
-ACCEPT = Review(verdict="accept", summary="ok", findings=[], criteria=[])
+ACCEPT = Review(
+    verdict="accept",
+    summary="ok",
+    findings=[],
+    criteria=[
+        {"criterion": "median works for odd and even lengths", "met": True},
+        {"criterion": "tests pass", "met": True},
+    ],
+)
 
 
 def good_script() -> list[dict[str, Any] | GatewayError]:

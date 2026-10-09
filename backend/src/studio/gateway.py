@@ -15,6 +15,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from studio.sandbox import safe_text
+
 
 class GatewayError(Exception):
     """Base class. `kind` is stable and stored in model_call.outcome."""
@@ -158,9 +160,9 @@ class OmniRouteGateway:
             raise GatewayUnavailable(f"HTTP error talking to OmniRoute: {exc}") from exc
         latency = int((time.monotonic() - started) * 1000)
         if r.status_code >= 400:
-            detail = r.text[:400]
+            detail = safe_text(r.text)[:400]
             with contextlib.suppress(ValueError, KeyError, TypeError):
-                detail = str(r.json()["error"]["message"])[:400]
+                detail = safe_text(str(r.json()["error"]["message"]))[:400]
             retry_after = _float(r.headers.get("retry-after")) or None
             raise ProviderError(
                 f"{r.status_code}: {detail}", status=r.status_code, retry_after=retry_after
@@ -170,7 +172,9 @@ class OmniRouteGateway:
             choice = data["choices"][0]
             message = choice["message"]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise ProviderError(f"unparseable response from {model}: {r.text[:200]}") from exc
+            raise ProviderError(
+                f"unparseable response from {model}: {safe_text(r.text)[:200]}"
+            ) from exc
         usage = data.get("usage") or {}
         h = r.headers
         return ChatResult(

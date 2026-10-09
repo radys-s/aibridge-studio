@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ModelCall, ReviewOutput, RunDetail, Step, Usage, VerifyOutput } from "../api";
 import { absoluteTime, formatCost, formatDuration, formatTokens } from "../format";
 import { actorLabel } from "../options";
@@ -177,26 +177,40 @@ function Spec({ detail }: { detail: RunDetail }) {
   );
 }
 
-export function Inspector({ detail }: { detail: RunDetail }) {
+export function Inspector({ detail, diffRequest = 0 }: { detail: RunDetail; diffRequest?: number }) {
   const [tab, setTab] = useState<Tab>("diff");
+  const diffTab = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (diffRequest) { setTab("diff"); diffTab.current?.focus(); } }, [diffRequest]);
   const verify = latestOutput<VerifyOutput>(detail.steps, "verify");
   return (
     <aside className="inspector" aria-label="Inspektor">
       <div className="tabs" role="tablist">
-        {TABS.map((t) => (
+        {TABS.map((t, index) => (
           <button
             key={t.id}
+            ref={t.id === "diff" ? diffTab : undefined}
             type="button"
             role="tab"
+            id={`inspector-tab-${t.id}`}
+            aria-controls="inspector-panel"
+            tabIndex={tab === t.id ? 0 : -1}
             aria-selected={tab === t.id}
             className={tab === t.id ? "on" : undefined}
             onClick={() => setTab(t.id)}
+            onKeyDown={(e) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+              e.preventDefault();
+              const next = e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1
+                : (index + (e.key === "ArrowRight" ? 1 : -1) + TABS.length) % TABS.length;
+              setTab(TABS[next].id);
+              document.getElementById(`inspector-tab-${TABS[next].id}`)?.focus();
+            }}
           >
             {t.label}
           </button>
         ))}
       </div>
-      <div className="tab-body" role="tabpanel">
+      <div className="tab-body" role="tabpanel" id="inspector-panel" aria-labelledby={`inspector-tab-${tab}`} tabIndex={0}>
         {tab === "diff" &&
           (verify ? (
             <>

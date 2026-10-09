@@ -1,4 +1,6 @@
 import { defineConfig } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +9,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 // End-to-end tests against a real Studio server with a scripted gateway (no live models,
 // STUDIO_FAKE_GATEWAY=1). The fixture repo and vault are rebuilt by e2e/prepare.mjs.
 const PORT = 8799;
-const TMP = join(here, "e2e", ".tmp");
+const TMP = process.env.STUDIO_E2E_TMP ?? mkdtempSync(join(tmpdir(), "aibridge-studio-e2e-"));
+process.env.STUDIO_E2E_TMP = TMP;
 
 export default defineConfig({
   testDir: "e2e",
@@ -15,7 +18,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   reporter: "list",
-  use: { baseURL: `http://127.0.0.1:${PORT}`, trace: "retain-on-failure" },
+  use: { baseURL: `http://127.0.0.1:${PORT}`, trace: "retain-on-failure", channel: process.env.STUDIO_E2E_BROWSER },
   webServer: {
     command: "npm run build && node e2e/prepare.mjs && uv run studio serve",
     url: `http://127.0.0.1:${PORT}/api/health`,
@@ -23,6 +26,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       STUDIO_PORT: String(PORT),
+      STUDIO_E2E_TMP: TMP,
       STUDIO_DATA_DIR: join(TMP, "data"),
       STUDIO_VAULT: join(TMP, "vault"),
       STUDIO_FAKE_GATEWAY: "1",

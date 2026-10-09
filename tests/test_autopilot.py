@@ -37,7 +37,15 @@ PLAN = {
     "recommended_implementer": "worker",
     "questions": [],
 }
-ACCEPT = {"verdict": "accept", "summary": "ok", "findings": [], "criteria": []}
+ACCEPT = {
+    "verdict": "accept",
+    "summary": "ok",
+    "findings": [],
+    "criteria": [
+        {"criterion": "median works for odd and even lengths", "met": True, "evidence": "tests"},
+        {"criterion": "tests pass", "met": True, "evidence": "unittest"},
+    ],
+}
 
 
 def submit(payload: dict[str, Any], i: int = 0) -> dict[str, Any]:

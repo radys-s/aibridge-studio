@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from studio.config import PRIVACY_RANK, ModelSpec, Privacy
 from studio.db import Database
+from studio.review import review_passed
 
 # Free tiers limit per minute (Groq: 30 RPM) and per day (OpenRouter :free: 50 RPD). A
 # per-minute 429 cools briefly; a daily cap or a hard provider error cools for long.
@@ -73,20 +74,6 @@ class ModelStats:
         }
 
 
-def review_passed(review: dict[str, object]) -> bool:
-    """The runner's acceptance rule (runner.passes): accept, no blocker or major finding,
-    every criterion met."""
-    findings = review.get("findings") or []
-    criteria = review.get("criteria") or []
-    if not isinstance(findings, list) or not isinstance(criteria, list):
-        return False
-    blocking = any(
-        isinstance(f, dict) and f.get("severity") in ("blocker", "major") for f in findings
-    )
-    met = all(isinstance(c, dict) and c.get("met") is True for c in criteria)
-    return review.get("verdict") == "accept" and not blocking and met
-
-
 class BudgetExceeded(Exception):
     pass
 
@@ -127,6 +114,7 @@ class ModelRouter:
         # choose() runs every worker turn; the stats change slowly, so they are cached.
         self.stats_ttl_s = stats_ttl_s
         self._stats: tuple[float, dict[str, ModelStats]] | None = None
+        self._role_stats: dict[str, tuple[float, dict[str, ModelStats]]] = {}
 
     def blocked(self, model: ModelSpec, exposed: set[str] | None = None) -> str | None:
         """Why this model may not be used, or None."""
@@ -142,14 +130,15 @@ class ModelRouter:
         exposed = self.exposed()
         return [m for m in self.models if self.blocked(m, exposed) is None]
 
-    def stats(self) -> dict[str, ModelStats]:
+    def stats(self, role: str | None = None) -> dict[str, ModelStats]:
         """Reliability: failed calls of the last 3 days that point at the model (not rate
         limits, missing setup or OmniRoute being down), and how reviews of the last 14 days
         judged the work it wrote. Cached for `stats_ttl_s`."""
         now = time.monotonic()
-        if self._stats and now - self._stats[0] < self.stats_ttl_s:
-            return self._stats[1]
-        ok, failed = self.db.call_outcomes_since(time.time() - FAILURE_WINDOW_S)
+        cached = self._role_stats.get(role) if role else self._stats
+        if cached and now - cached[0] < self.stats_ttl_s:
+            return cached[1]
+        ok, failed = self.db.call_outcomes_since(time.time() - FAILURE_WINDOW_S, role)
         stats: dict[str, ModelStats] = {}
         for model, n in ok.items():
             stats.setdefault(model, ModelStats()).calls += n
@@ -162,8 +151,11 @@ class ModelRouter:
         for review, model in self.db.reviewed_work_since(time.time() - REVIEW_WINDOW_S):
             st = stats.setdefault(model, ModelStats())
             st.reviewed += 1
-            st.accepted += review_passed(review)
-        self._stats = (now, stats)
+            st.accepted += review_passed(review, review.get("expected_criteria", []))
+        if role:
+            self._role_stats[role] = (now, stats)
+        else:
+            self._stats = (now, stats)
         return stats
 
     def catalog(self) -> list[dict[str, object]]:
@@ -190,13 +182,25 @@ class ModelRouter:
                     "cooldown_kind": reasons[m.id].split(":", 1)[0] if m.id in reasons else None,
                     "stats": st.as_dict(),
                     "demoted": st.demoted,
+                    "qualified_reviews": st.reviewed,
+                    "stats_roles": {
+                        role: self.stats(role).get(m.id, ModelStats()).as_dict()
+                        for role in ("worker", "work", "plan", "draft", "review", "memory")
+                    },
+                    "demotion_reasons": [
+                        f"{role}: failure rate at least 50% over at least 5 calls"
+                        for role in ("worker", "work", "plan", "draft", "review", "memory")
+                        if self.stats(role).get(m.id, ModelStats()).demoted
+                    ],
                 }
             )
         return out
 
-    def candidates(self, capability: str = "coding", complexity: str = "moderate") -> list[str]:
+    def candidates(
+        self, capability: str = "coding", complexity: str = "moderate", role: str | None = None
+    ) -> list[str]:
         usable = self.usable()
-        stats = self.stats()
+        stats = self.stats(role)
 
         def ordered(group: list[ModelSpec]) -> list[ModelSpec]:
             if complexity == "hard":
@@ -229,6 +233,7 @@ class ModelRouter:
         complexity: str = "moderate",
         never: frozenset[str] = frozenset(),
         should_stop: Callable[[], bool] = lambda: False,
+        role: str | None = None,
     ) -> str:
         """Pick the model for the next gateway call of this run.
 
@@ -244,7 +249,7 @@ class ModelRouter:
             raise BudgetExceeded(
                 f"cost budget ${budget.max_cost_usd} exceeded (${used['cost']:.4f})"
             )
-        candidates = self.candidates(capability, complexity)
+        candidates = self.candidates(capability, complexity, role)
         cooling = self.db.cooldowns()
         for model in candidates:
             if model in excluded or model in never or model in cooling:

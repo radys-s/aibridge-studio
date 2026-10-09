@@ -51,8 +51,17 @@ from studio.domain import (
 )
 from studio.gateway import ChatGateway
 from studio.memory import build_proposals, fallback_proposal, project_memory
+from studio.review import model_identity, review_passed, review_reason
 from studio.routing import ModelRouter
-from studio.sandbox import Denied, Sandbox, sensitive_files
+from studio.sandbox import (
+    SENSITIVE_OUTPUT,
+    Denied,
+    Sandbox,
+    safe_text,
+    safe_value,
+    secret_findings,
+    sensitive_files,
+)
 from studio.vault import Vault
 from studio.verify import failure_feedback, verify
 from studio.worker.loop import Worker, WorkerStopped
@@ -261,7 +270,16 @@ class Runner:
         run = self._require(run_id)
         if run["state"] != RunState.NEEDS_DECISION or run["pending"] != "self_review":
             raise ValueError("manual acceptance is only for a self-reviewed change")
-        self._accept(run, "Uživatel potvrdil změnu schválenou jen sebe-review")
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        review = self.db.last_step(run_id, "review")
+        if (
+            not review
+            or not review["output_json"]
+            or not review_passed(json.loads(review["output_json"]), spec.acceptance_criteria)
+        ):
+            raise ValueError("complete passing criterion assessments are required for acceptance")
+        if not self._accept(run, "Uživatel potvrdil změnu schválenou jen sebe-review"):
+            return
         threading.Thread(
             target=self._propose_memory, args=(run_id,), name="studio-memory", daemon=True
         ).start()
@@ -345,6 +363,15 @@ class Runner:
         run = self._require(run_id)
         if run["state"] != RunState.NEEDS_DECISION or run["pending"] != "sensitive":
             raise ValueError("no sensitive-file decision is pending")
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        implementer = run["implementer"] or spec.implementer
+        if run["phase"] not in ("setup", "draft") and not (
+            run["phase"] == "work" and implementer == "freebuff"
+        ):
+            raise ValueError("sensitive model evidence cannot be overridden; provide safe evidence")
+        work = self.db.last_step(run_id, "work")
+        if work and work["error"] == "sensitive":
+            raise ValueError("sensitive model output cannot be overridden")
         self.db.event(run_id, "decision", "Uživatel potvrdil, že nalezené soubory nejsou tajné")
         self._requeue(run_id, sensitive_ok=1)
 
@@ -389,7 +416,7 @@ class Runner:
             step_id=step,
             role="worker",
             requested_model=f"{EXTERNAL_AGENT}-external",
-            actual_model=f"{EXTERNAL_AGENT}-external",
+            actual_model=None,  # Studio cannot observe the external tool's actual model.
             provider=f"{EXTERNAL_AGENT} (own login, ads; usage unknown)",
             outcome="ok",
             billing="external",
@@ -496,6 +523,12 @@ class Runner:
         """
         run_id = run["id"]
         step = self.db.start_step(run_id, kind, run["iteration"], actor or name)
+        if secret_findings(prompt) or SENSITIVE_OUTPUT in prompt:
+            error = LeadError(
+                "Sensitive context withheld; review requires safe evidence.", "sensitive"
+            )
+            self.db.finish_step(step, "failed", error=str(error))
+            return step, error
         lead = self.leads.get(name)
         if lead is None:
             error = LeadError(f"lead {name} is not configured in this Studio", "not_installed")
@@ -517,7 +550,10 @@ class Runner:
         started = time.monotonic()
         result: T | LeadError
         try:
-            result = validate(model, lead.ask(prompt, schema, Path(run["workspace"]), ctx, mode))
+            payload = lead.ask(prompt, schema, Path(run["workspace"]), ctx, mode)
+            if secret_findings(json.dumps(payload, ensure_ascii=False)):
+                raise LeadError("Sensitive agent output withheld.", "sensitive")
+            result = validate(model, payload)
         except LeadError as exc:
             result = exc
         if not getattr(lead, "records_calls", False):
@@ -850,6 +886,10 @@ class Runner:
         workspace.commit_all(root, f"studio: worker iteration {run['iteration']}")
         if outcome.status != "finished":
             self.db.finish_step(step, "failed", outcome.as_dict(), outcome.status)
+            if outcome.status == "sensitive":
+                return self._needs_decision(
+                    run_id, "Sensitive worker output withheld.", "sensitive"
+                )
             if outcome.status in ("turn_limit", "time_limit", "error") and outcome.files_written:
                 # Partial work is still worth an independent check rather than a guess.
                 self.db.event(run_id, "warning", f"Worker skončil stavem {outcome.status}; ověřuji")
@@ -938,7 +978,17 @@ class Runner:
         run_id = run["id"]
         step = self.db.start_step(run_id, "verify", run["iteration"], "studio")
         result = verify(spec, Path(run["workspace"]), run["source_commit"])
-        result["diff"] = workspace.diff(Path(run["workspace"]), run["source_commit"])
+        raw_diff = workspace.diff(Path(run["workspace"]), run["source_commit"])
+        result["diff"] = safe_text(raw_diff)
+        result = safe_value(result)
+        if SENSITIVE_OUTPUT in json.dumps(result, ensure_ascii=False):
+            result["sensitive"] = True
+            self.db.finish_step(step, "failed", result)
+            return self._needs_decision(
+                run_id,
+                "Sensitive output or diff withheld; provide safe evidence before review.",
+                "sensitive",
+            )
         self.db.finish_step(step, "done" if result["passed"] else "failed", result)
         if result["passed"]:
             self.db.event(run_id, "verify", "Nezávislé ověření prošlo")
@@ -953,6 +1003,12 @@ class Runner:
     def _phase_review(self, run: dict[str, Any], spec: TaskSpec) -> str:
         run_id = run["id"]
         verification = json.loads(self.db.last_step(run_id, "verify")["output_json"])  # type: ignore[index]
+        if (
+            verification.get("sensitive")
+            or secret_findings(json.dumps(verification))
+            or SENSITIVE_OUTPUT in json.dumps(verification)
+        ):
+            return self._needs_decision(run_id, "Sensitive review evidence withheld.", "sensitive")
         work = self.db.last_step(run_id, "work")
         summary = (
             json.loads(work["output_json"]).get("summary", "")
@@ -989,9 +1045,44 @@ class Runner:
         if failed:
             # Never accept on fewer reviews than the mode requires.
             return self._needs_decision(
-                run_id, "; ".join(f"review by {n} failed: {e}" for n, e in failed.items())
+                run_id,
+                "; ".join(f"review by {n} failed: {e}" for n, e in failed.items()),
+                "sensitive" if any(e.kind == "sensitive" for e in failed.values()) else None,
             )
         reviews = {n: r for n, r in results.items() if isinstance(r, Review)}
+        for name, review in reviews.items():
+            steps = [
+                s
+                for s in self.db.steps(run_id)
+                if s["kind"] == "review" and s["actor"] == name and s["status"] == "done"
+            ]
+            if steps:
+                review_step = steps[-1]
+                review_models = self._step_models(run_id, review_step["id"])
+                independent = (
+                    bool(exclude and review_models and not review_models & exclude)
+                    and name not in dependent
+                )
+                actual_work = self._step_actual_models(run_id, work["id"]) if work else frozenset()
+                actual_review = self._step_actual_models(run_id, review_step["id"])
+                if not actual_work or not actual_review or actual_review & actual_work:
+                    independent = False
+                    dependent.add(name)
+                self.db.finish_step(
+                    review_step["id"],
+                    "done",
+                    {
+                        **review.model_dump(),
+                        "work_step_id": work["id"] if work else None,
+                        "independent": independent,
+                        "acceptance_valid": review_passed(
+                            review.model_dump(), spec.acceptance_criteria
+                        ),
+                        "review_reason": review_reason(
+                            review.model_dump(), spec.acceptance_criteria
+                        ),
+                    },
+                )
         return self._apply_reviews(run, spec, reviews, impl_name, dependent)
 
     def _step_models(self, run_id: str, step_id: int) -> frozenset[str]:
@@ -1001,6 +1092,16 @@ class Runner:
             for c in self.db.model_calls(run_id)
             if c["step_id"] == step_id and c["billing"] == "api" and c["outcome"] == "ok"
         )
+
+    def _step_actual_models(self, run_id: str, step_id: int) -> frozenset[str]:
+        values = [
+            model_identity(c["actual_model"])
+            for c in self.db.model_calls(run_id)
+            if c["step_id"] == step_id and c["outcome"] == "ok" and c["billing"] != "external"
+        ]
+        if not values or any(v is None for v in values):
+            return frozenset()
+        return frozenset(v for v in values if v is not None)
 
     def _apply_reviews(
         self,
@@ -1013,8 +1114,15 @@ class Runner:
         run_id = run["id"]
 
         def passes(r: Review) -> bool:
-            blocking = [f for f in r.findings if f.severity in ("blocker", "major")]
-            return r.verdict == "accept" and not blocking and all(c.met for c in r.criteria)
+            return review_passed(r.model_dump(), spec.acceptance_criteria)
+
+        if not reviews:
+            return self._needs_decision(run_id, "Review result is missing.", "review")
+
+        for name, review in reviews.items():
+            reason = review_reason(review.model_dump(), spec.acceptance_criteria)
+            if reason:
+                return self._needs_decision(run_id, f"Review by {name}: {reason}", "review")
 
         for name, r in reviews.items():
             if r.verdict == "accept" and not passes(r):
@@ -1027,7 +1135,8 @@ class Runner:
                     f"no independent reviewer for {implementer}'s change; confirm acceptance",
                     "self_review",
                 )
-            self._accept(run, "Review přijalo změnu (" + ", ".join(reviews) + ")")
+            if not self._accept(run, "Review přijalo změnu (" + ", ".join(reviews) + ")"):
+                return "pause"
             self._propose_memory(run_id)
             return "pause"
         tag = len(reviews) > 1
@@ -1049,14 +1158,18 @@ class Runner:
             return self._needs_decision(run_id, f"reviewer rejected the approach: {summaries}")
         return self._next_iteration_or_decide(run, spec, feedback, "review requested changes")
 
-    def _accept(self, run: dict[str, Any], message: str) -> None:
+    def _accept(self, run: dict[str, Any], message: str) -> bool:
         run_id = run["id"]
         root = Path(run["workspace"])
         patch = workspace.diff(root, run["source_commit"])
+        if secret_findings(patch):
+            self._needs_decision(run_id, "Sensitive diff withheld before acceptance.", "sensitive")
+            return False
         patch_path = root.parent / f"{run_id}.patch"
         patch_path.write_text(patch, encoding="utf-8", newline="")
         self.db.update_run(run_id, state=RunState.ACCEPTED, finished_at=time.time(), pending=None)
         self.db.event(run_id, "accepted", message, {"patch": str(patch_path)})
+        return True
 
     def memory_retry(self, run_id: str) -> None:
         """Propose the memory update again for an accepted run (on click)."""

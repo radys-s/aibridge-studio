@@ -71,7 +71,13 @@ ANSWERS: dict[str, dict[str, Any]] = {
         "verdict": "accept",
         "summary": "median() odpovídá zadání a testy procházejí.",
         "findings": [],
-        "criteria": [],
+        "criteria": [
+            {
+                "criterion": "median() vrací prostřední hodnotu, u sudého počtu průměr",
+                "met": True,
+                "evidence": "unittest output",
+            }
+        ],
     },
     "memory": {
         "project_update": "- Přidána median() s testy (testovací běh).",

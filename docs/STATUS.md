@@ -1,5 +1,44 @@
 # Status
 
+## v0.3.1 hardening (2026-10-09, `codex/v0.3.1-hardening`)
+
+- Vault content is loaded through one bounded 1 MiB loader and checked for secrets/private
+  markers before any 40,000-character context truncation or search snippet. Unavailable
+  notes and links resolving outside the vault are skipped during listing/search.
+- Command output is scanned before clipping; model context, step output, messages and
+  agent/tool events share the same secret-withholding policy. Sensitive diff/verification
+  evidence pauses the run in `needs_decision` and cannot be approved through the old
+  false-positive preflight override.
+- Review acceptance and router learning share exact normalized criterion coverage:
+  missing, duplicate or unrelated assessments cannot establish acceptance. Self-review
+  still requires a manual decision and the same complete acceptance contract.
+- Review outputs add `work_step_id`, `independent`, `acceptance_valid` and `review_reason`.
+  Learning counts the latest proven independent review per work step, excludes ambiguous
+  historical/external/self-review evidence, and checks actual model overlap across aliases.
+  Reliability is tracked by role; catalog aggregate fields remain compatible, with added
+  `stats_roles`, `qualified_reviews` and `demotion_reasons`.
+- Regression tests cover late-note secrets/private markers, oversized notes, output/history
+  leakage, incomplete review, override prevention, repeated review and role-specific failures.
+- UI clears project-derived context immediately on selection changes, waits for the selected
+  project to load and prevents duplicate button/keyboard submission. Manual draft approval
+  remains the default; an explicitly stored auto-approval preference is retained.
+- Final verification: 148 backend tests passed, two skipped (Windows symlink privilege
+  and the standard opt-in OmniRoute test); one Starlette deprecation warning. Ruff check
+  and format check passed across 63 files, and mypy passed across 28 source files.
+  Frontend build and TypeScript passed, 22 Vitest tests passed, and
+  11 Playwright E2E tests passed. After the last mobile styling adjustment, five visual and
+  self-review scenarios passed again. Screenshots cover 1440/390 px in light/dark themes.
+  Independent review approved the changes after 54 targeted tests passed (one Windows
+  symlink test skipped). Earlier test-import failures were corrected before the full
+  backend gate passed. Implementation, verification and independent review are complete.
+- Real Groq fixture run `8b4837626d17` accepted in 200.3 s: 22 calls, 34,150 tokens and
+  gateway-reported 0 USD. Work ran on actual gpt-oss-120b and independent review on actual
+  gpt-oss-20b. See MEASUREMENTS for the limits of this evidence.
+
+Commands execute as the local user, under policy restrictions rather than an OS sandbox.
+This release is intended for trusted projects. Cloudflare remains unverified until its
+Account ID is configured in OmniRoute.
+
 Last update: 2026-10-08 (Claude Code), v0.3 below. Earlier: Phase 2c "private free Autopilot only" (ADR 0004)
 implemented, tested (pytest, vitest, Playwright E2E) and run live on Groq: run
 `6280086d4b75` was accepted with an independent review (gpt-oss-20b) and a model-written memory
