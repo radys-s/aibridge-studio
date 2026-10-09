@@ -14,7 +14,7 @@ test("settings: only Autopilot, privacy badges, test gateway is labelled", async
   await page.goto("/#/settings");
   await expect(page.getByRole("heading", { name: "Modely", exact: true })).toBeVisible();
   await expect(page.getByText("testovací gateway")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "groq/openai/gpt-oss-120b" })).toBeVisible();
+  await expect(page.locator('td[title="groq/openai/gpt-oss-120b"]')).toBeVisible();
   await expect(page.getByText("bez tréninku").first()).toBeVisible();
   await page.getByText(/Nepoužívané modely/).click();
   await expect(page.getByText("pod hranicí soukromí").first()).toBeVisible();
@@ -30,10 +30,10 @@ test("settings: only Autopilot, privacy badges, test gateway is labelled", async
     "href",
     "http://localhost:20128/dashboard/providers",
   );
-  const row = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "groq/openai/gpt-oss-120b" }) });
+  const row = page.getByRole("row").filter({ has: page.locator('td[title="groq/openai/gpt-oss-120b"]') });
   await row.getByRole("button", { name: "Otestovat" }).click();
   await expect(row.getByText(/funguje, volá nástroje/)).toBeVisible();
-  const blocked = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "nvidia/moonshotai/kimi-k2.6" }) });
+  const blocked = page.getByRole("row").filter({ has: page.locator('td[title="nvidia/moonshotai/kimi-k2.6"]') });
   await expect(blocked.getByRole("button", { name: "Otestovat" })).toBeDisabled();
 });
 

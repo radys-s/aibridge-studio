@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, type Health, type ModelInfo, type ModelStats, type ProbeResult, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
 import {
   activeProviders,
@@ -24,6 +24,12 @@ export function budgetLevel(p: ProviderToday): "ok" | "warn" | "out" | null {
 }
 
 /** "spolehlivost 92 % · 3/4 přijato" from the router's stats (ADR 0006); empty without data. */
+/** The model without the OmniRoute provider prefix (the Poskytovatel column shows it):
+ * "groq/openai/gpt-oss-120b" → "openai/gpt-oss-120b", "cf/@cf/zai-org/glm" → "zai-org/glm". */
+export function modelName(id: string): string {
+  return id.replace(/^[^/]+\//, "").replace(/^@cf\//, "");
+}
+
 export function reliabilityText(st: ModelStats | undefined): string {
   if (!st || st.calls === 0) return "";
   const parts = [`spolehlivost ${Math.round(((st.calls - st.failed) / st.calls) * 100)} %`];
@@ -144,7 +150,17 @@ function ModelTable({ health, models }: { health: Health; models: ModelInfo[] })
         <tbody>
           {models.map((m) => (
             <tr key={m.id} className={m.blocked ? "muted" : undefined}>
-              <td className="model-id">{m.id}</td>
+              <td className="model-id" title={m.id}>
+                {modelName(m.id)
+                  .split("/")
+                  .map((part, i) => (
+                    <Fragment key={i}>
+                      {i > 0 && "/"}
+                      {i > 0 && <wbr />}
+                      <span className="nowrap">{part}</span>
+                    </Fragment>
+                  ))}
+              </td>
               <td>
                 {providerLabel(m.provider)}
                 <div className="muted small nowrap">{[m.lead && "Autopilot", m.coding && "kód"].filter(Boolean).join(" · ")}</div>
