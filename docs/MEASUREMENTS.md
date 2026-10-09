@@ -1,5 +1,27 @@
 # Measurements
 
+## 2026-10-09 — v0.3.1 hardening, synthetic Groq acceptance
+
+Run `8b4837626d17` used an isolated, non-personal statistics fixture and no personal vault
+context. A manually approved task added `median()` with odd/even, empty-input and
+input-immutability criteria. Result: **accepted** in one iteration, after Studio independently
+ran five passing unittest tests and the reviewer covered all five task criteria.
+
+| Metric | Observed value |
+| --- | --- |
+| Wall time to acceptance | 200.3 s |
+| Gateway calls | 22 |
+| Gateway-reported tokens | 34,150 |
+| Gateway-reported cost | 0 USD |
+| Actual work model | Groq `openai/gpt-oss-120b` |
+| Actual review model | Groq `openai/gpt-oss-20b` |
+
+The review records the specific work step, independent model provenance and valid acceptance
+coverage. Independence here is between models, not providers: both models ran through Groq.
+This fixture demonstrates the real gateway/work/verification/review loop; it does not prove
+savings, general task success or Cloudflare availability. Cost is gateway-reported, not an
+independently reconciled bill. Cloudflare remains unverified pending its Account ID.
+
 Raw numbers from live runs. There is **no baseline yet** for the same tasks done directly in
 Claude Code or Codex, so these numbers say nothing about savings. See the measurement protocol
 in `docs/PLAN.md`.

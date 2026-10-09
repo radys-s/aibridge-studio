@@ -26,6 +26,7 @@ from studio.gateway import ProviderError
 CHANGES = Review(
     verdict="request_changes",
     summary="needs work",
+    criteria=ACCEPT.criteria,
     findings=[Finding(severity="major", file="calc/stats.py", problem="no docstring", fix="add")],
 )
 
@@ -54,7 +55,15 @@ DRAFT = {
 
 def test_prompt_only_task_is_drafted_then_approved(studio, repo: Path) -> None:
     lead = FakeLead("autopilot", drafts=[dict(DRAFT, questions=["Jaký typ návratu?"]), DRAFT])
-    runner, db, _ = studio(FakeGateway(good_script()), [ACCEPT], lead)
+    edited_accept = ACCEPT.model_copy(
+        update={
+            "criteria": [
+                ACCEPT.criteria[0].model_copy(update={"criterion": "median ok"}),
+                ACCEPT.criteria[1],
+            ]
+        }
+    )
+    runner, db, _ = studio(FakeGateway(good_script()), [edited_accept], lead)
     spec = TaskSpec(goal="přidej median", repo_path=str(repo))
     assert not spec.complete
     run_id = start(db, spec)

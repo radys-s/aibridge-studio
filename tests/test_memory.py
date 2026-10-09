@@ -44,7 +44,12 @@ PLAN = {
     "recommended_implementer": "worker",
     "questions": [],
 }
-ACCEPT = {"verdict": "accept", "summary": "median ok", "findings": [], "criteria": []}
+ACCEPT = {
+    "verdict": "accept",
+    "summary": "median ok",
+    "findings": [],
+    "criteria": [{"criterion": "median funguje", "met": True, "evidence": "unittest"}],
+}
 MEMORY = {
     "project_update": "- median hotový, testy prošly",
     "handoff_needed": True,

@@ -122,9 +122,9 @@ function ModelState({ health, m }: { health: Health; m: ModelInfo }) {
   return (
     <>
       {state}
-      {m.demoted && (
+      {(m.demoted || (m.demotion_reasons?.length ?? 0) > 0) && (
         <div>
-          <span className="badge warn" title="Router ho zkouší až po spolehlivějších modelech.">
+          <span className="badge warn" title={m.demotion_reasons?.join("; ") || "Router ho zkouší až po spolehlivějších modelech."}>
             často selhává
           </span>
         </div>

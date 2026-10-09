@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   api,
   type Escalation,
@@ -70,12 +70,15 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
   const [note, setNote] = useState("");
   const [project, setProject] = useState<VaultProject | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [loadingProject, setLoadingProject] = useState(false);
+  const selectedNote = useRef("");
+  const submitting = useRef(false);
   const [focus, setFocus] = useState("");
   const [goal, setGoal] = useState("");
   const [repo, setRepo] = useState(settings.recent_repos[0] ?? "");
   const [implementer, setImplementer] = useState<Implementer>(d.implementer);
   const [escalation, setEscalation] = useState<Escalation>(d.escalation);
-  const [autoApprove, setAutoApprove] = useState(d.auto_approve);
+  const [autoApprove, setAutoApprove] = useState(d.auto_approve === true);
   const [advanced, setAdvanced] = useState(false);
   const [paths, setPaths] = useState("");
   const [criteria, setCriteria] = useState("");
@@ -90,7 +93,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
     const impl = settings.defaults.implementer;
     setImplementer(IMPLEMENTERS.some((i) => i.id === impl) ? impl : "auto");
     setEscalation(settings.defaults.escalation);
-    setAutoApprove(settings.defaults.auto_approve);
+    setAutoApprove(settings.defaults.auto_approve === true);
   }, [settings.defaults]);
 
   useEffect(() => {
@@ -99,7 +102,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
         setVault(v);
         if (!v.available || !v.projects?.length) setStart("free");
         // One-click resume: preselect the project of the last task.
-        else if (settings.last_project && v.projects.includes(settings.last_project)) setNote(settings.last_project);
+        else if (settings.last_project && v.projects.includes(settings.last_project)) selectProject(settings.last_project);
       },
       () => {
         setVault({ available: false, path: "" });
@@ -112,20 +115,24 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
   useEffect(() => {
     if (!note) {
       setProject(null);
+      setLoadingProject(false);
       return;
     }
     let alive = true;
     setProjectError(null);
+    setLoadingProject(true);
     api.vaultProject(note).then(
       (p) => {
         if (!alive) return;
         setProject(p);
-        if (p.repo_hint) setRepo(p.repo_hint);
+        setRepo(p.repo_hint ?? "");
+        setLoadingProject(false);
       },
       (e) => {
         if (!alive) return;
         setProject(null);
         setProjectError(e instanceof Error ? e.message : String(e));
+        setLoadingProject(false);
       },
     );
     return () => {
@@ -135,10 +142,22 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
 
   const orchestration = asAutopilot(d.orchestration);
   const projects = vault?.projects ?? [];
+  const projectReady = !!note && !loadingProject && !projectError && project?.note === note;
+
+  function selectProject(next: string) {
+    if (next === selectedNote.current) return;
+    selectedNote.current = next;
+    setNote(next);
+    setProject(null);
+    setRepo("");
+    setProjectError(null);
+    setLoadingProject(!!next);
+  }
 
   async function submit() {
-    if (start === "project" && !note) {
-      setError("Vyber projekt, ve kterém se má pokračovat.");
+    if (submitting.current) return;
+    if (start === "project" && (!projectReady || selectedNote.current !== note)) {
+      setError(projectError ? "Oprav načtení projektu nebo přepni na Nové zadání." : "Vyber projekt a počkej na načtení jeho poznámky.");
       return;
     }
     const text = start === "project" ? continueGoal(project?.title ?? noteTitle(note), focus) : goal.trim();
@@ -160,6 +179,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
       task.acceptance_criteria = lines(criteria);
       task.acceptance_commands = lines(commands);
     }
+    submitting.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -170,6 +190,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -232,7 +253,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
           <div className="project-pick">
             <label className="field">
               <span>Projekt ze sdílené paměti</span>
-              <select aria-label="Projekt" value={note} onChange={(e) => setNote(e.target.value)}>
+              <select aria-label="Projekt" value={note} disabled={busy} onChange={(e) => selectProject(e.target.value)}>
                 <option value="">Vyber projekt…</option>
                 {projects.map((p) => (
                   <option key={p} value={p}>
@@ -241,8 +262,9 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
                 ))}
               </select>
             </label>
-            {projectError && <p className="alert error small">{projectError}</p>}
-            {project && (
+            {loadingProject && <p className="muted small" role="status">Načítám projekt…</p>}
+            {projectError && <p className="alert error small" role="alert">{projectError} Oprav výběr nebo přepni na Nové zadání.</p>}
+            {projectReady && project && (
               <div className="project-info small">
                 <div>
                   Autopilot dostane poznámku <strong>{noteTitle(project.note)}</strong>
@@ -302,7 +324,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
               ))}
             </datalist>
           </label>
-          <button type="submit" className="primary send" disabled={busy} title="Ctrl+Enter">
+          <button type="submit" className="primary send" disabled={busy || (start === "project" && !projectReady)} title="Ctrl+Enter">
             {busy ? "Spouštím…" : "Spustit"}
           </button>
         </div>
@@ -388,6 +410,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
           </div>
         </details>
       </form>
+      <p className="hint execution-hint">Příkazy běží pod tvým uživatelským účtem. Používej pouze důvěryhodné projekty.</p>
       <StatusLine health={health} />
     </div>
   );

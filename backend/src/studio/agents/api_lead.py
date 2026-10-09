@@ -27,7 +27,7 @@ from studio.agents.tools import READ_TOOLS, WRITE_TOOLS, FileTools, spec
 from studio.db import Database
 from studio.gateway import ChatGateway, GatewayError, GatewayUnavailable
 from studio.routing import BudgetExceeded, ModelRouter, NoModelAvailable, RouteBudget
-from studio.sandbox import Denied, Sandbox, clip
+from studio.sandbox import Denied, Sandbox, clip, safe_text, safe_value, secret_findings
 from studio.vault import Vault
 
 MAX_TURNS = 14
@@ -88,6 +88,8 @@ class ApiLead:
         ctx: CallContext,
         mode: Mode = "read",
     ) -> dict[str, Any]:
+        if secret_findings(prompt):
+            raise LeadError("Sensitive prompt withheld.", "sensitive")
         sandbox = Sandbox(cwd, list(ctx.scope) if mode == "write" else [])
         files = FileTools(sandbox)
         vault = self.vault()
@@ -119,6 +121,8 @@ class ApiLead:
             if time.monotonic() > deadline:
                 raise LeadError(f"Autopilot exceeded {ctx.timeout_s}s", "timeout")
             msg = self._call(messages, tools, ctx)
+            if secret_findings(json.dumps(msg, ensure_ascii=False)):
+                raise LeadError("Sensitive agent output withheld.", "sensitive")
             calls = msg.get("tool_calls") or []
             content = str(msg.get("content") or "")
             assistant: dict[str, Any] = {"role": "assistant", "content": content}
@@ -165,7 +169,11 @@ class ApiLead:
                     else:
                         result = self._tool(name, args, files, vault, ctx)
                 messages.append(
-                    {"role": "tool", "tool_call_id": call.get("id", ""), "content": result}
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id", ""),
+                        "content": safe_text(result),
+                    }
                 )
         raise LeadError(f"Autopilot used {self.max_turns} turns without submitting", "bad_output")
 
@@ -186,6 +194,7 @@ class ApiLead:
                     complexity=ctx.complexity,
                     never=frozenset(ctx.exclude_models),
                     should_stop=ctx.should_stop,
+                    role=ctx.role,
                 )
             except NoModelAvailable as exc:
                 if ctx.should_stop():  # stopped while waiting for a cooling model
@@ -195,7 +204,7 @@ class ApiLead:
                 raise LeadError(str(exc), "budget") from exc
             ctx.on_event(AgentEvent("status", f"model {model}"))
             try:
-                res = self.gateway.chat(model, messages, tools)
+                res = self.gateway.chat(model, safe_value(messages), tools)
             except GatewayError as exc:
                 self._record(ctx, model, outcome=exc.kind, error=str(exc)[:500])
                 if isinstance(exc, GatewayUnavailable):
@@ -252,6 +261,7 @@ class ApiLead:
             result = self._vault_tool(name, args, vault, ctx)
         else:
             result = files.call(name, args) or f"error: unknown tool {name}"
+        result = safe_text(result)
         ctx.on_event(AgentEvent("tool_result", clip(result, 300)))
         return result
 

@@ -1371,3 +1371,9 @@ td.probe .badge {
     background: Highlight;
   }
 }
+@media (max-width: 480px) {
+  .progress {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 0.75rem;
+  }
+}

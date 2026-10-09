@@ -591,10 +591,18 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
 
   // needs_decision
   const reason = run.decision_reason || "Důvod nebyl uveden.";
+  const sensitiveOverrideAllowed = ["draft", "setup"].includes(run.phase ?? "")
+    || (run.phase === "work" && (run.implementer || run.spec.implementer) === "freebuff");
+  const sensitiveWork = detail.steps.some((s) => s.kind === "work" && s.error === "sensitive");
   let buttons;
   switch (run.pending) {
     case "sensitive":
-      buttons = (
+      buttons = !sensitiveOverrideAllowed || sensitiveWork ? (
+        <>
+        <span className="muted small">Odstraň citlivé údaje v pracovní kopii a zkus kontrolu znovu. Ochranu ověření ani recenze nelze obejít.</span>
+        <button type="button" className="primary" onClick={() => void act("retry")}>Zkontrolovat znovu</button>
+        </>
+      ) : (
         <>
           <button
             type="button"
@@ -688,6 +696,7 @@ const STAGE_HINTS: Record<StageState, string> = {
   waiting: "čeká na tebe",
   skipped: "přeskočeno",
 };
+const STAGE_MARKS: Record<StageState, string> = { todo: "○", running: "▶", done: "✓", failed: "!", waiting: "…", skipped: "–" };
 
 interface Props {
   detail: RunDetail;
@@ -695,9 +704,10 @@ interface Props {
   onChanged: () => void;
   detailsOpen: boolean;
   onToggleDetails: () => void;
+  onShowDiff: () => void;
 }
 
-export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails }: Props) {
+export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, onShowDiff }: Props) {
   const { run } = detail;
   const items = useMemo(() => buildThread(detail), [detail]);
   const draftId = latestDraftId(detail.messages);
@@ -705,6 +715,8 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails }
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const actionPending = useRef(new Set<RunAction>());
+  const replyPending = useRef(false);
   const bottom = useRef<HTMLDivElement>(null);
   const count = items.length;
 
@@ -713,6 +725,8 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails }
   }, [count]);
 
   const act: Act = async (action, body = {}) => {
+    if (actionPending.current.has(action)) return false;
+    actionPending.current.add(action);
     setError(null);
     try {
       await api.runAction(run.id, action, body);
@@ -723,14 +737,18 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails }
       const msg = e instanceof Error ? e.message : String(e);
       setError(e instanceof ApiError && e.status === 409 ? `Teď nelze: ${msg}` : msg);
       return false;
+    } finally {
+      actionPending.current.delete(action);
     }
   };
 
   async function send() {
-    if (!text.trim()) return;
+    if (!text.trim() || replyPending.current) return;
+    replyPending.current = true;
     setSending(true);
     await act("reply", { text });
     setSending(false);
+    replyPending.current = false;
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -757,14 +775,18 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails }
               <span className={`live-dot${live ? " on" : ""}`} title={live ? "Živé spojení" : "Bez živého spojení"} />
             </div>
           </div>
+          <div className="actions">
+          <button type="button" className="small" onClick={onShowDiff}>Diff</button>
           <button type="button" className="small" aria-expanded={detailsOpen} onClick={onToggleDetails}>
             {detailsOpen ? "Skrýt podrobnosti" : "Podrobnosti"}
           </button>
+          </div>
         </div>
         <ol className="progress" aria-label="Průběh">
           {stages.map((s) => (
-            <li key={s.id} className={`stage ${s.state}`} title={STAGE_HINTS[s.state]}>
+            <li key={s.id} className={`stage ${s.state}`} title={STAGE_HINTS[s.state]} aria-current={s.state === "running" || s.state === "waiting" ? "step" : undefined}>
               <span>
+                <span aria-hidden="true">{STAGE_MARKS[s.state]} </span>
                 {s.label}
                 <span className="sr-only">: {STAGE_HINTS[s.state]}</span>
               </span>

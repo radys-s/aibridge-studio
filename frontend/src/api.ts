@@ -66,6 +66,9 @@ export interface ModelInfo {
   stats?: ModelStats;
   /** Fails often, so the router tries it after the healthy models. */
   demoted?: boolean;
+  demotion_reasons?: string[];
+  stats_roles?: Record<string, ModelStats>;
+  qualified_reviews?: number;
 }
 
 export interface ModelStats {
@@ -131,7 +134,7 @@ export function isActive(state: string): boolean {
   return (ACTIVE_STATES as string[]).includes(state);
 }
 
-export type Pending = "draft" | "plan" | "takeover" | "self_review" | "sensitive" | null;
+export type Pending = "draft" | "plan" | "takeover" | "self_review" | "sensitive" | "review" | null;
 
 export interface RunSummary {
   id: string;
@@ -269,6 +272,10 @@ export interface ReviewOutput {
   summary: string;
   findings: Finding[];
   criteria: CriterionResult[];
+  work_step_id?: number | null;
+  independent?: boolean;
+  acceptance_valid?: boolean;
+  review_reason?: string | null;
 }
 
 export interface RunEvent {

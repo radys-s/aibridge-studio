@@ -1,12 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const here = dirname(fileURLToPath(import.meta.url));
-
-const TMP = join(here, ".tmp");
+const TMP = process.env.STUDIO_E2E_TMP!;
 const REPO = join(TMP, "calc");
 const NOTE = join(TMP, "vault", "02 Projekty", "Calc.md");
 
@@ -84,7 +81,7 @@ test("project run: accepted, memory written only after click, applied to a branc
   expect(readFileSync(NOTE, "utf8")).toContain("Přidána median() s testy (testovací běh).");
 
   await page.getByRole("button", { name: "Použít do repozitáře" }).click();
-  await expect(page.getByText(/Ve větvi studio\//)).toBeVisible();
+  await expect(page.getByText(/Ve větvi studio\//)).toBeVisible({ timeout: 30_000 });
   const branches = execFileSync("git", ["branch", "--list", "studio/*"], { cwd: REPO, encoding: "utf8" });
   expect(branches).toMatch(/studio\//);
   const current = execFileSync("git", ["branch", "--show-current"], { cwd: REPO, encoding: "utf8" });

@@ -24,7 +24,7 @@ from studio.db import Database
 from studio.domain import Budget, Plan, TaskSpec
 from studio.gateway import ChatGateway, GatewayError, GatewayUnavailable
 from studio.routing import BudgetExceeded, ModelRouter, NoModelAvailable, RouteBudget
-from studio.sandbox import Denied, Sandbox
+from studio.sandbox import Denied, Sandbox, safe_text, safe_value, secret_findings
 
 MAX_MODEL_SWITCHES_PER_TURN = 4
 MAX_NUDGES = 3
@@ -115,10 +115,11 @@ class Worker:
                 route_budget,
                 excluded,
                 complexity=self.complexity,
+                role="worker",
                 should_stop=self.should_stop,
             )
             try:
-                res = self.gateway.chat(model, messages, TOOLS)
+                res = self.gateway.chat(model, safe_value(messages), TOOLS)
             except GatewayError as exc:
                 self.db.record_model_call(
                     run_id=self.run_id,
@@ -177,8 +178,12 @@ class Worker:
 
     def run(self, spec: TaskSpec, plan: Plan | None, feedback: list[str]) -> WorkerOutcome:
         outcome = WorkerOutcome(status="error")
+        prompt = system_prompt(spec, plan, feedback)
+        if secret_findings(prompt):
+            outcome.status, outcome.detail = "sensitive", "Sensitive worker prompt withheld."
+            return outcome
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt(spec, plan, feedback)},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": "Start. Inspect the repository, then make the change."},
         ]
         deadline = time.monotonic() + self.budget.max_worker_seconds
@@ -195,6 +200,9 @@ class Worker:
                     return outcome
                 outcome.turns += 1
                 msg = self._call(compact(messages))
+                if secret_findings(json.dumps(msg, ensure_ascii=False)):
+                    outcome.status, outcome.detail = "sensitive", "Sensitive agent output withheld."
+                    return outcome
                 calls = msg.get("tool_calls") or []
                 assistant: dict[str, Any] = {
                     "role": "assistant",
@@ -228,7 +236,7 @@ class Worker:
                             outcome.status = "finished"
                             outcome.summary = str(args.get("summary", ""))[:4000]
                             return outcome
-                        result = self._tool(name, args, outcome)
+                        result = safe_text(self._tool(name, args, outcome))
                     self.db.event(
                         self.run_id, "tool", f"{name} {_brief(args)}", {"result": result[:300]}
                     )

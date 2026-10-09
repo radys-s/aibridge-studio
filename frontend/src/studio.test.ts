@@ -2,7 +2,7 @@ import { describe as group, expect, it } from "vitest";
 import type { ModelInfo, Orchestration, RunDetail } from "./api";
 import { actorLabel, activeProviders, asAutopilot, describe, IMPLEMENTERS, lines } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
-import { actorLead, buildThread, latestDraftId, progress } from "./thread";
+import { actorLead, buildThread, latestDraftId, progress, reviewAccepted } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
@@ -160,9 +160,26 @@ group("model probe", () => {
 });
 
 group("run progress", () => {
+  it("does not count missing, duplicate or blocked criteria as a successful review", () => {
+    const review = { verdict: "accept" as const, summary: "ok", findings: [], criteria: [{ criterion: "works", met: true, evidence: "test" }] };
+    expect(reviewAccepted(review, ["works"])).toBe(true);
+    expect(reviewAccepted(review, ["works", "safe"])).toBe(false);
+    expect(reviewAccepted({ ...review, criteria: [...review.criteria, ...review.criteria] }, ["works", "safe"])).toBe(false);
+    expect(reviewAccepted({ ...review, findings: [{ severity: "major", file: "a", problem: "broken", fix: "fix" }] }, ["works"])).toBe(false);
+    expect(reviewAccepted({ ...review, acceptance_valid: false }, ["works"])).toBe(false);
+    expect(reviewAccepted({ ...review, criteria: [] }, [])).toBe(false);
+  });
   const step = (id: number, kind: string, status: string, iteration = 1, output: unknown = null) =>
     ({ id, kind, status, iteration, output, actor: null, error: null, started_at: id, finished_at: null }) as RunDetail["steps"][number];
   const states = (d: RunDetail) => progress(d).map((s) => `${s.label}:${s.state}`);
+
+  it("keeps self review waiting and incomplete acceptance failed", () => {
+    const review = { verdict: "accept", summary: "ok", findings: [], criteria: [{ criterion: "works", met: true, evidence: "test" }] };
+    const d = detail({ run: { ...detail().run, state: "needs_decision", pending: "self_review", spec: { acceptance_criteria: ["works"] } as never }, steps: [step(1, "review", "done", 1, review)] });
+    expect(progress(d).find((s) => s.id === "review")?.state).toBe("waiting");
+    const missing = { ...d, run: { ...d.run, pending: "review" as const }, steps: [step(1, "review", "done", 1, { ...review, criteria: [] })] };
+    expect(progress(missing).find((s) => s.id === "review")?.state).toBe("failed");
+  });
 
   it("waits on the draft before anything else runs", () => {
     const d = detail({ run: { ...detail().run, state: "awaiting_approval" }, steps: [step(1, "draft", "done")] });

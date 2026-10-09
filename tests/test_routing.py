@@ -79,9 +79,18 @@ def test_cooldown_lengths_follow_the_failure(tmp_path: Path) -> None:
     r.report_failure("groq/strong", "gateway_unavailable", None, "down")  # never cools
 
 
-def test_short_cooldown_is_waited_out_but_never_list_stays_out(tmp_path: Path) -> None:
+def test_short_cooldown_is_waited_out_but_never_list_stays_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [time.time()]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
     slept: list[float] = []
-    r = router(tmp_path, PRIVATE, PRIVATE_SMALL, max_wait_s=45, sleep=slept.append)
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        clock[0] += seconds
+
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL, max_wait_s=45, sleep=sleep)
     for m in ("groq/strong", "groq/small"):
         r.db.set_cooldown(m, time.time() + 0.05, "rate_limit")
     # Waits for the soonest cooldown instead of failing the run.
@@ -218,7 +227,9 @@ def test_may_train_is_never_routed_even_with_a_relaxed_floor(tmp_path: Path) -> 
 
 
 def _run(db: Database) -> str:
-    return db.create_task_and_run('{"goal": "learn", "repo_path": "."}')
+    return db.create_task_and_run(
+        '{"goal": "learn", "repo_path": ".", "acceptance_criteria": ["works"]}'
+    )
 
 
 def _calls(db: Database, run_id: str, model: str, outcome: str, n: int, error: str = "") -> None:
@@ -241,13 +252,37 @@ def _reviewed(
         db.finish_step(first, "interrupted", None)
     work = db.start_step(run_id, "work", 1, "lead:autopilot")
     db.record_model_call(
-        run_id=run_id, step_id=work, role="work", requested_model=model, outcome="ok"
+        run_id=run_id,
+        step_id=work,
+        role="work",
+        requested_model=model,
+        actual_model=model,
+        provider="test",
+        outcome="ok",
     )
     db.finish_step(work, "done", {})
     review = db.start_step(run_id, "review", 1, "autopilot")
+    db.record_model_call(
+        run_id=run_id,
+        step_id=review,
+        role="review",
+        requested_model="test/reviewer",
+        actual_model="reviewer",
+        provider="test",
+        outcome="ok",
+    )
     criteria = [{"criterion": "works", "met": criteria_met}]
     db.finish_step(
-        review, "done", {"verdict": verdict, "summary": "", "findings": [], "criteria": criteria}
+        review,
+        "done",
+        {
+            "verdict": verdict,
+            "summary": "",
+            "findings": [],
+            "criteria": criteria,
+            "work_step_id": work,
+            "independent": True,
+        },
     )
 
 
@@ -336,3 +371,65 @@ def test_stats_are_cached_between_turns(tmp_path: Path) -> None:
     assert r.candidates("lead") == ["groq/strong", "groq/small"]  # cached
     r._stats = None
     assert r.candidates("lead") == ["groq/small", "groq/strong"]
+
+
+def test_planning_success_does_not_hide_worker_failures(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE, PRIVATE_SMALL)
+    run_id = _run(r.db)
+    for _ in range(10):
+        r.db.record_model_call(run_id=run_id, role="plan", requested_model=PRIVATE.id, outcome="ok")
+    _calls(r.db, run_id, PRIVATE.id, "provider_error", 5, "bad output")
+    assert r.candidates("coding", role="worker") == [PRIVATE_SMALL.id, PRIVATE.id]
+    assert r.candidates("lead", role="plan") == [PRIVATE.id, PRIVATE_SMALL.id]
+    assert r.catalog()[0]["demotion_reasons"]
+
+
+def test_latest_independent_review_counts_once_and_legacy_does_not(tmp_path: Path) -> None:
+    r = router(tmp_path, PRIVATE)
+    _reviewed(r.db, PRIVATE.id, "accept")
+    run_id = r.db.runs()[0]["id"]
+    work = r.db.last_step(run_id, "work")["id"]
+
+    def record(independent: bool | None, verdict: str, model: str) -> None:
+        step = r.db.start_step(run_id, "review", 1, "autopilot")
+        r.db.record_model_call(
+            run_id=run_id,
+            step_id=step,
+            role="review",
+            requested_model=model,
+            actual_model=model,
+            provider="test",
+            outcome="ok",
+        )
+        payload = {
+            "verdict": verdict,
+            "findings": [],
+            "criteria": [{"criterion": "works", "met": True}],
+        }
+        if independent is not None:
+            payload.update(work_step_id=work, independent=independent)
+        r.db.finish_step(step, "done", payload)
+
+    record(True, "reject", "test/reviewer")
+    record(False, "accept", PRIVATE.id)
+    record(None, "accept", "test/reviewer")
+    assert r.stats()[PRIVATE.id].reviewed == 1
+    assert r.stats()[PRIVATE.id].accepted == 0
+
+
+@pytest.mark.parametrize("actual", [None, "groq/shared-model", "cerebras/shared-model"])
+def test_unknown_or_same_actual_model_does_not_qualify(tmp_path: Path, actual: str | None) -> None:
+    r = router(tmp_path, PRIVATE)
+    _reviewed(r.db, PRIVATE.id, "accept")
+    run_id = r.db.runs()[0]["id"]
+    work, review = r.db.last_step(run_id, "work"), r.db.last_step(run_id, "review")
+    with r.db.connect() as conn:
+        conn.execute(
+            "UPDATE model_call SET actual_model = 'shared-model', provider = 'groq' WHERE step_id = ?",
+            (work["id"],),
+        )
+        conn.execute(
+            "UPDATE model_call SET actual_model = ?, provider = 'cerebras' WHERE step_id = ?",
+            (actual, review["id"]),
+        )
+    assert r.stats()[PRIVATE.id].reviewed == 0

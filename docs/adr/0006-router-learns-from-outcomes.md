@@ -2,6 +2,26 @@
 
 Date: 2026-10-08. Status: accepted.
 
+## v0.3.1 amendment — evidence qualification (2026-10-09)
+
+This amendment supersedes pooled reliability and inferred review ownership below.
+
+- Reliability is tracked per role, so successful planning cannot hide failing work calls.
+  Existing aggregate catalog fields remain readable; `stats_roles`, `qualified_reviews`
+  and `demotion_reasons` explain the role-specific evidence and ordering.
+- A review records `work_step_id` and `independent`, plus `acceptance_valid` and
+  `review_reason`. Acceptance uses the shared complete-criterion policy: an `accept`
+  verdict alone, missing/duplicate assessments or blocking findings cannot establish success.
+- Only the latest proven independent review of a specific work step contributes to its
+  reviewed/accepted sample. Self-review, ambiguous historical records and external work
+  without a proven model do not contribute. Actual model identities are checked across
+  provider aliases; repeated reviews cannot multiply evidence from the same work.
+- Historical runs stay readable. Missing provenance is treated conservatively as unknown,
+  rather than invented. Call-failure statistics remain available. Existing time windows,
+  thresholds, privacy filters and paid-model restrictions remain in force.
+- When independent review is unavailable, self-review remains a user decision; when
+  sensitive evidence is withheld, review cannot be accepted through a scanner override.
+
 ## Context
 
 `ModelRouter` ordered models by catalog order, or by `strength` for hard tasks. It ignored

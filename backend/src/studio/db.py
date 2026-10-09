@@ -16,6 +16,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from studio.review import model_identity
+from studio.sandbox import safe_text, safe_value
+
 SCHEMA_VERSION = 2
 
 _SCHEMA = """
@@ -237,8 +240,10 @@ class Database:
                 "WHERE id = ?",
                 (
                     status,
-                    json.dumps(output, ensure_ascii=False) if output is not None else None,
-                    error,
+                    json.dumps(safe_value(output), ensure_ascii=False)
+                    if output is not None
+                    else None,
+                    safe_text(error) if error else error,
                     time.time(),
                     step_id,
                 ),
@@ -269,8 +274,8 @@ class Database:
                     run_id,
                     time.time(),
                     kind,
-                    message,
-                    json.dumps(data, ensure_ascii=False) if data is not None else None,
+                    safe_text(message),
+                    json.dumps(safe_value(data), ensure_ascii=False) if data is not None else None,
                 ),
             )
 
@@ -282,6 +287,7 @@ class Database:
             return [dict(r) for r in rows.fetchall()]
 
     def record_model_call(self, **fields: Any) -> None:
+        fields = safe_value(fields)
         fields.setdefault("at", time.time())
         cols = ", ".join(fields)
         marks = ", ".join("?" for _ in fields)
@@ -327,20 +333,25 @@ class Database:
         return {str(r["m"]): int(r["n"]) for r in rows}
 
     def call_outcomes_since(
-        self, since: float
+        self, since: float, role: str | None = None
     ) -> tuple[dict[str, int], list[tuple[str, str, str]]]:
         """Gateway calls since a timestamp, for the router's reliability stats: successful
         calls per model, and (model, outcome, error) of every failed one."""
         with self.connect() as c:
+            role_filter = " AND role = ?" if role else ""
+            params: tuple[object, ...] = (since, role) if role else (since,)
             ok = c.execute(
                 "SELECT requested_model AS m, COUNT(*) AS n FROM model_call "
-                "WHERE billing = 'api' AND at >= ? AND outcome = 'ok' GROUP BY requested_model",
-                (since,),
+                "WHERE billing = 'api' AND at >= ? AND outcome = 'ok'"
+                + role_filter
+                + " GROUP BY requested_model",
+                params,
             ).fetchall()
             failed = c.execute(
                 "SELECT requested_model AS m, outcome, COALESCE(error, '') AS error "
-                "FROM model_call WHERE billing = 'api' AND at >= ? AND outcome != 'ok'",
-                (since,),
+                "FROM model_call WHERE billing = 'api' AND at >= ? AND outcome != 'ok'"
+                + role_filter,
+                params,
             ).fetchall()
         return (
             {str(r["m"]): int(r["n"]) for r in ok},
@@ -353,26 +364,85 @@ class Database:
         work step of the same run and iteration: the attempt the review actually saw."""
         with self.connect() as c:
             reviews = c.execute(
-                "SELECT run_id, iteration, output_json FROM step WHERE kind = 'review' "
-                "AND status = 'done' AND output_json IS NOT NULL AND started_at >= ?",
+                "SELECT id, run_id, iteration, output_json FROM step WHERE kind = 'review' "
+                "AND status = 'done' AND output_json IS NOT NULL AND started_at >= ? "
+                "ORDER BY id DESC",
                 (since,),
             ).fetchall()
             out: list[tuple[dict[str, Any], str]] = []
+            seen: set[int] = set()
             for r in reviews:
                 try:
                     review = json.loads(r["output_json"])
                 except ValueError:
                     continue
-                if not isinstance(review, dict):
+                if not isinstance(review, dict) or review.get("independent") is not True:
                     continue
+                work_id = review.get("work_step_id")
+                if not isinstance(work_id, int) or work_id in seen:
+                    continue
+                work = c.execute(
+                    "SELECT * FROM step WHERE id = ? AND run_id = ? AND iteration = ? "
+                    "AND kind = 'work' AND status = 'done'",
+                    (work_id, r["run_id"], r["iteration"]),
+                ).fetchone()
+                if not work or work["actor"] in ("freebuff", "external:freebuff"):
+                    continue
+                author_models = {
+                    str(row["requested_model"])
+                    for row in c.execute(
+                        "SELECT DISTINCT requested_model FROM model_call WHERE step_id = ? "
+                        "AND billing = 'api' AND outcome = 'ok'",
+                        (work_id,),
+                    )
+                }
+                reviewer_models = {
+                    str(row["requested_model"])
+                    for row in c.execute(
+                        "SELECT DISTINCT requested_model FROM model_call WHERE step_id = ? "
+                        "AND billing = 'api' AND outcome = 'ok'",
+                        (r["id"],),
+                    )
+                }
+
+                def identities(step_id: int) -> set[str] | None:
+                    calls = c.execute(
+                        "SELECT actual_model FROM model_call WHERE step_id = ? "
+                        "AND billing = 'api' AND outcome = 'ok'",
+                        (step_id,),
+                    ).fetchall()
+                    values = [model_identity(row["actual_model"]) for row in calls]
+                    if not values or any(v is None for v in values):
+                        return None
+                    return {v for v in values if v is not None}
+
+                author_actual, reviewer_actual = identities(work_id), identities(r["id"])
+
+                if (
+                    not author_models
+                    or not reviewer_models
+                    or author_models & reviewer_models
+                    or not author_actual
+                    or not reviewer_actual
+                    or author_actual & reviewer_actual
+                ):
+                    continue
+                seen.add(work_id)
                 author = c.execute(
                     "SELECT requested_model AS m, COUNT(*) AS n FROM model_call "
-                    "WHERE outcome = 'ok' AND step_id = (SELECT MAX(id) FROM step "
-                    "WHERE run_id = ? AND iteration = ? AND kind = 'work') "
+                    "WHERE outcome = 'ok' AND billing = 'api' AND step_id = ? "
                     "GROUP BY requested_model ORDER BY n DESC, MAX(id) DESC LIMIT 1",
-                    (r["run_id"], r["iteration"]),
+                    (work_id,),
                 ).fetchone()
                 if author:
+                    spec = c.execute(
+                        "SELECT task.spec_json FROM task JOIN run ON run.task_id = task.id "
+                        "WHERE run.id = ?",
+                        (r["run_id"],),
+                    ).fetchone()
+                    review["expected_criteria"] = json.loads(spec["spec_json"]).get(
+                        "acceptance_criteria", []
+                    )
                     out.append((review, str(author["m"])))
         return out
 
@@ -386,8 +456,8 @@ class Database:
                     run_id,
                     time.time(),
                     author,
-                    text,
-                    json.dumps(data, ensure_ascii=False) if data is not None else None,
+                    safe_text(text),
+                    json.dumps(safe_value(data), ensure_ascii=False) if data is not None else None,
                 ),
             )
             return int(cur.lastrowid or 0)
@@ -412,8 +482,8 @@ class Database:
                     lead,
                     time.time(),
                     kind,
-                    text,
-                    json.dumps(data, ensure_ascii=False) if data is not None else None,
+                    safe_text(text),
+                    json.dumps(safe_value(data), ensure_ascii=False) if data is not None else None,
                 ),
             )
 

@@ -1,5 +1,18 @@
 // Builds the chronological thread of a run: chat messages and steps with their agent output.
-import type { AgentEvent, Message, RunDetail, Step } from "./api";
+import type { AgentEvent, Message, ReviewOutput, RunDetail, Step } from "./api";
+
+/** Display acceptance is conservative, including older runs without server metadata. */
+export function reviewAccepted(review: ReviewOutput | null, expected: string[]): boolean {
+  if (!review || review.verdict !== "accept" || review.acceptance_valid === false) return false;
+  if (!Array.isArray(review.findings) || review.findings.some((f) => f.severity === "blocker" || f.severity === "major")) return false;
+  const normalize = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  const wanted = expected.map(normalize);
+  const got = (review.criteria ?? []).map((c) => normalize(c.criterion));
+  return wanted.length > 0 && new Set(wanted).size === wanted.length
+    && got.length === wanted.length && new Set(got).size === got.length
+    && wanted.every((criterion) => got.includes(criterion))
+    && review.criteria.every((c) => c.met === true);
+}
 
 export type ThreadItem =
   | { type: "message"; at: number; message: Message }
@@ -73,8 +86,10 @@ export function progress(d: RunDetail): Stage[] {
       else if (step.status === "interrupted") state = "waiting";
       else state = "failed";
       // A review that asks for changes did not pass, even though the step finished.
-      const verdict = (step.output as { verdict?: string } | null)?.verdict;
-      if (st.id === "review" && state === "done" && verdict && verdict !== "accept") state = "failed";
+      if (st.id === "review" && state === "done") {
+        if (!reviewAccepted(step.output as ReviewOutput | null, run.spec?.acceptance_criteria ?? [])) state = "failed";
+        else if (run.pending === "self_review") state = "waiting";
+      }
       const passed = (step.output as { passed?: boolean } | null)?.passed;
       if (st.id === "verify" && state === "done" && passed === false) state = "failed";
     }

@@ -61,6 +61,17 @@ Apple-like UI with progressive disclosure and a six-stage run header; router dem
 unreliable models and favours accepted work for hard tasks; setup hint in Settings. Next:
 live Groq run through the new UI; Cloudflare review run once the Account ID is set.
 
+## v0.3.1 — hardening (completed 2026-10-09)
+
+Bounded full-content vault scans, shared output withholding, complete review criterion
+coverage and explicit independent-review provenance repair the v0.3 evidence boundaries.
+Router reliability is role-specific; repeat reviews cannot inflate the accepted-work sample.
+The UI preserves the simple design while guarding project-loading races and duplicate submit.
+Accepted: 148 backend tests passed (two skipped), Ruff and mypy passed, frontend build
+and 22 unit tests passed, 11 E2E tests passed, independent review approved, four
+viewport/theme visual checks and a non-personal Groq fixture run passed. Cloudflare Account ID
+remains a setup dependency. No new providers, OS sandbox or expanded second-brain scope.
+
 ## Phase 2 — reliability and context
 
 - Port the AI Bridge memory kernel (selective context, source, age, conflicts,

@@ -13,6 +13,7 @@ models, so the policy is strict:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -21,6 +22,7 @@ from pathlib import Path, PurePosixPath
 from studio.sandbox import Denied, secret_findings
 
 MAX_NOTE_CHARS = 40_000
+MAX_NOTE_BYTES = 1024 * 1024
 
 DEFAULT_INCLUDE = (
     "00 Rozcestník.md",
@@ -103,29 +105,55 @@ class Vault:
 
     # --- read -------------------------------------------------------------------------
 
-    def read(self, raw: str) -> Note:
+    def _load(self, raw: str) -> tuple[str, str]:
         path, rel = self._resolve(raw)
         if not self.allowed(rel):
             raise Denied(f"{rel} is not shared with models (personal or outside the allowlist).")
         if not path.is_file():
             raise Denied(f"{rel} does not exist.")
-        text = path.read_text(encoding="utf-8", errors="replace")[:MAX_NOTE_CHARS]
+        try:
+            with path.open("rb") as fh:
+                data = fh.read(MAX_NOTE_BYTES + 1)
+        except OSError as exc:
+            raise Denied(f"{rel} is unavailable.") from exc
+        if len(data) > MAX_NOTE_BYTES:
+            raise Denied(f"{rel} exceeds the 1 MiB note limit.")
+        text = data.decode("utf-8", errors="replace")
         if _is_private(text):
             raise Denied(f"{rel} is marked private.")
         found = secret_findings(text)
         if found:
             raise Denied(f"{rel} appears to contain secrets ({', '.join(found)}); not sent.")
+        return rel, redact(text)
+
+    def read(self, raw: str) -> Note:
+        rel, text = self._load(raw)
         self.reads.append(rel)
-        return Note(rel, PurePosixPath(rel).stem, redact(text))
+        return Note(rel, PurePosixPath(rel).stem, text[:MAX_NOTE_CHARS])
 
     def notes(self, folder: str = "") -> list[str]:
         base = self.root / folder if folder else self.root
         if not base.is_dir():
             return []
         root = self.root.resolve()
+        try:
+            base.resolve().relative_to(root)
+        except (OSError, ValueError):
+            return []
         out = []
-        for path in sorted(base.rglob("*.md")):
-            rel = PurePosixPath(path.resolve().relative_to(root)).as_posix()
+        paths = (
+            Path(directory) / name
+            for directory, _, names in os.walk(base, followlinks=False)
+            for name in names
+            if name.lower().endswith(".md")
+        )
+        for path in sorted(paths):
+            try:
+                rel = PurePosixPath(path.resolve().relative_to(root)).as_posix()
+                if not path.is_file():
+                    continue
+            except (OSError, ValueError):
+                continue
             if not any(p.startswith(".") for p in PurePosixPath(rel).parts) and self.allowed(rel):
                 out.append(rel)
         return out
@@ -137,10 +165,8 @@ class Vault:
         scored: list[tuple[int, str, str]] = []
         for rel in self.notes():
             try:
-                text = (self.root / rel).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            if _is_private(text) or secret_findings(text[:MAX_NOTE_CHARS]):
+                _, text = self._load(rel)
+            except (Denied, OSError):
                 continue
             hay = (rel + "\n" + text).lower()
             score = sum(hay.count(w) for w in words) + 5 * sum(w in rel.lower() for w in words)
@@ -152,13 +178,10 @@ class Vault:
     def shareable(self, rel: str) -> bool:
         """Allowed by folder and not private or secret by content (names alone stay local)."""
         try:
-            path, rel = self._resolve(rel)
-            if not self.allowed(rel):
-                return False
-            text = path.read_text(encoding="utf-8", errors="replace")
+            self._load(rel)
         except (Denied, OSError):
             return False
-        return not _is_private(text) and not secret_findings(text)
+        return True
 
     def projects(self) -> list[str]:
         return [rel for rel in self.notes(PROJECTS) if self.shareable(rel)]
@@ -167,8 +190,8 @@ class Vault:
         out = []
         for rel in self.notes(HANDOFFS):
             try:
-                head = (self.root / rel).read_text(encoding="utf-8", errors="replace")[:1500]
-            except OSError:
+                _, head = self._load(rel)
+            except (Denied, OSError):
                 continue
             if _STATUS_OPEN.search(_frontmatter(head)):
                 out.append(rel)
