@@ -32,6 +32,9 @@ proposal. Studio no longer calls Claude or Codex. See MEASUREMENTS.
 - Indexes `model_call(at)` and `model_call(step_id)` back the stats queries.
 - **Setup hint.** A model paused by a setup error shows "Chybí nastavení v OmniRoute" with
   the provider hint (Cloudflare Account ID) and a link to OmniRoute.
+- **Live check (2026-10-09).** Run `14b0d400093e` went from the new composer to accepted
+  (MEASUREMENTS). It found that OmniRoute's "reset after 3s" shortened setup cooldowns; fixed.
+- Settings shows model names without the provider prefix and breaks them only after "/".
 
 ## Phase 2d — provider setup (2026-10-08)
 

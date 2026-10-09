@@ -6,7 +6,7 @@ import { actorLead, buildThread, latestDraftId, progress } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
-import { budgetLevel, probeText, reliabilityText } from "./components/SettingsView";
+import { budgetLevel, modelName, probeText, reliabilityText } from "./components/SettingsView";
 
 const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
 
@@ -198,5 +198,11 @@ group("model reliability", () => {
     expect(reliabilityText({ calls: 0, failed: 0, reviewed: 0, accepted: 0 })).toBe("");
     expect(reliabilityText({ calls: 25, failed: 2, reviewed: 0, accepted: 0 })).toBe("spolehlivost 92 %");
     expect(reliabilityText({ calls: 10, failed: 0, reviewed: 4, accepted: 3 })).toBe("spolehlivost 100 % · 3/4 přijato");
+  });
+
+  it("drops the provider prefix from model names", () => {
+    expect(modelName("groq/openai/gpt-oss-120b")).toBe("openai/gpt-oss-120b");
+    expect(modelName("cf/@cf/zai-org/glm-4.7-flash")).toBe("zai-org/glm-4.7-flash");
+    expect(modelName("plain")).toBe("plain");
   });
 });

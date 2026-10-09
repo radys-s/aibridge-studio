@@ -167,3 +167,20 @@ Result: **accepted**, review by groq gpt-oss-20b, memory proposal from the model
   Account ID, 401/403) cool for 1 h, and "Otestovat" clears the cooldown.
 - Worker: 10 turns, input tokens per turn 911 → 2444. The repo is small, so trimming (after
   6 tool results) saves little here; it matters on longer runs.
+
+## 2026-10-09 — v0.3 live run through the new UI (Claude Code)
+
+Run `14b0d400093e`, "Nové zadání" on the Calc demo (median), started from the redesigned
+composer with auto-approve on. Result: **accepted**, review by groq gpt-oss-20b, no findings.
+
+- The first plan attempt failed: all lead models were excluded or cooling. Cloudflare had been
+  retried every turn although setup errors should cool for 1 h. Cause: OmniRoute appends
+  "(reset after 3s)", and the router let that `retry_after` shorten the setup cooldown to 3 s.
+  Fixed: `retry_after` never shortens a `setup` (or `daily_limit`) cooldown. Then gpt-oss-20b
+  sent the tool name `submit<|channel|>commentary`, which Groq rejects with a 400 (a known
+  gpt-oss quirk; the model is excluded for that turn).
+- After the fix and "Zkusit fázi znovu": plan 6 s, work 225 s (17 calls, gpt-oss-120b),
+  verify 1 s, review 19 s; 253 s from retry to accepted. 32 calls in the successful steps,
+  48.0k tokens, cost 0. Cloudflare failed once per step (draft, review) instead of every turn.
+- Settings showed the learned stats: gpt-oss-120b "spolehlivost 97 % · 3/3 přijato",
+  gpt-oss-20b "spolehlivost 86 %".

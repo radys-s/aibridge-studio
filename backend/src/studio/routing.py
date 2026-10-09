@@ -315,6 +315,7 @@ class ModelRouter:
         else:
             key = kind
         seconds = COOLDOWN_S.get(key, COOLDOWN_S["provider_error"])
-        if retry_after and key != "daily_limit":
+        # A provider's "reset after 3s" does not fix a missing key or Account ID.
+        if retry_after and key not in ("daily_limit", "setup"):
             seconds = min(max(retry_after, 1.0), MAX_RETRY_AFTER_S)
         self.db.set_cooldown(model, time.time() + seconds, f"{key}: {detail[:200]}")

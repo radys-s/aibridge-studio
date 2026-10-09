@@ -1223,7 +1223,9 @@ td.probe .badge {
 .model-id {
   font-family: var(--mono);
   font-size: 0.8rem;
-  overflow-wrap: anywhere;
+  /* Breaks only after "/" (<wbr>), never inside a name. */
+  overflow-wrap: normal;
+  min-width: 9rem;
 }
 
 /* Diff */

@@ -69,6 +69,11 @@ def test_cooldown_lengths_follow_the_failure(tmp_path: Path) -> None:
         "groq/strong", "provider_error", 502, "502: Workers AI requires an Account ID. Add it"
     )
     assert r.db.cooldowns()["groq/strong"] - now > 3500
+    # OmniRoute appends "(reset after 3s)"; that must not shorten a setup cooldown (seen live).
+    r.report_failure(
+        "groq/strong", "provider_error", 502, "502: requires an Account ID", retry_after=3
+    )
+    assert r.db.cooldowns()["groq/strong"] - now > 3500
     r.report_failure("groq/strong", "provider_error", 401, "401: bad key")
     assert r.db.cooldowns()["groq/strong"] - now > 3500
     r.report_failure("groq/strong", "gateway_unavailable", None, "down")  # never cools
