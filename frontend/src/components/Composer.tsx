@@ -18,6 +18,8 @@ interface Props {
   onCreated: (runId: string) => void;
   onSettingsSaved: (s: SettingsSnapshot) => void;
   onHealthChanged?: () => void;
+  /** Prefill from this run's spec ("Podobný úkol"); nothing starts until Spustit. */
+  fromRun?: string;
 }
 
 type Start = "project" | "free";
@@ -92,7 +94,7 @@ function StartGateway({ onDone }: { onDone?: () => void }) {
 }
 
 /** New task. Main path: continue a project from the shared Obsidian memory; or a free prompt. */
-export function Composer({ settings, health, onCreated, onSettingsSaved, onHealthChanged }: Props) {
+export function Composer({ settings, health, onCreated, onSettingsSaved, onHealthChanged, fromRun }: Props) {
   const d = settings.defaults;
   const [vault, setVault] = useState<VaultOverview | null>(null);
   const [start, setStart] = useState<Start>("project");
@@ -115,6 +117,8 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [template, setTemplate] = useState<{ title: string } | null>(null);
+  const templateRequested = useRef(!!fromRun);
 
   // Settings may load after the first render or change in the settings view.
   useEffect(() => {
@@ -126,16 +130,47 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
   }, [settings.defaults]);
 
   useEffect(() => {
+    if (!fromRun) return;
+    let alive = true;
+    api.getRun(fromRun).then(
+      (r) => {
+        if (!alive) return;
+        const spec = r.run.spec;
+        setStart("free");
+        setGoal(spec.goal);
+        setRepo(spec.repo_path);
+        if (IMPLEMENTERS.some((i) => i.id === spec.implementer)) setImplementer(spec.implementer);
+        if (ESCALATIONS.some((x) => x.id === spec.escalation)) setEscalation(spec.escalation);
+        const hasManual = spec.allowed_paths.length + spec.acceptance_criteria.length + spec.acceptance_commands.length > 0;
+        setAdvanced(hasManual);
+        setPaths(spec.allowed_paths.join("\n"));
+        setCriteria(spec.acceptance_criteria.join("\n"));
+        setCommands(spec.acceptance_commands.join("\n"));
+        setTemplate({ title: spec.title || spec.goal.slice(0, 60) });
+      },
+      (e) => {
+        if (!alive) return;
+        setStart("free"); // still a fresh free task, just without the prefill
+        setError(`Původní úkol nelze načíst: ${e instanceof Error ? e.message : String(e)}`);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [fromRun]);
+
+  useEffect(() => {
     api.vault().then(
       (v) => {
         setVault(v);
+        if (templateRequested.current) return; // "Podobný úkol" is a free task; keep its fields
         if (!v.available || !v.projects?.length) setStart("free");
         // One-click resume: preselect the project of the last task.
         else if (settings.last_project && v.projects.includes(settings.last_project)) selectProject(settings.last_project);
       },
       () => {
         setVault({ available: false, path: "" });
-        setStart("free");
+        if (!templateRequested.current) setStart("free");
       },
     );
     // Only on mount: later settings changes must not override the user's pick.
@@ -248,6 +283,11 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     <div className="composer-page">
       <h1 className="composer-title">{start === "project" ? "Kde pokračujeme?" : "Co postavíme?"}</h1>
       <p className="composer-sub">Autopilot navrhne zadání, udělá práci a nechá ji nezávisle zkontrolovat.</p>
+      {template && (
+        <p className="alert info small">
+          Podle úkolu „{template.title}“. Uprav, co je potřeba, a spusť.
+        </p>
+      )}
       <form
         className="composer"
         onSubmit={(e) => {

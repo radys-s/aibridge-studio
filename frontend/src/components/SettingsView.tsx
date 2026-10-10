@@ -9,6 +9,7 @@ import {
   PRIVACY_LABELS,
   providerLabel,
 } from "../options";
+import { notificationsSupported } from "../notify";
 
 interface Props {
   settings: SettingsSnapshot;
@@ -45,6 +46,22 @@ export function probeText(r: ProbeResult): string {
   }
   if (r.kind === "privacy" || r.kind === "paid") return "neodesláno: blokuje to pravidlo soukromí / placení";
   return `chyba${r.status ? ` ${r.status}` : ""}: ${r.detail ?? r.kind ?? "neznámá"}`;
+}
+
+/** Grant browser notifications; the request must come from a click. */
+function NotificationSetting() {
+  const [perm, setPerm] = useState(() => (notificationsSupported() ? Notification.permission : "unsupported"));
+  if (perm === "unsupported") return <p className="hint">Tento prohlížeč upozornění neumí. Počet čekajících úkolů ukazuje název karty.</p>;
+  if (perm === "granted") return <p>Zapnuto: ozvu se, když úkol čeká na tebe nebo skončí a Studio zrovna nemáš na očích.</p>;
+  if (perm === "denied") return <p className="hint">Upozornění jsou v prohlížeči zakázaná; povol je v nastavení webu. Počet čekajících úkolů ukazuje název karty.</p>;
+  return (
+    <>
+      <p>Ozvu se, když úkol čeká na tebe nebo skončí a Studio zrovna nemáš na očích.</p>
+      <button type="button" className="primary small" onClick={() => void Notification.requestPermission().then(setPerm)}>
+        Povolit upozornění
+      </button>
+    </>
+  );
 }
 
 function ProbeCell({ model, disabled }: { model: string; disabled: boolean }) {
@@ -313,6 +330,11 @@ export function SettingsView({ settings, health, onSaved }: Props) {
           ))}
         </ul>
         <p className="hint">Limity se nulují o půlnoci UTC.</p>
+      </section>
+
+      <section className="card">
+        <h2>Upozornění</h2>
+        <NotificationSetting />
       </section>
 
       <section className="card">

@@ -103,4 +103,17 @@ test("project run: accepted, memory written only after click, applied to a branc
   await fetched;
   await expect(week).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("heading", { name: "Výsledky" })).toBeVisible();
+
+  // "Podobný úkol" opens the composer with the accepted run's goal and repo; nothing starts.
+  const runsNow = (await (await page.request.get("/api/runs")).json()) as { id: string; state: string }[];
+  const done = runsNow.find((r) => r.state === "accepted")!;
+  const detail = (await (await page.request.get(`/api/runs/${done.id}`)).json()) as { run: { spec: { goal: string } } };
+  const spec = detail.run.spec;
+  await page.goto(`/#/run/${done.id}`);
+  await page.getByRole("button", { name: "Podobný úkol" }).click();
+  await expect(page).toHaveURL(new RegExp(`#/new/from/${done.id}$`));
+  await expect(page.getByText(/^Podle úkolu/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Zadání" })).toHaveValue(spec.goal);
+  await expect(page.locator(".repo-field input")).toHaveValue(REPO);
+  expect((await (await page.request.get("/api/runs")).json()).length).toBe(runsNow.length);
 });

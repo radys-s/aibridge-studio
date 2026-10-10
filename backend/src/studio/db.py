@@ -127,6 +127,8 @@ _RUN_COLUMNS_V2 = {
     # what the user is asked to decide: draft | plan | takeover | self_review | sensitive
     "pending": "TEXT",
     "sensitive_ok": "INTEGER NOT NULL DEFAULT 0",  # user confirmed flagged files are not secret
+    # Iteration whose pre-work checkpoint `iteration_base` is (v0.5). NULL on older runs.
+    "base_iteration": "INTEGER",
 }
 _MODEL_CALL_COLUMNS_V2 = {"billing": "TEXT NOT NULL DEFAULT 'api'"}
 

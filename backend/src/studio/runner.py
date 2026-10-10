@@ -149,9 +149,9 @@ class Runner:
         run = self._require(run_id)
         if run["state"] != RunState.INTERRUPTED:
             raise ValueError(f"run is {run['state']}, only interrupted runs can resume")
-        if run["phase"] == "work" and run["workspace"] and run["iteration_base"]:
+        if run["phase"] == "work":
             # The interrupted implementer may have left half-written files: start clean.
-            workspace.reset_to(Path(run["workspace"]), run["iteration_base"])
+            self._reset_attempt(run)
         self.db.update_run(run_id, state=RunState.QUEUED, cancel_requested=0)
         self.db.event(run_id, "decision", f"Pokračování od fáze {run['phase']}")
         self.wake()
@@ -179,8 +179,8 @@ class Runner:
         run = self._require(run_id)
         if run["state"] != RunState.NEEDS_DECISION:
             raise ValueError("retry is possible only when a decision is needed")
-        if run["phase"] == "work" and run["workspace"] and run["iteration_base"]:
-            workspace.reset_to(Path(run["workspace"]), run["iteration_base"])
+        if run["phase"] == "work":
+            self._reset_attempt(run)
         self._requeue(run_id)
         self.db.event(run_id, "decision", f"Opakuji fázi {run['phase']}")
 
@@ -239,8 +239,7 @@ class Runner:
         if note.strip():
             feedback.append(f"- Note from the user: {note.strip()}")
             self.db.message(run_id, "user", note.strip())
-        if run["iteration_base"]:
-            workspace.reset_to(Path(run["workspace"]), run["iteration_base"])
+        self._reset_attempt(run)
         self._requeue(
             run_id,
             phase="work",
@@ -260,8 +259,7 @@ class Runner:
             or run["phase"] != "work"
         ):
             raise ValueError("no takeover decision is pending")
-        if run["iteration_base"]:
-            workspace.reset_to(Path(run["workspace"]), run["iteration_base"])
+        self._reset_attempt(run)
         self._requeue(run_id, implementer="worker")
         self.db.event(run_id, "decision", "Uživatel ponechal levného workera")
 
@@ -811,11 +809,27 @@ class Runner:
                 return "ask"
         return "worker"
 
+    def _reset_attempt(self, run: dict[str, Any]) -> None:
+        """Drop the current attempt's half-done work: reset to this iteration's checkpoint.
+
+        If the checkpoint for this iteration was never recorded (Studio stopped after the
+        iteration counter moved but before `_phase_work` wrote the new base), no worker has
+        run in this iteration yet, so the working copy holds the previous iteration's work
+        and must be kept; `_phase_work` will checkpoint it. Resetting to the older base would
+        lose it. Older runs without `base_iteration` keep the previous behaviour."""
+        if not run["workspace"] or not run["iteration_base"]:
+            return
+        recorded = run["base_iteration"]
+        if recorded is not None and recorded != run["iteration"]:
+            self.db.event(run["id"], "warning", "Checkpoint iterace nebyl zapsán; práce zůstává")
+            return
+        workspace.reset_to(Path(run["workspace"]), run["iteration_base"])
+
     def _phase_work(self, run: dict[str, Any], spec: TaskSpec) -> str:
         run_id = run["id"]
         root = Path(run["workspace"])
         base = workspace.commit_all(root, f"studio: before iteration {run['iteration']}")
-        self.db.update_run(run_id, iteration_base=base)
+        self.db.update_run(run_id, iteration_base=base, base_iteration=run["iteration"])
         plan = Plan.model_validate_json(run["plan_json"]) if run["plan_json"] else None
         feedback = json.loads(run["feedback_json"] or "[]")
         who = self._implementer(run, spec, plan)
@@ -930,7 +944,7 @@ class Runner:
             return self._needs_decision(run_id, why)
         if spec.escalation == "ask":
             return self._needs_decision(run_id, f"{why}; hand over to {lead}?", "takeover")
-        workspace.reset_to(Path(run["workspace"]), fresh["iteration_base"])
+        self._reset_attempt(fresh)
         self.db.update_run(
             run_id,
             implementer=lead,

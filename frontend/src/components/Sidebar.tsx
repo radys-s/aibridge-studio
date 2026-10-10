@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { isActive, type Health, type RunSummary } from "../api";
 import { activeProviders } from "../options";
 import { relativeTime, STATE_LABELS } from "../format";
+import { NEEDS_YOU } from "../notify";
 
 interface Props {
   health: Health | null;
@@ -18,7 +19,6 @@ interface Props {
   onTheme: () => void;
 }
 
-const NEEDS_YOU = ["needs_decision", "awaiting_approval", "awaiting_external"];
 
 function repoName(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);

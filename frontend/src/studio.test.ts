@@ -1,11 +1,12 @@
 import { describe as group, expect, it } from "vitest";
-import type { ModelInfo, Orchestration, RunDetail } from "./api";
+import type { ModelInfo, Orchestration, RunDetail, RunSummary } from "./api";
 import { actorLabel, activeProviders, asAutopilot, describe, IMPLEMENTERS, lines } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
 import { actorLead, buildThread, latestDraftId, progress, reviewAccepted } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
+import { transitions, titleFor } from "./notify";
 import { oneDecimal, percent } from "./components/OverviewView";
 import { budgetLevel, modelName, probeText, reliabilityText } from "./components/SettingsView";
 
@@ -229,5 +230,20 @@ group("model reliability", () => {
     expect(percent(null)).toBe("–");
     expect(oneDecimal(1.25)).toMatch(/^1,[23]$/);
     expect(oneDecimal(null)).toBe("–");
+  });
+
+  it("tells only about new waits and ends, never on the first load", () => {
+    const run = (id: string, state: string) => ({ id, state, title: id }) as unknown as RunSummary;
+    const first = [run("a", "needs_decision"), run("b", "working")];
+    expect(transitions(null, first)).toEqual([]);
+    const prev = new Map([["a", "needs_decision"], ["b", "working"], ["c", "reviewing"]]);
+    const now = [run("a", "awaiting_approval"), run("b", "needs_decision"), run("c", "accepted"), run("d", "awaiting_external"), run("e", "queued")];
+    expect(transitions(prev, now).map((c) => [c.run.id, c.kind])).toEqual([
+      ["b", "waiting"],
+      ["c", "accepted"],
+      ["d", "waiting"],
+    ]);
+    expect(titleFor(now)).toBe("(3) AI Bridge Studio");
+    expect(titleFor([])).toBe("AI Bridge Studio");
   });
 });
