@@ -90,4 +90,17 @@ test("project run: accepted, memory written only after click, applied to a branc
   expect(branches).toMatch(/studio\//);
   const current = execFileSync("git", ["branch", "--show-current"], { cwd: REPO, encoding: "utf8" });
   expect(current.trim()).toBe("main");
+
+  // Přehled counts the accepted run and the applied branch.
+  await page.getByRole("button", { name: "Přehled", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Výsledky" })).toBeVisible();
+  const tile = (label: string) => page.locator(".tile").filter({ hasText: label }).locator(".tile-value");
+  await expect(tile("použito do repozitáře")).toHaveText(/^[1-9]/);
+  await expect(tile("přijato")).not.toHaveText("–");
+  const week = page.getByRole("button", { name: "7 dní" });
+  const fetched = page.waitForResponse((r) => r.url().includes("/api/overview?days=7") && r.ok());
+  await week.click();
+  await fetched;
+  await expect(week).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("heading", { name: "Výsledky" })).toBeVisible();
 });

@@ -2,23 +2,24 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type Health, type RunSummary, type SettingsSnapshot } from "./api";
 import { Composer } from "./components/Composer";
 import { Inspector } from "./components/Inspector";
+import { OverviewView } from "./components/OverviewView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { useRunDetail } from "./stream";
 
-// Routing via location.hash: "#/new" (default), "#/run/<id>", "#/settings".
-type Route = { view: "new" } | { view: "settings" } | { view: "run"; id: string };
+// Routing via location.hash: "#/new" (default), "#/run/<id>", "#/settings", "#/overview".
+type Route = { view: "new" } | { view: "settings" } | { view: "overview" } | { view: "run"; id: string };
 
 function parseHash(hash: string): Route {
   const m = /^#\/run\/(.+)$/.exec(hash);
   if (m) return { view: "run", id: decodeURIComponent(m[1]) };
-  return hash === "#/settings" ? { view: "settings" } : { view: "new" };
+  if (hash === "#/settings") return { view: "settings" };
+  return hash === "#/overview" ? { view: "overview" } : { view: "new" };
 }
 
 function navigate(route: Route) {
-  window.location.hash =
-    route.view === "run" ? `#/run/${encodeURIComponent(route.id)}` : route.view === "settings" ? "#/settings" : "#/new";
+  window.location.hash = route.view === "run" ? `#/run/${encodeURIComponent(route.id)}` : `#/${route.view}`;
 }
 
 function usePolling(fn: () => Promise<void>, ms: number) {
@@ -160,6 +161,8 @@ export default function App() {
   let main;
   if (route.view === "run") {
     main = <RunView key={route.id} runId={route.id} onChanged={onChanged} />;
+  } else if (route.view === "overview") {
+    main = <OverviewView />;
   } else if (!settings) {
     main = settingsError ? <p className="alert error pad">Nastavení nelze načíst: {settingsError}</p> : <p className="muted pad">Načítám…</p>;
   } else if (route.view === "settings") {
@@ -193,6 +196,7 @@ export default function App() {
         onNew={() => navigate({ view: "new" })}
         onSelect={(id) => navigate({ view: "run", id })}
         onSettings={() => navigate({ view: "settings" })}
+        onOverview={() => navigate({ view: "overview" })}
         onTheme={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
       />
       <main className="main">{main}</main>

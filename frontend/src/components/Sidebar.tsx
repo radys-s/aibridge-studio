@@ -9,11 +9,12 @@ interface Props {
   runs: RunSummary[];
   runsError: string | null;
   selectedId: string | null;
-  view: "new" | "run" | "settings";
+  view: "new" | "run" | "settings" | "overview";
   theme: string;
   onNew: () => void;
   onSelect: (id: string) => void;
   onSettings: () => void;
+  onOverview: () => void;
   onTheme: () => void;
 }
 
@@ -116,6 +117,9 @@ export function Sidebar(p: Props) {
           )}
         </div>
         <div className="foot-buttons">
+          <button type="button" className={`small${p.view === "overview" ? " on" : ""}`} onClick={p.onOverview}>
+            Přehled
+          </button>
           <button type="button" className={`small${p.view === "settings" ? " on" : ""}`} onClick={p.onSettings}>
             Nastavení
           </button>

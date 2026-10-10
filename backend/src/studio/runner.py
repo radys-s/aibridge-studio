@@ -36,7 +36,7 @@ from studio.agents.prompts import (
     review_prompt,
 )
 from studio.apply import ApplyError, apply_run
-from studio.db import Database
+from studio.db import AUTO_APPROVED, Database
 from studio.domain import (
     AUTOPILOT,
     LEGACY_LEADS,
@@ -744,7 +744,7 @@ class Runner:
             questions = json.loads(draft["output_json"]).get("questions") or []
         bad = invalid_commands(spec, Path(run["workspace"])) if spec.complete else []
         if spec.auto_approve and spec.complete and not questions and not bad:
-            self.db.event(run_id, "decision", "Zadání schváleno automaticky")
+            self.db.event(run_id, "decision", AUTO_APPROVED)
             self.db.update_run(run_id, phase="plan")
             return "next"
         self.db.update_run(

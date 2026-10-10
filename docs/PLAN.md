@@ -75,8 +75,7 @@ remains a setup dependency. No new providers, OS sandbox or expanded second-brai
 ## v0.4 — everyday MVP (in progress)
 
 Review fixes on v0.3.1 (secret-scan precision, reviewer identity exclusion), "Spustit
-OmniRoute" from the status line. Next: an overview of runs for the measurement protocol
-(accepted rate, time to accepted, fix rounds, tokens, decisions).
+OmniRoute" from the status line, "Přehled" of runs for the measurement protocol (done).
 
 ## Phase 2 — reliability and context
 

@@ -276,6 +276,11 @@ def create_app(
         runner.wake()
         return {"run_id": run_id}
 
+    @app.get("/api/overview")
+    def overview(days: int = 30) -> dict[str, Any]:
+        days = min(max(days, 1), 365)
+        return {"days": days, **db.overview(time.time() - days * 86400)}
+
     @app.get("/api/runs")
     def list_runs() -> list[dict[str, Any]]:
         out = []

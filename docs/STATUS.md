@@ -23,6 +23,17 @@ Built on Codex's `codex/v0.3.1-hardening` (387f7a8) after an independent review 
   `omniroute serve --port <port> --no-open` (no shell; binary found only in absolute PATH
   entries; Studio's `PORT` removed from its environment; no second start while the first one
   boots) and waits up to 60 s. Log: `<data dir>/omniroute.log`. Verified live: up in ~15 s.
+- **Přehled** (sidebar, `#/overview`, `GET /api/overview?days=7|30|90`): read-only totals
+  over runs created in the window, for the measurement protocol. It shows runs by state,
+  accepted share of finished runs (open runs listed apart), median time from task to
+  accepted (includes waiting for Tomáš), average fix rounds and first-try count, Tomáš's own
+  decisions (the automatic draft approval excluded), branches applied, gateway calls,
+  failures, tokens, OmniRoute-reported cost, and gateway tokens per accepted run. Subscription
+  use and external-agent runs are shown apart and not averaged in. Top 5 models with their
+  success share. No savings claimed. An independent review found 0 critical and 5 risks
+  (misleading denominators, external work hidden, radio roles without radio keys); all fixed.
+  Known limit: a call without a cost from OmniRoute is stored as 0, so "$0" means
+  "reported 0 or unknown".
 
 ## v0.3.1 hardening (2026-10-09, `codex/v0.3.1-hardening`)
 
