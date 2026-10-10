@@ -6,20 +6,32 @@ import { OverviewView } from "./components/OverviewView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
+import { useRunNotifications } from "./notify";
 import { useRunDetail } from "./stream";
 
 // Routing via location.hash: "#/new" (default), "#/run/<id>", "#/settings", "#/overview".
-type Route = { view: "new" } | { view: "settings" } | { view: "overview" } | { view: "run"; id: string };
+type Route = { view: "new"; from?: string } | { view: "settings" } | { view: "overview" } | { view: "run"; id: string };
 
 function parseHash(hash: string): Route {
-  const m = /^#\/run\/(.+)$/.exec(hash);
-  if (m) return { view: "run", id: decodeURIComponent(m[1]) };
+  try {
+    const m = /^#\/run\/(.+)$/.exec(hash);
+    if (m) return { view: "run", id: decodeURIComponent(m[1]) };
+    const from = /^#\/new\/from\/(.+)$/.exec(hash);
+    if (from) return { view: "new", from: decodeURIComponent(from[1]) };
+  } catch {
+    return { view: "new" }; // a malformed %-escape must not blank the app
+  }
   if (hash === "#/settings") return { view: "settings" };
   return hash === "#/overview" ? { view: "overview" } : { view: "new" };
 }
 
 function navigate(route: Route) {
-  window.location.hash = route.view === "run" ? `#/run/${encodeURIComponent(route.id)}` : `#/${route.view}`;
+  window.location.hash =
+    route.view === "run"
+      ? `#/run/${encodeURIComponent(route.id)}`
+      : route.view === "new" && route.from
+        ? `#/new/from/${encodeURIComponent(route.from)}`
+        : `#/${route.view}`;
 }
 
 function usePolling(fn: () => Promise<void>, ms: number) {
@@ -109,6 +121,7 @@ export default function App() {
   const [healthError, setHealthError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [runsError, setRunsError] = useState<string | null>(null);
+  const [runsLoaded, setRunsLoaded] = useState(false);
   const [settings, setSettings] = useState<SettingsSnapshot | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(loadTheme);
@@ -133,6 +146,7 @@ export default function App() {
     try {
       const list = await api.listRuns();
       setRuns([...list].sort((a, b) => b.updated_at - a.updated_at));
+      setRunsLoaded(true);
       setRunsError(null);
     } catch (e) {
       setRunsError(e instanceof Error ? e.message : String(e));
@@ -153,6 +167,8 @@ export default function App() {
   }, []);
 
   usePolling(loadRuns, 3000);
+  const openRun = useCallback((id: string) => navigate({ view: "run", id }), []);
+  useRunNotifications(runs, runsLoaded, openRun);
   usePolling(loadHealth, 20000);
 
   const selectedId = route.view === "run" ? route.id : null;
@@ -168,8 +184,11 @@ export default function App() {
   } else if (route.view === "settings") {
     main = <SettingsView settings={settings} health={health} onSaved={setSettings} />;
   } else {
+    const from = route.view === "new" ? route.from : undefined;
     main = (
       <Composer
+        key={from ?? "new"}
+        fromRun={from}
         settings={settings}
         health={health}
         onSettingsSaved={setSettings}

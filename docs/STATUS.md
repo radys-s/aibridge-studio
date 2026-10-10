@@ -1,5 +1,29 @@
 # Status
 
+## v0.5 — daily comfort and reliability (2026-10-10, branch `v0.5`, Claude Code)
+
+v0.4 merged into `main` (fast-forward to `c4d77e8`) on Tomáš's word.
+
+- **Notifications.** The tab title shows how many runs wait for Tomáš ("(2) AI Bridge
+  Studio"). When a run starts waiting for him or ends (accepted / abandoned), a system
+  notification appears, only if he granted permission (Settings → Upozornění), only while
+  the tab is hidden, never for runs already in that state when the app opens. Clicking it
+  opens the run. Verified in the browser with a stub `Notification` (the embedded pane denies
+  real ones).
+- **Podobný úkol.** A finished run offers "Podobný úkol": `#/new/from/<id>` opens the
+  composer with that run's goal, repo, implementer, escalation, scope, criteria and commands.
+  Nothing starts until Spustit. E2E checks the prefill and that no run was created.
+- **Crash window closed.** `run.base_iteration` records which iteration `iteration_base`
+  belongs to. If Studio stopped after the iteration counter moved but before the new
+  checkpoint was written, no worker ran in that iteration, so resume / takeover keep the
+  working copy (the previous iteration's work) instead of resetting to the older base.
+  Git commit messages are never trusted for this: a worker can run git through python.
+- Review (independent subagent) of the first version found 0 critical, 5 risks: a forgeable
+  checkpoint message, a second crash window at the iteration bump, takeover skipping the fix,
+  an unguarded `decodeURIComponent` in routing and a stuck composer when the source run fails
+  to load. All fixed; the design above replaced message matching.
+- Gates: 182 passed / 2 skipped, ruff, format, mypy; 24 Vitest, build, Playwright 11/11.
+
 ## v0.4 — everyday MVP (in progress 2026-10-10, branch `v0.4-mvp`, Claude Code)
 
 Built on Codex's `codex/v0.3.1-hardening` (387f7a8) after an independent review by Claude.
@@ -255,9 +279,6 @@ Provider keys live only in the OmniRoute dashboard; Studio never reads them.
   review independence is `gpt-oss-20b` reviewing `gpt-oss-120b` (same provider).
 - Worker resends the whole history each turn; tokens grow fast on real repos.
 - Lead (CLI) token use is not recorded.
-- Narrow crash window: if Studio dies between the pre-iteration commit and the DB write of
-  `iteration_base`, resume resets to the previous base and the previous iteration's changes
-  are lost (still reachable via the copy's reflog). Low risk; fix with a step marker.
 - Memory proposals run synchronously after acceptance in the runner thread (one extra
   free call per accepted project run).
 

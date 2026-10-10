@@ -232,6 +232,50 @@ def test_restart_recovery_marks_interrupted_without_rerunning(
     assert db.run(run_id)["state"] == "accepted"
 
 
+def test_crash_before_the_iteration_checkpoint_is_recorded_keeps_the_previous_work(
+    studio, repo: Path
+) -> None:
+    """Studio stops after iteration 2 was queued (or its checkpoint committed) but before the
+    new base was written: no worker ran in iteration 2, so iteration 1's work must stay."""
+    from studio import workspace
+
+    runner, db, _ = studio(FakeGateway([]), [ACCEPT])
+    run_id = start(db, make_spec(repo))
+    runner._phase_setup(db.run(run_id), make_spec(repo))
+    ws = Path(db.run(run_id)["workspace"])
+    first_base = db.run(run_id)["iteration_base"]
+    db.update_run(run_id, base_iteration=1)
+    (ws / "calc" / "stats.py").write_text(MEDIAN_OK, encoding="utf-8")  # iteration 1's work
+    checkpoint = workspace.commit_all(ws, "studio: before iteration 2")
+    db.update_run(run_id, state="working", phase="work", iteration=2)
+    Database(db.path).recover()
+
+    runner.resume(run_id)
+    assert "median" in (ws / "calc" / "stats.py").read_text()  # iteration 1 survived
+    assert db.run(run_id)["iteration_base"] == first_base  # not adopted from git
+    assert any(e["kind"] == "warning" for e in db.events(run_id))
+    # The re-run work phase checkpoints the kept work as iteration 2's base.
+    assert workspace.commit_all(ws, "studio: before iteration 2") == checkpoint
+
+
+def test_a_commit_made_during_the_attempt_is_never_adopted_as_the_base(studio, repo: Path) -> None:
+    """A worker can run git through python and forge Studio's checkpoint message; resume
+    must still reset to the recorded checkpoint of the current iteration."""
+    from studio import workspace
+
+    runner, db, _ = studio(FakeGateway([]), [ACCEPT])
+    run_id = start(db, make_spec(repo))
+    runner._phase_setup(db.run(run_id), make_spec(repo))
+    ws = Path(db.run(run_id)["workspace"])
+    base = db.run(run_id)["iteration_base"]
+    db.update_run(run_id, state="interrupted", phase="work", iteration=1, base_iteration=1)
+    (ws / "calc" / "stats.py").write_text(MEDIAN_OK, encoding="utf-8")
+    workspace.commit_all(ws, "studio: before iteration 1")  # forged by the attempt
+    runner.resume(run_id)
+    assert db.run(run_id)["iteration_base"] == base
+    assert "median" not in (ws / "calc" / "stats.py").read_text()
+
+
 def test_out_of_scope_write_is_refused_by_tool(studio, repo: Path) -> None:
     script = [
         assistant(tool_call("write_file", {"path": "README.md", "content": "pwned"})),

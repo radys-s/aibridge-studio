@@ -72,10 +72,15 @@ and 22 unit tests passed, 11 E2E tests passed, independent review approved, four
 viewport/theme visual checks and a non-personal Groq fixture run passed. Cloudflare Account ID
 remains a setup dependency. No new providers, OS sandbox or expanded second-brain scope.
 
-## v0.4 — everyday MVP (in progress)
+## v0.4 — everyday MVP (done, merged 2026-10-10)
 
 Review fixes on v0.3.1 (secret-scan precision, reviewer identity exclusion), "Spustit
 OmniRoute" from the status line, "Přehled" of runs for the measurement protocol (done).
+
+## v0.5 — daily comfort and reliability (done 2026-10-10)
+
+Notifications and a waiting count in the tab title, "Podobný úkol" from a finished run, the
+iteration checkpoint crash window closed (`base_iteration`).
 
 ## Phase 2 — reliability and context
 

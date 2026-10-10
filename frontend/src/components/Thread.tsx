@@ -776,6 +776,16 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, 
             </div>
           </div>
           <div className="actions">
+          {closed && (
+            <button
+              type="button"
+              className="small"
+              title="Otevře nový úkol se stejným zadáním, repozitářem a kritérii; nic se nespustí samo."
+              onClick={() => (window.location.hash = `#/new/from/${encodeURIComponent(run.id)}`)}
+            >
+              Podobný úkol
+            </button>
+          )}
           <button type="button" className="small" onClick={onShowDiff}>Diff</button>
           <button type="button" className="small" aria-expanded={detailsOpen} onClick={onToggleDetails}>
             {detailsOpen ? "Skrýt podrobnosti" : "Podrobnosti"}
