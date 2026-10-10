@@ -223,3 +223,48 @@ def test_gateway_error_is_scanned_before_clipping(monkeypatch: pytest.MonkeyPatc
         OmniRouteGateway("http://fixture").chat("fixture/model", [])
     assert SENSITIVE_OUTPUT in str(exc.value)
     assert TOKEN not in str(exc.value)
+
+
+def test_reviewer_excludes_the_same_model_behind_another_provider(
+    studio, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from conftest import ACCEPT, FakeGateway, make_spec
+    from studio.config import ModelSpec
+
+    runner, db, _ = studio(FakeGateway([]), [])
+    caps = frozenset({"coding", "tools", "lead"})
+    runner.router.models = (
+        ModelSpec("groq/openai/gpt-oss-120b", caps, 6),
+        ModelSpec("cerebras/gpt-oss-120b", caps, 6),
+        ModelSpec("groq/openai/gpt-oss-20b", caps, 4),
+    )
+    spec = make_spec(repo)
+    run_id = db.create_task_and_run(spec.model_dump_json())
+    db.update_run(run_id, workspace=str(repo), source_commit="fixture", phase="review")
+    work = db.start_step(run_id, "work", 1, "worker")
+    db.finish_step(work, "done", {"summary": "claim"})
+    db.record_model_call(
+        run_id=run_id,
+        step_id=work,
+        role="worker",
+        requested_model="groq/openai/gpt-oss-120b",
+        actual_model="openai/gpt-oss-120b",
+        provider="groq",
+        outcome="ok",
+    )
+    verify_step = db.start_step(run_id, "verify", 1, "studio")
+    db.finish_step(
+        verify_step,
+        "done",
+        {"passed": True, "diff": "x", "commands": [], "changed_files": [], "out_of_scope": []},
+    )
+    seen: dict[str, frozenset[str]] = {}
+
+    def ask(*_args: object, exclude_models: frozenset[str] = frozenset(), **_kw: object):  # type: ignore[no-untyped-def]
+        seen["exclude"] = exclude_models
+        return {"autopilot": ACCEPT}
+
+    monkeypatch.setattr(runner, "_ask_leads", ask)
+    monkeypatch.setattr(runner, "_apply_reviews", lambda *_a, **_k: "pause")
+    runner._phase_review(db.run(run_id), spec)
+    assert seen["exclude"] == {"groq/openai/gpt-oss-120b", "cerebras/gpt-oss-120b"}

@@ -93,3 +93,10 @@ def test_probe_never_sends_to_a_model_below_the_privacy_floor(tmp_path: Path) ->
 def test_groq_daily_cap_counts_per_model() -> None:
     rows = _providers_today({"groq/openai/gpt-oss-120b": 300, "groq/openai/gpt-oss-20b": 100})
     assert rows == [{"provider": "groq", "calls": 400, "used": 300, "cap": 1000}]
+
+
+def test_injected_gateway_is_never_launched(tmp_path: Path) -> None:
+    with client(tmp_path, ProbeGateway(PING_CALL)) as c:
+        assert c.get("/api/health").json()["gateway"]["launchable"] is False
+        assert c.post("/api/omniroute/start", headers=HEADERS).status_code == 409
+        assert c.post("/api/omniroute/start").status_code == 403  # CSRF guard

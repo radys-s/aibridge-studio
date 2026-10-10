@@ -72,6 +72,12 @@ and 22 unit tests passed, 11 E2E tests passed, independent review approved, four
 viewport/theme visual checks and a non-personal Groq fixture run passed. Cloudflare Account ID
 remains a setup dependency. No new providers, OS sandbox or expanded second-brain scope.
 
+## v0.4 — everyday MVP (in progress)
+
+Review fixes on v0.3.1 (secret-scan precision, reviewer identity exclusion), "Spustit
+OmniRoute" from the status line. Next: an overview of runs for the measurement protocol
+(accepted rate, time to accepted, fix rounds, tokens, decisions).
+
 ## Phase 2 — reliability and context
 
 - Port the AI Bridge memory kernel (selective context, source, age, conflicts,

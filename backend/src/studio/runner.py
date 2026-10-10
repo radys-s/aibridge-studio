@@ -1019,6 +1019,14 @@ class Runner:
         impl_name = implementer.removeprefix("lead:")
         reviewers: list[str] = list(spec.orchestration.reviewers())
         exclude = self._step_models(run_id, work["id"]) if work else frozenset()
+        if exclude:
+            # The same model behind another provider (groq/openai/gpt-oss-120b and
+            # cerebras/gpt-oss-120b) is not an independent reviewer either; without this the
+            # router offers it and the run ends in self_review.
+            same = {model_identity(m) for m in exclude} | set(
+                self._step_actual_models(run_id, work["id"]) if work else ()
+            )
+            exclude = exclude | {m.id for m in self.router.models if model_identity(m.id) in same}
         self.db.event(run_id, "review", f"{' a '.join(reviewers)} nezávisle reviduje diff")
         prompt = review_prompt(spec, verification["diff"], verification, summary, implementer)
         results = self._ask_leads(
