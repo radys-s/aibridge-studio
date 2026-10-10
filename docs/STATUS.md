@@ -1,5 +1,28 @@
 # Status
 
+## v0.6 — more free no-train providers (2026-10-10, branch `v0.6`, Claude Code)
+
+v0.5 merged into `main` (fast-forward to `6850bb9`) on Tomáš's word.
+
+- **New providers (ADR 0005, update 2026-10-10).** Searched public free-LLM lists and kept
+  only providers with a published no-training statement: Ollama Cloud (`ollamacloud/*`,
+  free plan with a key) and OVHcloud AI Endpoints (`ovh/*`, works without a key, 2 req/min
+  per model). LLM7 excluded (no privacy policy). Ollama models rank below Groq and
+  Cloudflare; OVH `Mistral-Small-3.2-24B-Instruct-2506` is the lowest lead (tool call
+  verified live against OVH; OmniRoute only exposes its fixed OVH list).
+- **Settings → Klíče** shows per provider whether OmniRoute offers its models
+  ("v OmniRoute" / "chybí nastavení" / "nepřipojeno"), plus the signup link and a note.
+  Verified against the running OmniRoute: Groq and Cloudflare "v OmniRoute", OVH, Ollama and
+  Cerebras "nepřipojeno".
+- Session and weekly quota errors (Ollama free plan) get the long cooldown.
+- Not done by Claude: creating accounts, signing in, entering keys. Tomáš connects OVHcloud
+  AI (empty key) and Ollama Cloud in OmniRoute → Providers.
+- Review (independent subagent): 2 critical (OVH ids OmniRoute does not expose, so OVH
+  always looked "missing"), 8 risks (ranking, wording overclaims, privacy sources, quota
+  cooldown, test fixture). All fixed except: a keyless OVH 403 would still get the 1 h setup
+  cooldown (not seen live; untested which status OVH sends at its keyless limit).
+- Gates: 182 passed / 2 skipped, ruff, format, mypy; 25 Vitest, build, Playwright 11/11.
+
 ## v0.5 — daily comfort and reliability (2026-10-10, branch `v0.5`, Claude Code)
 
 v0.4 merged into `main` (fast-forward to `c4d77e8`) on Tomáš's word.

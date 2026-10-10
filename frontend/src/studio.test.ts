@@ -8,6 +8,7 @@ import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
 import { transitions, titleFor } from "./notify";
 import { oneDecimal, percent } from "./components/OverviewView";
+import { keyStatus } from "./components/SettingsView";
 import { budgetLevel, modelName, probeText, reliabilityText } from "./components/SettingsView";
 
 const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
@@ -245,5 +246,24 @@ group("model reliability", () => {
     ]);
     expect(titleFor(now)).toBe("(3) AI Bridge Studio");
     expect(titleFor([])).toBe("AI Bridge Studio");
+  });
+
+  it("shows which key sources OmniRoute already offers", () => {
+    const m = (id: string, extra: Partial<ModelInfo> = {}) =>
+      ({ id, provider: id.split("/")[0], blocked: null, cooldown_until: null, ...extra }) as ModelInfo;
+    const health = (models: ModelInfo[], reachable = true) =>
+      ({ gateway: { reachable }, models }) as unknown as Parameters<typeof keyStatus>[1];
+    const h = health([
+      m("groq/a"),
+      m("ovh/Mistral-Small-3.2-24B-Instruct-2506", { blocked: "not_connected" }),
+      m("ollamacloud/glm-5.1"),
+      m("cf/c", { cooldown_kind: "setup", cooldown_until: 9e9 }),
+    ]);
+    expect(keyStatus("groq", h)).toBe("connected");
+    expect(keyStatus("ovh", h)).toBe("missing");
+    expect(keyStatus("ollamacloud", h)).toBe("connected");
+    expect(keyStatus("cerebras", h)).toBe("missing");
+    expect(keyStatus("cf", h)).toBe("setup");
+    expect(keyStatus("groq", health([m("groq/a")], false))).toBeNull();
   });
 });

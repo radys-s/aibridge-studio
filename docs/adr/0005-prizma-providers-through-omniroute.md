@@ -58,3 +58,25 @@ Options considered:
   also needs the Account ID in the OmniRoute provider settings, otherwise every call is a 502
   "requires an Account ID".
 - So the second no-train provider for independent review is Cloudflare Workers AI.
+
+## Update 2026-10-10 (v0.6: more free no-train providers)
+
+Tomáš asked for as many legitimate free providers as possible. Candidates came from public
+lists (freellm.net/providers, awesome-free-llm-apis) and were kept only with a published
+no-training statement. Claude cannot create accounts or enter keys; Tomáš connects them in
+OmniRoute.
+
+| Provider (OmniRoute alias) | Class | Source, checked 2026-10-10 |
+| --- | --- | --- |
+| Ollama Cloud (`ollamacloud`) | no_train | registry.ollama.ai/privacy: cloud prompts processed transiently, never used for training. OmniRoute's free catalog marks its terms "ambiguous". |
+| OVHcloud AI Endpoints (`ovh`) | no_train | ovhcloud.com Free AI API page: data never stored or used for training. Not specific to the keyless tier. |
+| LLM7 | excluded | no privacy policy found |
+
+- Ollama Cloud: free plan, key from ollama.com/settings/keys, small session and weekly quota.
+  Ranked below Groq and Cloudflare. Session/weekly quota errors get the long cooldown.
+- OVHcloud works without a key (2 requests/min per model and IP; 400/min with a key).
+  OmniRoute exposes only its fixed OVH list, so the catalog uses
+  `Mistral-Small-3.2-24B-Instruct-2506`, which returned a correct tool call live. It is the
+  lowest-ranked lead: a different-family fallback, not a primary worker.
+- Settings shows "v OmniRoute" (not "připojeno") because a listed model does not prove the
+  key works; "Otestovat" does.

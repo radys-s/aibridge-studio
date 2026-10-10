@@ -61,6 +61,9 @@ def test_cooldown_lengths_follow_the_failure(tmp_path: Path) -> None:
 
     assert 55 < cooled("Rate limit reached: requests per minute") < 65
     assert cooled("Rate limit: free-models-per-day exceeded", retry=5) > 3500
+    # Ollama Cloud's free plan: session and weekly quotas, never back within a minute.
+    assert cooled("you've reached your weekly usage limit") > 3500
+    assert cooled("session usage limit reached, upgrade for more") > 3500
     assert 10 < cooled("slow down", retry=12) < 15
     r.report_failure("groq/strong", "provider_error", 502, "502: upstream error")
     assert r.db.cooldowns()["groq/strong"] - now < 35
@@ -207,8 +210,12 @@ def test_default_catalog_privacy_follows_the_provider() -> None:
     assert privacy["nvidia/moonshotai/kimi-k2.6"] == "may_train"
     assert privacy["mistral/devstral-latest"] == "may_train"
     assert privacy["zai/glm-4.7-flash"] == "unknown"
+    # v0.6: Ollama Cloud and OVHcloud AI Endpoints commit to no training on inputs.
+    assert privacy["ollamacloud/deepseek-v4-pro"] == "no_train"
+    assert privacy["ovh/Mistral-Small-3.2-24B-Instruct-2506"] == "no_train"
     # OmniRoute lists models under the provider alias, never the long provider id.
-    assert not any(m.id.startswith(("cloudflare-ai/", "github-models/")) for m in DEFAULT_MODELS)
+    long_ids = ("cloudflare-ai/", "github-models/", "ollama-cloud/", "ovhcloud/")
+    assert not any(m.id.startswith(long_ids) for m in DEFAULT_MODELS)
 
 
 def test_opted_out_provider_counts_as_no_train(monkeypatch: pytest.MonkeyPatch) -> None:

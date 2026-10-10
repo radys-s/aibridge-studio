@@ -58,6 +58,18 @@ _CATALOG: tuple[ModelSpec, ...] = (
     ModelSpec("cerebras/zai-glm-4.7", _LEAD, 5),
     # OmniRoute's Cloudflare list has no gpt-oss-120b; glm-4.7-flash is the next lead there.
     ModelSpec("cf/@cf/zai-org/glm-4.7-flash", _LEAD, 4),
+    # Ollama Cloud free plan (v0.6): "light usage" quota, one model at a time; key from
+    # ollama.com/settings/keys. OmniRoute alias `ollamacloud`. Ranked below the providers
+    # verified live so a hard task does not spend its first calls on a small quota.
+    ModelSpec("ollamacloud/deepseek-v4-pro", _LEAD, 4),
+    ModelSpec("ollamacloud/kimi-k2.6", _LEAD, 4),
+    ModelSpec("ollamacloud/glm-5.1", _LEAD, 4),
+    ModelSpec("ollamacloud/qwen3.5:397b", _LEAD, 3),
+    # OVHcloud AI Endpoints answers without a key: 2 requests/min per model and IP (400
+    # requests/min with a key). OmniRoute lists a fixed set of OVH models; of those,
+    # Mistral Small 3.2 returned a well-typed tool call live on 2026-10-10 (Llama 3.3 70B
+    # sent "true" as a string). Lowest rank: a different-family fallback, not a worker.
+    ModelSpec("ovh/Mistral-Small-3.2-24B-Instruct-2506", _LEAD, 2),
     # GitHub Models is gone: GitHub retired it on 2026-07-30 and models.github.ai now answers
     # every request with a plain "OK" (seen 2026-10-08), so it has no entry.
     ModelSpec("groq/openai/gpt-oss-20b", _LEAD, 3),
@@ -81,6 +93,12 @@ _CATALOG: tuple[ModelSpec, ...] = (
 # Training on inputs by provider alias, checked 2026-10-08 (sources in ADR 0004/0005):
 # - no_train: Groq (no retention beyond abuse logs, ZDR toggle), Cloudflare Workers AI (no
 #   training, no sharing), Cerebras (inputs not retained; free tier needs a card on file).
+#   Added 2026-10-10 from the providers' published statements (ADR 0005, v0.6 update):
+#   Ollama Cloud (registry.ollama.ai/privacy: cloud prompts processed transiently and never
+#   used for training) and OVHcloud AI Endpoints (ovhcloud.com AI Endpoints / Free AI API
+#   pages: data never stored or used for training). Not independently verified; the OVH
+#   statement is not specific to the keyless tier, and OmniRoute's own free catalog marks
+#   Ollama Cloud's terms "ambiguous".
 # - may_train: NVIDIA API trial (content may improve NVIDIA products and models), Gemini free
 #   tier, Mistral free tier.
 # - unknown: OpenRouter :free (depends on the upstream), Cohere trial, Z.ai, Hugging Face
@@ -90,6 +108,10 @@ PROVIDER_PRIVACY: dict[str, Privacy] = {
     "cloudflare-ai": "no_train",
     "cf": "no_train",
     "cerebras": "no_train",
+    "ollamacloud": "no_train",
+    "ollama-cloud": "no_train",
+    "ovh": "no_train",
+    "ovhcloud": "no_train",
     "nvidia": "may_train",
     "gemini": "may_train",
     "mistral": "may_train",
