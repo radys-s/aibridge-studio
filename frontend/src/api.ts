@@ -482,12 +482,41 @@ function send<T>(method: "POST" | "PUT", path: string, data: unknown): Promise<T
   });
 }
 
+export interface Spend {
+  calls: number;
+  failed: number;
+  tokens: number;
+  cost: number;
+}
+
+/** GET /api/overview: runs created in the last `days`, for the measurement protocol. */
+export interface Overview {
+  days: number;
+  since: number;
+  runs: number;
+  by_state: Record<string, number>;
+  accepted: number;
+  finished: number;
+  accept_rate: number | null;
+  median_seconds_to_accepted: number | null;
+  fix_rounds_avg: number | null;
+  first_try: number;
+  decisions: number;
+  applied: number;
+  api: Spend;
+  subscription: Spend;
+  api_tokens_per_accepted: number | null;
+  external_runs: number;
+  top_models: { model: string; calls: number; ok: number }[];
+}
+
 const runPath = (id: string) => `/api/runs/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => request<Health>("/api/health"),
   settings: () => request<SettingsSnapshot>("/api/settings"),
   saveSettings: (body: { defaults: Defaults }) => send<SettingsSnapshot>("PUT", "/api/settings", body),
+  overview: (days: number) => request<Overview>(`/api/overview?days=${days}`),
   listRuns: () => request<RunSummary[]>("/api/runs"),
   getRun: (id: string) => request<RunDetail>(runPath(id)),
   createTask: (task: NewTask) => send<{ run_id: string }>("POST", "/api/tasks", task),

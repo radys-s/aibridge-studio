@@ -1377,3 +1377,32 @@ td.probe .badge {
     row-gap: 0.75rem;
   }
 }
+
+/* Přehled */
+.overview .segmented {
+  margin-bottom: 1.5rem;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+}
+.tile {
+  background: var(--bg);
+  border-radius: var(--r);
+  padding: 0.75rem 1rem;
+}
+.tile-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.tile-label {
+  font-weight: 500;
+}
+.state-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 1rem;
+}

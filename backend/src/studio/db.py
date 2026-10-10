@@ -21,6 +21,10 @@ from studio.sandbox import safe_text, safe_value
 
 SCHEMA_VERSION = 2
 
+# Message of the decision event the runner writes for an automatic draft approval; the
+# overview does not count it as Tomáš's decision.
+AUTO_APPROVED = "Zadání schváleno automaticky"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS task (
     id TEXT PRIMARY KEY,
@@ -445,6 +449,112 @@ class Database:
                     )
                     out.append((review, str(author["m"])))
         return out
+
+    def overview(self, since: float) -> dict[str, Any]:
+        """Read-only totals over runs created since a timestamp, for the measurement protocol
+        (docs/PLAN.md): outcome, time to accepted, fix rounds, consumption, decisions."""
+        with self.connect() as c:
+            runs = c.execute(
+                "SELECT id, state, iteration, created_at, finished_at FROM run "
+                "WHERE created_at >= ?",
+                (since,),
+            ).fetchall()
+            usage = c.execute(
+                "SELECT model_call.billing AS billing, COUNT(*) AS calls, "
+                "SUM(model_call.outcome != 'ok') AS failed, "
+                "COALESCE(SUM(tokens_in + tokens_out), 0) AS tokens, "
+                "COALESCE(SUM(cost_usd), 0) AS cost "
+                "FROM model_call JOIN run ON run.id = model_call.run_id "
+                "WHERE run.created_at >= ? GROUP BY model_call.billing",
+                (since,),
+            ).fetchall()
+            accepted_tokens = c.execute(
+                "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS tokens, "
+                "COUNT(DISTINCT model_call.run_id) AS runs "
+                "FROM model_call JOIN run ON run.id = model_call.run_id "
+                "WHERE run.created_at >= ? AND run.state = 'accepted' "
+                "AND model_call.billing = 'api'",
+                (since,),
+            ).fetchone()
+            # Decisions Tomáš made himself; the automatic draft approval is not one.
+            decisions = c.execute(
+                "SELECT COUNT(*) AS n FROM event JOIN run ON run.id = event.run_id "
+                "WHERE run.created_at >= ? AND event.kind = 'decision' "
+                "AND event.message != ?",
+                (since, AUTO_APPROVED),
+            ).fetchone()
+            # Work an external agent did by hand: Studio does not know what it used.
+            external = c.execute(
+                "SELECT COUNT(DISTINCT model_call.run_id) AS n FROM model_call "
+                "JOIN run ON run.id = model_call.run_id "
+                "WHERE run.created_at >= ? AND model_call.billing = 'external'",
+                (since,),
+            ).fetchone()
+            applied = c.execute(
+                "SELECT COUNT(DISTINCT event.run_id) AS n FROM event "
+                "JOIN run ON run.id = event.run_id "
+                "WHERE run.created_at >= ? AND event.kind = 'applied'",
+                (since,),
+            ).fetchone()
+            models = c.execute(
+                "SELECT requested_model AS model, COUNT(*) AS calls, "
+                "SUM(outcome = 'ok') AS ok FROM model_call JOIN run ON run.id = model_call.run_id "
+                "WHERE run.created_at >= ? AND model_call.billing = 'api' "
+                "GROUP BY requested_model ORDER BY calls DESC, model LIMIT 5",
+                (since,),
+            ).fetchall()
+        by_state: dict[str, int] = {}
+        for r in runs:
+            by_state[r["state"]] = by_state.get(r["state"], 0) + 1
+        accepted = [r for r in runs if r["state"] == "accepted"]
+        finished = len(accepted) + by_state.get("abandoned", 0)
+        durations = sorted(
+            float(r["finished_at"]) - float(r["created_at"]) for r in accepted if r["finished_at"]
+        )
+        median: float | None = None
+        if durations:
+            mid = len(durations) // 2
+            median = (
+                durations[mid] if len(durations) % 2 else (durations[mid - 1] + durations[mid]) / 2
+            )
+        rounds = [int(r["iteration"]) - 1 for r in accepted]
+        spend = {
+            str(u["billing"]): {
+                "calls": int(u["calls"]),
+                "failed": int(u["failed"] or 0),
+                "tokens": int(u["tokens"]),
+                "cost": float(u["cost"]),
+            }
+            for u in usage
+        }
+        empty = {"calls": 0, "failed": 0, "tokens": 0, "cost": 0.0}
+        return {
+            "since": since,
+            "runs": len(runs),
+            "by_state": by_state,
+            "accepted": len(accepted),
+            "finished": finished,
+            "accept_rate": len(accepted) / finished if finished else None,
+            "median_seconds_to_accepted": median,
+            "fix_rounds_avg": sum(rounds) / len(rounds) if rounds else None,
+            "first_try": sum(1 for n in rounds if n == 0),
+            "decisions": int(decisions["n"]),
+            "applied": int(applied["n"]),
+            "external_runs": int(external["n"]),
+            "api": spend.get("api", empty),
+            "subscription": spend.get("subscription", empty),
+            # Gateway tokens only, over accepted runs that made gateway calls: lead CLI use on
+            # a subscription and external agents are reported apart, not averaged in.
+            "api_tokens_per_accepted": (
+                int(accepted_tokens["tokens"]) / int(accepted_tokens["runs"])
+                if accepted_tokens["runs"]
+                else None
+            ),
+            "top_models": [
+                {"model": str(m["model"]), "calls": int(m["calls"]), "ok": int(m["ok"] or 0)}
+                for m in models
+            ],
+        }
 
     # --- conversation & live agent output ----------------------------------------------
 

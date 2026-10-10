@@ -6,6 +6,7 @@ import { actorLead, buildThread, latestDraftId, progress, reviewAccepted } from 
 import { groupByRepo } from "./components/Sidebar";
 import { readable } from "./components/Thread";
 import { continueGoal, noteTitle } from "./components/Composer";
+import { oneDecimal, percent } from "./components/OverviewView";
 import { budgetLevel, modelName, probeText, reliabilityText } from "./components/SettingsView";
 
 const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
@@ -221,5 +222,12 @@ group("model reliability", () => {
     expect(modelName("groq/openai/gpt-oss-120b")).toBe("openai/gpt-oss-120b");
     expect(modelName("cf/@cf/zai-org/glm-4.7-flash")).toBe("zai-org/glm-4.7-flash");
     expect(modelName("plain")).toBe("plain");
+  });
+
+  it("shows overview rates without inventing them", () => {
+    expect(percent(2 / 3)).toBe("67 %");
+    expect(percent(null)).toBe("–");
+    expect(oneDecimal(1.25)).toMatch(/^1,[23]$/);
+    expect(oneDecimal(null)).toBe("–");
   });
 });
