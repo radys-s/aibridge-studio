@@ -90,7 +90,26 @@ function ProbeCell({ model, disabled }: { model: string; disabled: boolean }) {
   );
 }
 
-function KeySources() {
+/** Whether OmniRoute already offers a provider's models: "connected", "setup" (offered but
+ * every one paused for a missing key/setting), "missing", or null when OmniRoute is down. */
+export function keyStatus(provider: string, health: Health | null): "connected" | "setup" | "missing" | null {
+  if (!health?.gateway.reachable || !health.models) return null;
+  const offered = health.models.filter((m) => m.provider === provider && m.blocked !== "not_connected");
+  if (!offered.length) return "missing";
+  return offered.every((m) => m.cooldown_kind === "setup" && m.cooldown_until) ? "setup" : "connected";
+}
+
+const KEY_BADGES = {
+  connected: (
+    <span className="badge good" title="OmniRoute nabízí jeho modely; jestli klíč funguje, ukáže „Otestovat“.">
+      v OmniRoute
+    </span>
+  ),
+  setup: <span className="badge warn">chybí nastavení</span>,
+  missing: <span className="badge">nepřipojeno</span>,
+};
+
+function KeySources({ health }: { health: Health | null }) {
   return (
     <div className="key-sources">
       <p className="small">
@@ -103,9 +122,13 @@ function KeySources() {
       <ul className="small">
         {KEY_SOURCES.map((k) => (
           <li key={k.provider}>
+            {(() => {
+              const st = keyStatus(k.provider, health);
+              return st ? <>{KEY_BADGES[st]} </> : null;
+            })()}
             <strong>{k.label}</strong>:{" "}
             <a href={k.signup} target="_blank" rel="noreferrer">
-              založit klíč
+              {k.signupLabel ?? "založit klíč"}
             </a>{" "}
             → v OmniRoute „{k.omniroute}“. {k.note}
           </li>
@@ -312,7 +335,7 @@ export function SettingsView({ settings, health, onSaved }: Props) {
 
       <section className="card">
         <h2>Klíče</h2>
-        <KeySources />
+        <KeySources health={health} />
       </section>
 
       <section className="card">

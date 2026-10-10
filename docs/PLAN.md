@@ -82,6 +82,10 @@ OmniRoute" from the status line, "Přehled" of runs for the measurement protocol
 Notifications and a waiting count in the tab title, "Podobný úkol" from a finished run, the
 iteration checkpoint crash window closed (`base_iteration`).
 
+## v0.6 — more free no-train providers (done 2026-10-10)
+
+Ollama Cloud and OVHcloud AI Endpoints in the catalog, key status in Settings → Klíče.
+
 ## Phase 2 — reliability and context
 
 - Port the AI Bridge memory kernel (selective context, source, age, conflicts,

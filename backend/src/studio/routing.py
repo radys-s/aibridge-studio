@@ -30,7 +30,11 @@ COOLDOWN_S = {
     "setup": 3600.0,
 }
 MAX_RETRY_AFTER_S = 600.0
-_DAILY = re.compile(r"per.?day|daily|requests per day|RPD|free-models-per-day", re.I)
+# Ollama Cloud's free plan has session and weekly quotas: retrying every minute is useless.
+_DAILY = re.compile(
+    r"per.?day|daily|requests per day|RPD|free-models-per-day|weekly|session (usage )?limit",
+    re.I,
+)
 _SETUP = re.compile(
     r"requires an Account ID|No active credentials|invalid api key|unauthorized", re.I
 )

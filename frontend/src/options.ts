@@ -40,6 +40,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   "cloudflare-ai": "Cloudflare",
   cf: "Cloudflare",
   cerebras: "Cerebras",
+  ollamacloud: "Ollama Cloud",
+  "ollama-cloud": "Ollama Cloud",
+  ovh: "OVHcloud",
+  ovhcloud: "OVHcloud",
   // GitHub Models was retired 2026-07-30; labels stay for old runs.
   ghm: "GitHub Models",
   "github-models": "GitHub Models",
@@ -54,8 +58,23 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 /** Where Tomáš creates a free key and which provider to pick in the OmniRoute dashboard
  * (ADR 0005). Only providers that do not train on inputs are offered. */
-export const KEY_SOURCES: { provider: string; label: string; signup: string; omniroute: string; note: string }[] = [
+export const KEY_SOURCES: { provider: string; label: string; signup: string; signupLabel?: string; omniroute: string; note: string }[] = [
   { provider: "groq", label: "Groq", signup: "https://console.groq.com/keys", omniroute: "Groq", note: "V Data Controls zapni Zero Data Retention." },
+  {
+    provider: "ovh",
+    label: "OVHcloud AI Endpoints",
+    signup: "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog/",
+    signupLabel: "katalog modelů",
+    omniroute: "OVHcloud AI",
+    note: "Klíč není potřeba: v OmniRoute přidej OVHcloud AI s prázdným klíčem (2 dotazy/min na model, s klíčem 400). Podle OVHcloud běží v EU a na datech se netrénuje (ověřeno 10. 10. 2026, ne zvlášť pro režim bez klíče).",
+  },
+  {
+    provider: "ollamacloud",
+    label: "Ollama Cloud",
+    signup: "https://ollama.com/settings/keys",
+    omniroute: "Ollama Cloud",
+    note: "Free plán bez karty, jeden model naráz, omezená kvóta. Podle zásad Ollamy se na promptech z cloudu netrénuje (ověřeno 10. 10. 2026).",
+  },
   { provider: "cerebras", label: "Cerebras", signup: "https://cloud.cerebras.ai", omniroute: "Cerebras", note: "Free tier chce platební kartu – bez ní ho přeskoč." },
   {
     provider: "cf",
