@@ -57,14 +57,38 @@ SECRET_PATTERNS: Final = (
     ("api_secret_key", re.compile(r"\bsk_[a-zA-Z0-9_]{16,}\b")),
     ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
     ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
-    (
-        "credential_assignment",
-        re.compile(
-            r"(?i)\b(?:api[_-]?key|access[_-]?token|secret|password|passwd)\b\s*[:=]\s*"
-            r"['\"]?[A-Za-z0-9_./+\-=]{8,}"
-        ),
-    ),
 )
+# `password = "hunter2hunter2"` or `API_KEY=abc...` is a credential; `password =
+# hash_password(raw)` or `api_key=settings.api_key` is ordinary code and must not stop a run.
+# The key may be part of a longer name (`DB_PASSWORD`, `client_secret`), quoted (JSON) or
+# annotated (`password: str = ...`).
+_CREDENTIAL = re.compile(
+    r"(?i)(?<![A-Za-z])(?:api[_-]?key|access[_-]?token|secret|password|passwd)(?![A-Za-z])"
+    r"['\"]?\s*(?::\s*\w+(?:\s*\|\s*\w+)?\s*=|[:=])(?!=)\s*"
+    r"(?:(?P<q>['\"])(?P<quoted>[^'\"\r\n]{8,}?)(?P=q)"
+    r"|(?P<value>[^\s'\"(),;\[\]{}]{8,})(?P<after>[(\[]?))"
+)
+_ATTRIBUTE_PATH = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
+_IDENTIFIER_NO_DIGIT = re.compile(r"[A-Za-z_]+")
+
+
+def _credential_assignment(text: str) -> bool:
+    for m in _CREDENTIAL.finditer(text):
+        quoted = m["quoted"]
+        if quoted is not None:
+            if any(c.isspace() for c in quoted) or "{" in quoted:
+                continue  # prose or a template, e.g. UI text "Zadej heslo znovu"
+            return True
+        value = m["value"]
+        if m["after"]:
+            continue  # a call or an index: `hash_password(raw)`, `os.environ[...]`
+        if len(value) <= 64 and _ATTRIBUTE_PATH.fullmatch(value):
+            continue  # `settings.api_key`; a JWT with dots is longer
+        if _IDENTIFIER_NO_DIGIT.fullmatch(value):
+            continue  # a variable such as `raw_password`; letter-only literals are missed
+        return True
+    return False
+
 
 _ENV_ALLOW = (
     "PATH",
@@ -97,7 +121,8 @@ class Denied(Exception):
 
 
 def secret_findings(text: str) -> tuple[str, ...]:
-    return tuple(code for code, pattern in SECRET_PATTERNS if pattern.search(text))
+    found = tuple(code for code, pattern in SECRET_PATTERNS if pattern.search(text))
+    return (*found, "credential_assignment") if _credential_assignment(text) else found
 
 
 SENSITIVE_OUTPUT = "[SENSITIVE_OUTPUT_BLOCKED: detected secrets; content withheld]"

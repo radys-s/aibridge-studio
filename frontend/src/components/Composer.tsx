@@ -17,6 +17,7 @@ interface Props {
   health: Health | null;
   onCreated: (runId: string) => void;
   onSettingsSaved: (s: SettingsSnapshot) => void;
+  onHealthChanged?: () => void;
 }
 
 type Start = "project" | "free";
@@ -34,7 +35,7 @@ export function continueGoal(title: string, focus: string): string {
 
 /** One quiet line: gateway, who receives the code (only providers that do not train on it)
  * and today's free requests. */
-export function StatusLine({ health }: { health: Health | null }) {
+export function StatusLine({ health, onHealthChanged }: { health: Health | null; onHealthChanged?: () => void }) {
   if (!health) return null;
   const providers = activeProviders(health.models ?? []);
   const calls = health.api_calls_today ?? 0;
@@ -44,7 +45,8 @@ export function StatusLine({ health }: { health: Health | null }) {
       title="Posílá se kód z repozitáře a sdílené poznámky bez osobního obsahu. Limity free modelů se nulují o půlnoci UTC."
     >
       <span className={`hdot ${health.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" />
-      <span>{health.gateway.reachable ? "OmniRoute běží" : "OmniRoute nedostupný"}</span>
+      <span>{health.gateway.reachable ? "OmniRoute běží" : "OmniRoute neběží"}</span>
+      {!health.gateway.reachable && health.gateway.launchable && <StartGateway onDone={onHealthChanged} />}
       <span aria-hidden="true">·</span>
       {providers.length ? (
         <span>
@@ -62,8 +64,35 @@ export function StatusLine({ health }: { health: Health | null }) {
   );
 }
 
+/** Starts the local OmniRoute (`omniroute serve`); Studio waits until it answers. */
+function StartGateway({ onDone }: { onDone?: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function start() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.startOmniRoute();
+      if (!r.reachable) setError("OmniRoute se nespustil do minuty.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+      onDone?.();
+    }
+  }
+  return (
+    <>
+      <button type="button" className="small primary" disabled={busy} onClick={() => void start()}>
+        {busy ? "Spouštím OmniRoute…" : "Spustit OmniRoute"}
+      </button>
+      {error && <span className="error" role="alert">{error}</span>}
+    </>
+  );
+}
+
 /** New task. Main path: continue a project from the shared Obsidian memory; or a free prompt. */
-export function Composer({ settings, health, onCreated, onSettingsSaved }: Props) {
+export function Composer({ settings, health, onCreated, onSettingsSaved, onHealthChanged }: Props) {
   const d = settings.defaults;
   const [vault, setVault] = useState<VaultOverview | null>(null);
   const [start, setStart] = useState<Start>("project");
@@ -411,7 +440,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved }: Props
         </details>
       </form>
       <p className="hint execution-hint">Příkazy běží pod tvým uživatelským účtem. Používej pouze důvěryhodné projekty.</p>
-      <StatusLine health={health} />
+      <StatusLine health={health} onHealthChanged={onHealthChanged} />
     </div>
   );
 }

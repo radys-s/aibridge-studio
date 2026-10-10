@@ -37,6 +37,46 @@ def test_secret_content_not_sent(box: Sandbox) -> None:
     assert secret_findings("ghp_" + "a" * 30) == ("github_token",)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        'password = "hunter2hunter2"',
+        "password = hunter2hunter2",
+        "API_KEY=abcd1234efgh5678",
+        'API_KEY = "abcdefghijklmnop1234"',
+        'password = "P@ssw0rd!2024"',
+        "password=mysecret1",
+        "ACCESS_TOKEN=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N",
+        "DB_PASSWORD=Xk29fj3Lq",
+        '"password": "hunter2hunter2"',
+        'client_secret: str = "abc123def456"',
+    ],
+)
+def test_literal_credentials_are_secrets(text: str) -> None:
+    assert secret_findings(text) == ("credential_assignment",)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "password = hash_password(raw)",
+        "api_key=settings.api_key",
+        "self.access_token = response.json()",
+        "password = raw_password",
+        'secret = os.environ["X"]',
+        "self.password = hashed_pw",
+        "access_token = response_body",
+        "if password == confirm_password:",
+        'label = {"password": "Zadej heslo znovu"}',
+        "passwords = load_all(store)",
+        "password_hash = bcrypt_hash",
+    ],
+)
+def test_ordinary_auth_code_is_not_a_secret(text: str) -> None:
+    # Since v0.3.1 a finding stops the run without an override, so code must not match.
+    assert secret_findings(text) == ()
+
+
 def test_scope(box: Sandbox) -> None:
     box.check_writable("src/new.py")
     with pytest.raises(Denied, match="scope"):

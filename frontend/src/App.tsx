@@ -170,6 +170,7 @@ export default function App() {
         settings={settings}
         health={health}
         onSettingsSaved={setSettings}
+        onHealthChanged={() => void loadHealth()}
         onCreated={(id) => {
           void loadRuns();
           api.settings().then(setSettings, () => undefined); // recent repos

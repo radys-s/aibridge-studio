@@ -56,16 +56,20 @@ test("project run: accepted, memory written only after click, applied to a branc
 
   // Wait on the API first, so a failure says where the run stopped instead of "not found".
   let last = "";
-  await expect
-    .poll(
-      async () => {
-        const runs = (await (await page.request.get("/api/runs")).json()) as { state: string; decision_reason: string | null }[];
-        last = JSON.stringify(runs[0] ?? null);
-        return runs[0]?.state;
-      },
-      { timeout: 90_000, message: () => `run did not reach accepted: ${last}` },
-    )
-    .toBe("accepted");
+  try {
+    await expect
+      .poll(
+        async () => {
+          const runs = (await (await page.request.get("/api/runs")).json()) as { state: string; decision_reason: string | null }[];
+          last = JSON.stringify(runs[0] ?? null);
+          return runs[0]?.state;
+        },
+        { timeout: 90_000 },
+      )
+      .toBe("accepted");
+  } catch (e) {
+    throw new Error(`run did not reach accepted: ${last}`, { cause: e });
+  }
   const write = page.getByRole("button", { name: "Zapsat" }).first();
   await expect(write).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Přijato").first()).toBeVisible();

@@ -26,6 +26,7 @@ from studio.config import DAILY_REQUEST_CAPS, Settings
 from studio.db import Database
 from studio.domain import AUTOPILOT, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
+from studio.launcher import LaunchError, OmniRouteLauncher
 from studio.memory import project_memory
 from studio.preferences import Defaults, Preferences
 from studio.probe import UnknownModel, probe_model
@@ -140,6 +141,11 @@ def create_app(
         AUTOPILOT: ApiLead(db, gw, router, lambda: settings.vault()),
     }
     prefs = Preferences(db)
+    launcher = OmniRouteLauncher(
+        settings.omniroute_url,
+        settings.data_dir,
+        lambda: bool(gw.health().get("reachable")),
+    )
     runner = Runner(db, gw, router, lead_map, settings.workspaces_dir, settings.vault)
     allowed_origins = {
         f"http://{settings.host}:{settings.port}",
@@ -171,7 +177,10 @@ def create_app(
     def health() -> dict[str, Any]:
         return {
             "version": __version__,
-            "gateway": gw.health(),
+            "gateway": {
+                **gw.health(),
+                "launchable": gateway is None and launcher.binary() is not None,
+            },
             "leads": {name: lead.available() for name, lead in lead_map.items()},
             "worker_models": router.candidates(),
             "lead_models": router.candidates("lead", "hard"),
@@ -181,6 +190,18 @@ def create_app(
             "api_calls_today": db.api_calls_since(_midnight_utc()),
             "providers_today": _providers_today(db.api_calls_by_model_since(_midnight_utc())),
         }
+
+    @app.post("/api/omniroute/start")
+    def start_omniroute() -> dict[str, object]:
+        """Run `omniroute serve` on Tomáš's click and wait until it answers."""
+        if gateway is not None:
+            raise HTTPException(409, "Studio uses a test gateway")
+        try:
+            result = launcher.start()
+        except LaunchError as exc:
+            raise HTTPException(409, str(exc)) from None
+        gw.models(fresh=True)
+        return result
 
     @app.post("/api/models/probe")
     def probe(body: ProbeBody) -> dict[str, Any]:

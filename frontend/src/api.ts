@@ -81,7 +81,7 @@ export interface ModelStats {
 export interface Health {
   version: string;
   /** `fake`: scripted test gateway (STUDIO_FAKE_GATEWAY=1), never a live model. */
-  gateway: { reachable: boolean; status?: number; error?: string; fake?: boolean };
+  gateway: { reachable: boolean; status?: number; error?: string; fake?: boolean; launchable?: boolean };
   leads: Partial<Record<AnyLead, { installed: boolean; path?: string | null }>>;
   worker_models: string[];
   lead_models: string[];
@@ -493,6 +493,7 @@ export const api = {
   createTask: (task: NewTask) => send<{ run_id: string }>("POST", "/api/tasks", task),
   runAction: (id: string, action: RunAction, body: ActionBody = {}) =>
     send<{ ok: boolean }>("POST", `${runPath(id)}/${action}`, body),
+  startOmniRoute: () => send<{ started: boolean; reachable: boolean }>("POST", "/api/omniroute/start", {}),
   probeModel: (model: string) => send<ProbeResult>("POST", "/api/models/probe", { model }),
   vault: () => request<VaultOverview>("/api/vault"),
   vaultProject: (note: string) => request<VaultProject>(`/api/vault/project?note=${encodeURIComponent(note)}`),

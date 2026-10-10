@@ -1,5 +1,29 @@
 # Status
 
+## v0.4 — everyday MVP (in progress 2026-10-10, branch `v0.4-mvp`, Claude Code)
+
+Built on Codex's `codex/v0.3.1-hardening` (387f7a8) after an independent review by Claude.
+
+- **Review findings on v0.3.1, fixed.**
+  - The `credential_assignment` secret pattern matched ordinary code (`password =
+    hash_password(raw)`, `api_key=settings.api_key`). Since v0.3.1 such a match stops a run with
+    no override, so Studio could not do any auth-related task. Now only literals count: quoted
+    values (without spaces or templates) and unquoted values that are not calls, indexes,
+    attribute paths or digit-free identifiers. The key may be part of a longer name
+    (`DB_PASSWORD`, `client_secret`), quoted (JSON) or annotated. Known gap: letter-only
+    unquoted literals (`password=mysecretpass`) are not detected.
+  - The reviewer excluded only the implementer's exact model ids. The same model behind
+    another provider (`cerebras/gpt-oss-120b` after `groq/openai/gpt-oss-120b`) was offered,
+    and the identity check then sent the run to `self_review`. This broke the E2E project run
+    every time. The exclusion now covers every catalog model with the same identity.
+  - Kept as designed: picking a project without a repo hint leaves the repo field empty, so a
+    run never starts in another project's repo.
+- **Spustit OmniRoute.** When the gateway URL is local and OmniRoute does not answer, the
+  status line offers "Spustit OmniRoute". `POST /api/omniroute/start` runs the fixed command
+  `omniroute serve --port <port> --no-open` (no shell; binary found only in absolute PATH
+  entries; Studio's `PORT` removed from its environment; no second start while the first one
+  boots) and waits up to 60 s. Log: `<data dir>/omniroute.log`. Verified live: up in ~15 s.
+
 ## v0.3.1 hardening (2026-10-09, `codex/v0.3.1-hardening`)
 
 - Vault content is loaded through one bounded 1 MiB loader and checked for secrets/private
