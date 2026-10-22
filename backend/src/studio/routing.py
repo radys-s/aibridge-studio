@@ -38,7 +38,7 @@ _DAILY = re.compile(
 _SETUP = re.compile(
     r"requires an Account ID|No active credentials|invalid api key|unauthorized", re.I
 )
-_TRANSIENT = re.compile(r"^5\d\d\b|empty|upstream|overloaded|temporarily", re.I)
+_TRANSIENT = re.compile(r"^5\d\d\b|empty|upstream|overloaded|temporarily|not reachable", re.I)
 # Rate limits and missing setup say nothing about the model's quality (ADR 0006).
 _CAPACITY = re.compile(r"^(429|401|403)\b")
 

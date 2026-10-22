@@ -74,9 +74,9 @@ def autopilot_spec(repo: Path, **kw: Any) -> TaskSpec:
     return make_spec(repo, orchestration=orch, **kw)
 
 
-def test_only_autopilot_leads_and_legacy_specs_load_as_autopilot(repo: Path) -> None:
+def test_autopilot_by_default_and_legacy_specs_load_as_autopilot(repo: Path) -> None:
     spec = TaskSpec(goal="přidej median", repo_path=str(repo))
-    assert spec.orchestration.mode == "autopilot" and spec.orchestration.primary == "autopilot"
+    assert spec.orchestration.primary == "autopilot" == spec.orchestration.takeover
     assert spec.orchestration.planners() == ["autopilot"]
     assert spec.orchestration.reviewers() == ["autopilot"]
     for legacy in (
@@ -85,16 +85,16 @@ def test_only_autopilot_leads_and_legacy_specs_load_as_autopilot(repo: Path) -> 
         {"mode": "duo", "plan": False},
     ):
         orch = Orchestration.model_validate(legacy)
-        assert orch.model_dump() == {
-            "mode": "autopilot",
-            "primary": "autopilot",
-            "plan": legacy.get("plan", True),
-        }
+        assert orch == Orchestration(plan=legacy.get("plan", True))
     old = TaskSpec.model_validate(
         {"goal": "xyz", "repo_path": ".", "planner": "claude", "reviewer": "codex"}
     )
-    assert old.orchestration.mode == "autopilot"
-    assert TaskSpec(goal="xyz", repo_path=".", implementer="codex").implementer == "autopilot"  # type: ignore[arg-type]
+    assert old.orchestration == Orchestration()
+    stored = {"goal": "xyz", "repo_path": ".", "implementer": "codex"}
+    assert TaskSpec.model_validate({**stored, "orchestration": {"mode": "duo"}}).implementer == (
+        "autopilot"
+    )
+    assert TaskSpec.model_validate(stored).implementer == "codex"  # ADR 0007: a valid choice
 
 
 def test_full_autopilot_run_reviews_on_a_different_model(tmp_path: Path, repo: Path) -> None:

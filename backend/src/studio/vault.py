@@ -36,7 +36,7 @@ class Layout:
     # Shared with models: these files/folders (prefixes), minus `exclude` and `exclude_words`.
     include: tuple[str, ...] = ("README.md", "index.md", "projects", "handoffs", "notes")
     exclude: tuple[str, ...] = ("private",)
-    exclude_words: tuple[str, ...] = ("private", "password", "secret")
+    exclude_words: tuple[str, ...] = ("private", "password", "secret", "recorder")
 
     @property
     def writable(self) -> tuple[str, str]:

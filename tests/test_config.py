@@ -60,5 +60,8 @@ def test_memory_folder_chosen_in_settings(tmp_path: Path) -> None:
         assert c.put("/api/vault/path", json={"path": "relative/x"}).status_code == 422
         body = c.put("/api/vault/path", json={"path": str(notes)}).json()
         assert body["available"] is True and body["projects"] == ["projects/Calc.md"]
-        assert c.get("/api/settings").json()["memory_path"] == str(notes)
+        assert c.get("/api/settings").json()["memory_path"] == str(notes.resolve())
+        # Not the home folder or a drive root: their README and notes/ would be shared.
+        for broad in (Path.home(), Path(notes.anchor)):
+            assert c.put("/api/vault/path", json={"path": str(broad)}).status_code == 422
         assert c.put("/api/vault/path", json={"path": None}).json()["available"] is False

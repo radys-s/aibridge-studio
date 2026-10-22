@@ -1,15 +1,19 @@
 import { Fragment, useEffect, useState } from "react";
-import { api, type Health, type ModelInfo, type ModelStats, type ProbeResult, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
+import { api, type AgentInfo, type AnyLead, type AgentRole, type Health, type ModelInfo, type ModelStats, type ProbeResult, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
 import {
   activeProviders,
-  asAutopilot,
   BLOCKED_LABELS,
+  gatewayState,
+  LEAD_LABELS,
+  leadsFor,
+  normalizeOrch,
   KEY_SOURCES,
   OMNIROUTE_PROVIDERS_URL,
   PRIVACY_LABELS,
   providerLabel,
 } from "../options";
 import { notificationsSupported } from "../notify";
+import { AgentsCard, MemoryFolder, ProvidersCard } from "./SettingsCards";
 
 interface Props {
   settings: SettingsSnapshot;
@@ -287,14 +291,21 @@ export function SettingsView({ settings, health, onSaved }: Props) {
   const [defaults, setDefaults] = useState(settings.defaults);
   const [status, setStatus] = useState<string | null>(null);
   const [vault, setVault] = useState<VaultOverview | null>(null);
+  // null until loaded: normalizing against an empty list would drop saved agent choices.
+  const [agents, setAgents] = useState<AgentInfo[] | null>(null);
 
   useEffect(() => {
     api.vault().then(setVault, () => setVault({ available: false, path: "" }));
+    api.agents().then(setAgents, () => setAgents(null));
   }, []);
+
+  const orch = agents ? normalizeOrch(defaults.orchestration, agents) : defaults.orchestration;
+  const setLead = (key: "primary" | "reviewer" | "takeover", lead: AnyLead) =>
+    setDefaults({ ...defaults, orchestration: normalizeOrch({ ...orch, [key]: lead }, agents ?? []) });
 
   async function save() {
     try {
-      onSaved(await api.saveSettings({ defaults: { ...defaults, orchestration: asAutopilot(defaults.orchestration) } }));
+      onSaved(await api.saveSettings({ defaults: { ...defaults, orchestration: orch } }));
       setStatus("Uloženo.");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
@@ -310,8 +321,8 @@ export function SettingsView({ settings, health, onSaved }: Props) {
       <section className="card">
         <h2>Modely</h2>
         <p className="hint">
-          Studio řídí jen Autopilot na free modelech, které netrénují na tvých datech. Claude ani Codex přes Studio
-          nejdou.
+          Výchozí je Autopilot na free modelech, které netrénují na tvých datech. Claude Code a Codex zapneš níže v
+          kartě Agenti.
         </p>
         {health ? <Models health={health} /> : <p className="muted">Načítám…</p>}
         <label className="check">
@@ -323,10 +334,24 @@ export function SettingsView({ settings, health, onSaved }: Props) {
               setDefaults({ ...defaults, orchestration: { ...defaults.orchestration, plan: e.target.checked } })
             }
           />
-          Před prací nechat Autopilota naplánovat postup
+          Před prací nechat naplánovat postup
         </label>
+        {agents?.some((a) => a.installed && Object.values(a.roles).some(Boolean)) && (
+          <div className="composer-options">
+            {(
+              [
+                ["primary", "plan", "Návrh a plán"],
+                ["reviewer", "review", "Review"],
+                ["takeover", "takeover", "Převzetí"],
+              ] as const
+            ).map(([key, role, label]) => (
+              <DefaultLead key={key} label={label} role={role} agents={agents ?? []} value={orch[key]}
+                onChange={(lead) => setLead(key, lead)} />
+            ))}
+          </div>
+        )}
         <div className="actions">
-          <button type="button" className="primary" onClick={() => void save()}>
+          <button type="button" className="primary" disabled={!agents} onClick={() => void save()}>
             Uložit
           </button>
           {status && <span className="small">{status}</span>}
@@ -334,16 +359,28 @@ export function SettingsView({ settings, health, onSaved }: Props) {
       </section>
 
       <section className="card">
-        <h2>Klíče</h2>
-        <KeySources health={health} />
+        <h2>Poskytovatelé</h2>
+        <ProvidersCard />
+        <details className="advanced">
+          <summary>Přes OmniRoute (volitelné)</summary>
+          <KeySources health={health} />
+        </details>
+      </section>
+
+      <section className="card">
+        <h2>Agenti</h2>
+        <AgentsCard onChanged={setAgents} />
       </section>
 
       <section className="card">
         <h2>Dnes</h2>
         <ul className="plain">
           <li>
-            OmniRoute:{" "}
-            {health?.gateway.reachable ? <span className="badge good">dostupný</span> : <span className="badge bad">nedostupný</span>}
+            {health ? (
+              <span className={`badge ${gatewayState(health).ok ? "good" : "bad"}`}>{gatewayState(health).text}</span>
+            ) : (
+              "Načítám…"
+            )}
           </li>
           {health && <Budget health={health} />}
           {cooling.map(([model, until]) => (
@@ -362,17 +399,23 @@ export function SettingsView({ settings, health, onSaved }: Props) {
 
       <section className="card">
         <h2>Paměť</h2>
+        <p className="hint">
+          Volitelná složka s poznámkami v Markdownu (třeba Obsidian vault). Studio z ní bere kontext projektu a po tvém
+          kliknutí do ní zapisuje. Bez složky se nic nesdílí.
+        </p>
+        <MemoryFolder vault={vault} onChanged={setVault} />
         {!vault ? (
           <p className="muted">Načítám…</p>
         ) : !vault.available ? (
-          <p className="alert warn">
-            Obsidian vault nenalezen{vault.path ? <> v <code>{vault.path}</code></> : ""}. Cestu nastavíš proměnnou{" "}
-            <code>STUDIO_VAULT</code>.
-          </p>
+          vault.path ? (
+            <p className="alert warn">
+              Složka <code>{vault.path}</code> neexistuje.
+            </p>
+          ) : null
         ) : (
           <>
             <p className="small">
-              Obsidian · {vault.projects?.length ?? 0} projektů · {vault.handoffs?.length ?? 0} otevřených předávek
+              {vault.projects?.length ?? 0} projektů · {vault.handoffs?.length ?? 0} otevřených předávek
             </p>
             <ul className="plain small">
               {(vault.folders ?? []).map((f) => (
@@ -387,12 +430,39 @@ export function SettingsView({ settings, health, onSaved }: Props) {
               <p className="hint">
                 Jen obsah ze sdílených složek, bez poznámek označených <code>private: true</code> nebo{" "}
                 <code>#osobni</code> a bez poznámek s tajnými údaji. E-maily a telefony se skrývají. Do paměti se
-                zapisuje jen po tvém kliknutí. Vault: <code>{vault.path}</code>
+                zapisuje jen po tvém kliknutí. Složka: <code>{vault.path}</code>
               </p>
             </details>
           </>
         )}
       </section>
     </div>
+  );
+}
+
+function DefaultLead({
+  label,
+  role,
+  agents,
+  value,
+  onChange,
+}: {
+  label: string;
+  role: AgentRole;
+  agents: AgentInfo[];
+  value: AnyLead;
+  onChange: (lead: AnyLead) => void;
+}) {
+  return (
+    <label className="chip-field">
+      <span>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value as AnyLead)}>
+        {leadsFor(role, agents).map((l) => (
+          <option key={l} value={l}>
+            {LEAD_LABELS[l]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

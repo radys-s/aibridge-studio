@@ -236,15 +236,19 @@ def good_script() -> list[dict[str, Any] | GatewayError]:
 @pytest.fixture
 def studio(tmp_path: Path):  # type: ignore[no-untyped-def]
     def build(
-        gateway: FakeGateway, reviews: list[Review], lead: FakeLead | None = None
+        gateway: FakeGateway,
+        reviews: list[Review],
+        lead: FakeLead | None = None,
+        extra: list[FakeLead] | None = None,
     ) -> tuple[Runner, Database, FakeLead]:
-        """Autopilot is a scripted FakeLead here; the worker runs on the FakeGateway."""
+        """Autopilot is a scripted FakeLead here; the worker runs on the FakeGateway.
+
+        `extra` adds stand-ins for the CLI leads (claude, codex) under their names."""
         db = Database(tmp_path / "data" / "studio.sqlite")
         autopilot = lead or FakeLead("autopilot")
         autopilot.reviews = list(reviews)
-        runner = Runner(
-            db, gateway, ModelRouter(db, MODELS), {"autopilot": autopilot}, tmp_path / "data" / "ws"
-        )
+        leads = {"autopilot": autopilot, **{x.name: x for x in extra or []}}
+        runner = Runner(db, gateway, ModelRouter(db, MODELS), leads, tmp_path / "data" / "ws")
         return runner, db, autopilot
 
     return build

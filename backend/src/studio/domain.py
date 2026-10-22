@@ -31,13 +31,22 @@ ACTIVE_STATES = frozenset(
 )
 TERMINAL_STATES = frozenset({RunState.ACCEPTED, RunState.ABANDONED})
 
-# Studio's own orchestrator on free models (ADR 0003). Claude and Codex are never routed
-# through Autopilot; Claude Code and Codex are separate, optional leads.
+# Studio's own orchestrator on free models (ADR 0003), the default for every role.
 AUTOPILOT: Literal["autopilot"] = "autopilot"
-AnyLead = Literal["autopilot"]
-# Run history from before ADR 0004 still names these as authors and implementers.
-LEGACY_LEADS = ("claude", "codex")
-Implementer = Literal["auto", "worker", "freebuff", "autopilot"]
+# Claude Code and Codex: optional leads on the user's own login (ADR 0007), off by default.
+CliLead = Literal["claude", "codex"]
+CLI_LEADS: tuple[CliLead, CliLead] = ("claude", "codex")
+AnyLead = Literal["autopilot", "claude", "codex"]
+# What a CLI lead may be used for; each role is switched on per agent in Settings.
+AgentRole = Literal["plan", "review", "takeover"]
+AGENT_ROLES: tuple[AgentRole, ...] = ("plan", "review", "takeover")
+Effort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+# Values each CLI accepts (`claude --help`, Codex API error for an invalid effort).
+EFFORTS: dict[str, tuple[str, ...]] = {
+    "claude": ("low", "medium", "high", "xhigh", "max"),
+    "codex": ("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+}
+Implementer = Literal["auto", "worker", "freebuff", "autopilot", "claude", "codex"]
 Escalation = Literal["off", "ask", "auto"]
 
 
@@ -66,29 +75,74 @@ class Budget(BaseModel):
     max_escalations: int = Field(1, ge=0, le=3)
 
 
-class Orchestration(BaseModel):
-    """Who leads: always Autopilot (ADR 0004). `plan` says whether a plan step runs.
+class LeadConfig(BaseModel):
+    """Model and effort for one lead CLI. None = the CLI's own default."""
 
-    Specs stored before ADR 0004 (modes claude/codex/cross/duo, second opinions, CLI
-    model and effort) load as Autopilot; their other fields are dropped.
+    model: str | None = Field(None, max_length=100, pattern=r"^[A-Za-z0-9._:/\[\]-]+$")
+    effort: Effort | None = None
+
+
+class Orchestration(BaseModel):
+    """Who does what. Autopilot by default; Claude Code / Codex only where the user chose.
+
+    primary: drafts the task and writes the plan (`plan` says whether a plan step runs).
+    reviewer: reviews the diff. Never the agent that implemented it.
+    takeover: implements when the cheap worker is not enough (escalation, manual takeover).
+
+    Specs stored before ADR 0004 (`mode` cross/duo, second opinions) load as Autopilot.
     """
 
-    mode: Literal["autopilot"] = "autopilot"
-    primary: AnyLead = "autopilot"
+    primary: AnyLead = AUTOPILOT
+    reviewer: AnyLead = AUTOPILOT
+    takeover: AnyLead = AUTOPILOT
     plan: bool = True
+    claude: LeadConfig = Field(default_factory=lambda: LeadConfig())
+    codex: LeadConfig = Field(default_factory=lambda: LeadConfig())
 
     @model_validator(mode="before")
     @classmethod
     def _legacy(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            return {"plan": bool(data.get("plan", True))}
+        if isinstance(data, dict) and "mode" in data:
+            if data["mode"] != AUTOPILOT:
+                return {"plan": bool(data.get("plan", True))}
+            return {k: v for k, v in data.items() if k not in ("mode", "second_opinion")}
         return data
 
+    @model_validator(mode="after")
+    def _check(self) -> Orchestration:
+        for name in CLI_LEADS:
+            effort = self.config(name).effort
+            if effort and effort not in EFFORTS[name]:
+                raise ValueError(f"{name} does not support effort {effort!r}")
+        if self.takeover in CLI_LEADS and self.takeover == self.reviewer:
+            raise ValueError(f"{self.takeover} cannot review its own takeover")
+        return self
+
+    def config(self, name: str) -> LeadConfig:
+        if name == "claude":
+            return self.claude
+        if name == "codex":
+            return self.codex
+        return LeadConfig()
+
     def planners(self) -> list[AnyLead]:
-        return [AUTOPILOT] if self.plan else []
+        return [self.primary] if self.plan else []
 
     def reviewers(self) -> list[AnyLead]:
-        return [AUTOPILOT]
+        return [self.reviewer]
+
+    def agent_roles(self, implementer: str) -> set[tuple[str, AgentRole]]:
+        """(CLI lead, role) pairs this orchestration may use; each must be switched on."""
+        used: set[tuple[str, AgentRole]] = set()
+        if self.primary in CLI_LEADS:
+            used.add((self.primary, "plan"))
+        if self.reviewer in CLI_LEADS:
+            used.add((self.reviewer, "review"))
+        if self.takeover in CLI_LEADS:
+            used.add((self.takeover, "takeover"))
+        if implementer in CLI_LEADS:
+            used.add((implementer, "takeover"))
+        return used
 
 
 class Message(BaseModel):
@@ -116,8 +170,9 @@ class TaskSpec(BaseModel):
     orchestration: Orchestration = Field(default_factory=lambda: Orchestration())
     implementer: Implementer = Field(
         "auto",
-        description="auto = cheap worker, escalated by policy; worker = tool loop via "
-        "OmniRoute; freebuff = the user runs Freebuff by hand; autopilot = lead implements",
+        description="auto = cheap worker, escalated by policy; worker = tool loop on a "
+        "free model; freebuff = the user runs Freebuff by hand; autopilot/claude/codex = that "
+        "lead implements",
     )
     escalation: Escalation = "ask"
     auto_approve: bool = Field(False, description="skip approval of a draft without questions")
@@ -132,8 +187,8 @@ class TaskSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _legacy(cls, data: Any) -> Any:
-        """Older specs: Phase 1 planner/reviewer and implementer=external; before ADR 0004
-        claude/codex implementers. All of them continue as Autopilot runs."""
+        """Older specs: Phase 1 planner/reviewer and implementer=external; specs from before
+        ADR 0004 (orchestration `mode`) with claude/codex implementers continue as Autopilot."""
         if not isinstance(data, dict):
             return data
         data = dict(data)
@@ -142,7 +197,8 @@ class TaskSpec(BaseModel):
         data.pop("external_agent", None)
         if data.get("implementer") == "external":
             data["implementer"] = "freebuff"
-        if data.get("implementer") in LEGACY_LEADS:
+        orch = data.get("orchestration")
+        if isinstance(orch, dict) and "mode" in orch and data.get("implementer") in CLI_LEADS:
             data["implementer"] = AUTOPILOT
         if planner == "none" and "orchestration" not in data:
             data["orchestration"] = {"plan": False}
@@ -162,6 +218,9 @@ class TaskSpec(BaseModel):
     def _title(self) -> TaskSpec:
         if not self.title.strip():
             self.title = self.goal.strip().splitlines()[0][:80]
+        reviewer = self.orchestration.reviewer
+        if self.implementer in CLI_LEADS and self.implementer == reviewer:
+            raise ValueError(f"{reviewer} cannot review its own implementation")
         return self
 
     def missing(self) -> list[str]:

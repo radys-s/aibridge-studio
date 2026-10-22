@@ -125,6 +125,14 @@ def test_local_ollama_is_on_by_default_and_joins_the_catalog(rec: Recorder, tmp_
     assert router.candidates("lead") == ["ollama/qwen3:8b"]
 
 
+def test_stopped_local_ollama_does_not_count_as_a_working_provider(rec: Recorder) -> None:
+    gw = DirectGateway(providers({}))
+    assert gw.reachable_names() == [] and gw.health() == {"reachable": False}
+    rec.models["http://127.0.0.1:11434"] = ["qwen3:8b"]
+    assert gw.models(fresh=True) == {"ollama/qwen3:8b"}
+    assert gw.reachable_names() == ["ollama"] and gw.health() == {"reachable": True}
+
+
 def test_unreachable_direct_provider_cools_like_a_provider_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -137,19 +145,66 @@ def test_unreachable_direct_provider_cools_like_a_provider_error(
     assert err.value.kind == "provider_error"
 
 
+def toml(tmp_path: Path, text: str) -> Path:
+    (tmp_path / "providers.toml").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
 def test_providers_toml_adds_providers_but_never_keys(tmp_path: Path) -> None:
-    (tmp_path / "providers.toml").write_text(
-        '[providers.lab]\nbase_url = "http://10.0.0.5:8000/v1"\nmodels = ["coder"]\n'
-        'privacy = "no_train"\nenabled = true\n',
-        encoding="utf-8",
+    ps = load_providers(
+        toml(
+            tmp_path,
+            '[providers.lab]\nbase_url = "https://lab.example/v1"\nmodels = ["coder"]\n'
+            'privacy = "no_train"\nenabled = true\n'
+            '[providers.box]\nbase_url = "http://127.0.0.1:8080/v1"\nenabled = true\n',
+        )
     )
-    ps = load_providers(tmp_path)
     assert ps.get("lab/coder") is not None and ps.providers["lab"].keyless
-    (tmp_path / "providers.toml").write_text(
-        '[providers.lab]\nbase_url = "http://x/v1"\napi_key = "sk-123"\n', encoding="utf-8"
-    )
-    with pytest.raises(SystemExit, match="api_key_env"):
-        load_providers(tmp_path)
+    assert not ps.providers["lab"].local and ps.providers["box"].local
+    for bad, match in (
+        ('[providers.lab]\nbase_url = "https://x/v1"\napi_key = "sk-123"\n', "api_key_env"),
+        ('[providers.lab]\nbase_url = "http://10.0.0.5/v1"\n', "https"),
+        ('[providers.lab]\nbase_url = ""\n', "https"),
+        ('[providers.lab]\nbase_url = "https://x/v1"\nprivacy = "great"\n', "privacy"),
+        # A shared config must not send a preset's key (or "local" trust) elsewhere.
+        ('[providers.groq]\nbase_url = "https://evil.example/v1"\n', "built-in"),
+        ('[providers.ollama]\nbase_url = "https://evil.example/v1"\n', "built-in"),
+    ):
+        with pytest.raises(SystemExit, match=match):
+            load_providers(toml(tmp_path, bad))
+
+
+def test_preset_overrides_keep_url_key_and_keyless(tmp_path: Path) -> None:
+    ps = load_providers(toml(tmp_path, '[providers.groq]\nenabled = true\nmodels = ["m1"]\n'))
+    groq = ps.providers["groq"]
+    assert groq.base_url == "https://api.groq.com/openai/v1" and not groq.keyless
+    ps.env = env({})
+    assert not ps.active(groq)  # switched on, but still needs its key
+
+
+def test_failed_model_listing_retries_soon_and_keeps_last_list(
+    rec: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [1000.0]
+    monkeypatch.setattr("studio.gateway.time.monotonic", lambda: clock[0])
+    gw = DirectGateway(providers({"GROQ_API_KEY": KEY}))
+    assert gw.models() == {"groq/openai/gpt-oss-120b"}
+    rec.models.clear()  # provider down from now on
+    clock[0] += 61
+    assert gw.models() == {"groq/openai/gpt-oss-120b"}  # short outage: last good list
+    stamp = gw._models["groq"][0]
+    assert clock[0] - stamp >= 45  # asks again in ~15 s, not after another minute
+    clock[0] += 16
+    gw.models()
+    assert gw._models["groq"][0] < clock[0] - 44  # still failing: stays due for retry
+
+
+def test_enabling_swaps_the_set_instead_of_mutating_it() -> None:
+    ps = providers({})
+    before = ps.enabled
+    assert ps.set_enabled("ovh", True) == ["ovh"]
+    assert before == set() and ps.enabled is not before
+    assert ps.set_enabled("ovh", False) == []
 
 
 def test_key_values_never_reach_the_api(
@@ -175,3 +230,28 @@ def test_key_values_never_reach_the_api(
         assert c.put("/api/providers/ollama", json={"key": "x"}).status_code == 422
         assert KEY not in str(c.get("/api/health").json())
     assert KEY.encode() not in (tmp_path / "studio.sqlite").read_bytes()
+
+
+def test_a_custom_provider_cannot_borrow_a_built_in_key(tmp_path: Path) -> None:
+    (tmp_path / "providers.toml").write_text(
+        '[providers.evil]\nbase_url = "https://evil.example/v1"\napi_key_env = "GROQ_API_KEY"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="belongs to a built-in provider"):
+        load_providers(tmp_path)
+
+
+def test_local_provider_with_a_fixed_list_still_has_to_answer(
+    rec: Recorder, tmp_path: Path
+) -> None:
+    (tmp_path / "providers.toml").write_text(
+        '[providers.box]\nbase_url = "http://127.0.0.1:8080/v1"\nmodels = ["m"]\n',
+        encoding="utf-8",
+    )
+    ps = load_providers(tmp_path)
+    assert ps.providers["box"].privacy == "unknown"  # loopback is not proof of no training
+    ps.set_enabled("box", True)
+    gw = DirectGateway(ps)
+    assert "box" not in gw.reachable_names()
+    rec.models["http://127.0.0.1:8080"] = ["whatever"]
+    assert gw.models(fresh=True) >= {"box/m"} and "box" in gw.reachable_names()

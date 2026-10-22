@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from studio.db import Database
-from studio.domain import Escalation, Implementer, Orchestration
+from studio.domain import AGENT_ROLES, CLI_LEADS, Escalation, Implementer, Orchestration
 
 
 class Defaults(BaseModel):
@@ -28,10 +28,10 @@ class Preferences:
         raw = self.db.setting("defaults")
         if not raw:
             return Defaults()
-        raw = dict(raw)
-        if raw.get("implementer") in ("claude", "codex"):  # stored before ADR 0004
-            raw["implementer"] = "auto"
-        return Defaults.model_validate(raw)
+        try:
+            return Defaults.model_validate(raw)
+        except ValidationError:  # saved by an older version with other rules
+            return Defaults()
 
     def save(self, defaults: Defaults) -> None:
         self.db.set_setting("defaults", defaults.model_dump(mode="json"))
@@ -62,6 +62,20 @@ class Preferences:
 
     def remember_enabled_providers(self, names: list[str]) -> None:
         self.db.set_setting("enabled_providers", names)
+
+    def agents(self) -> dict[str, dict[str, bool]]:
+        """Which roles each CLI lead may take. Everything is off until the user turns it on."""
+        stored = self.db.setting("agents") or {}
+        return {
+            name: {role: bool((stored.get(name) or {}).get(role)) for role in AGENT_ROLES}
+            for name in CLI_LEADS
+        }
+
+    def remember_agent(self, name: str, roles: dict[str, bool]) -> dict[str, dict[str, bool]]:
+        agents = self.agents()
+        agents[name].update({r: bool(v) for r, v in roles.items() if r in AGENT_ROLES})
+        self.db.set_setting("agents", agents)
+        return agents
 
     def snapshot(self) -> dict[str, Any]:
         return {

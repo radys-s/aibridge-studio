@@ -1410,3 +1410,46 @@ td.probe .badge {
   gap: 0.5rem 1rem;
   margin-top: 1rem;
 }
+
+/* Settings: direct providers, agents, memory folder */
+.key-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.key-form input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.provider-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agents li {
+  padding: 6px 0;
+}
+.agent-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+}
+@media (max-width: 480px) {
+  table.providers,
+  table.providers tbody,
+  table.providers tr,
+  table.providers td {
+    display: block;
+    width: 100%;
+  }
+  table.providers td {
+    border: 0;
+    padding: 2px 0;
+  }
+  table.providers tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

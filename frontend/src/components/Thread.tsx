@@ -20,7 +20,7 @@ import {
   type WorkOutput,
 } from "../api";
 import { absoluteTime, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
-import { actorLabel, describe, lines } from "../options";
+import { actorLabel, describe, LEAD_LABELS, lines } from "../options";
 import { actorLead, buildThread, latestDraftId, progress, type StageState } from "../thread";
 import { CopyButton, ExitBadge, latestOutput, List } from "./bits";
 import { StateBadge } from "./StateBadge";
@@ -198,7 +198,7 @@ function MemoryBody({ out, act, latest }: { out: MemoryOutput; act: Act; latest:
         {out.author === "studio"
           ? "Model návrh nedodal, Studio ho sestavilo z ověřených faktů běhu. "
           : "Návrh od Autopilota. "}
-        Zapíše se do Obsidianu až po kliknutí, jen připojením na konec poznámky nebo jako nová předávka. Nic se
+        Zapíše se do paměťové složky až po kliknutí, jen připojením na konec poznámky nebo jako nová předávka. Nic se
         nepřepisuje.
       </p>
       {proposals.map((p, i) => (
@@ -457,12 +457,13 @@ function files(n: number): string {
   return `${n} ${n === 1 ? "soubor" : n >= 2 && n <= 4 ? "soubory" : "souborů"}`;
 }
 
-/** Takeover: Autopilot (a stronger free model) writes the code itself. Claude/Codex are not
- * offered (ADR 0004). */
-function TakeoverButton({ act, note }: { act: Act; note: string }) {
+/** Takeover: the run's takeover agent writes the code itself (Autopilot by default; Claude Code
+ * or Codex when the task chose one, ADR 0007). */
+function TakeoverButton({ run, act, note }: { run: RunDetail["run"]; act: Act; note: string }) {
+  const lead = run.spec.orchestration.takeover ?? AUTOPILOT;
   return (
-    <button type="button" onClick={() => void act("takeover", { lead: AUTOPILOT, note })}>
-      Předat silnějšímu modelu
+    <button type="button" onClick={() => void act("takeover", { lead, note })}>
+      {lead === AUTOPILOT ? "Předat silnějšímu modelu" : `Předat: ${LEAD_LABELS[lead]}`}
     </button>
   );
 }
@@ -583,7 +584,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
         <button type="button" className="primary" onClick={() => void act("resume")}>
           Pokračovat
         </button>
-        {implementable && <TakeoverButton act={act} note={note} />}
+        {implementable && <TakeoverButton run={run} act={act} note={note} />}
         {abandon}
       </div>
     );
@@ -622,7 +623,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
     case "takeover":
       buttons = (
         <>
-          <TakeoverButton act={act} note={note} />
+          <TakeoverButton run={run} act={act} note={note} />
           {run.phase === "work" && <button type="button" onClick={() => void act("keep-worker")}>Ponechat levný model</button>}
         </>
       );
@@ -672,7 +673,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
               Vrátit k opravě
             </button>
           )}
-          {implementable && <TakeoverButton act={act} note={note} />}
+          {implementable && <TakeoverButton run={run} act={act} note={note} />}
         </>
       );
   }

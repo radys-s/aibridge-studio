@@ -1,11 +1,16 @@
 // Typed client for the AI Bridge Studio backend (FastAPI).
 // All requests use relative /api/... paths; every mutating request carries X-Studio: 1 (CSRF).
 
-/** Autopilot: Studio's own orchestrator on free, private models through OmniRoute (ADR 0004). */
-export type AnyLead = "autopilot";
+/** Autopilot: Studio's own orchestrator on free, private models (the default for every role).
+ * Claude Code and Codex: optional leads on the user's own login, per role (ADR 0007). */
+export type CliLead = "claude" | "codex";
+export type AnyLead = "autopilot" | CliLead;
 export const AUTOPILOT = "autopilot" as const;
-export type Mode = "autopilot";
-export type Implementer = "auto" | "worker" | "freebuff" | "autopilot";
+export const CLI_LEADS: CliLead[] = ["claude", "codex"];
+/** Run list: the lead that drafts and plans. */
+export type Mode = AnyLead;
+export type Implementer = "auto" | "worker" | "freebuff" | AnyLead;
+export type AgentRole = "plan" | "review" | "takeover";
 export type Escalation = "off" | "ask" | "auto";
 
 export interface Budget {
@@ -19,10 +24,44 @@ export interface Budget {
   max_escalations: number;
 }
 
+export interface LeadConfig {
+  model?: string | null;
+  effort?: string | null;
+}
+
+/** primary drafts and plans, reviewer reviews (never the implementer), takeover implements
+ * when the cheap worker is not enough. */
 export interface Orchestration {
-  mode: Mode;
   primary: AnyLead;
+  reviewer: AnyLead;
+  takeover: AnyLead;
   plan: boolean;
+  claude?: LeadConfig;
+  codex?: LeadConfig;
+}
+
+/** GET /api/agents: a CLI lead, whether it is installed, and the roles the user enabled. */
+export interface AgentInfo {
+  name: CliLead;
+  installed: boolean;
+  version: string | null;
+  roles: Record<AgentRole, boolean>;
+}
+
+/** GET /api/providers: a direct OpenAI-compatible provider. Never carries a key value. */
+export interface ProviderInfo {
+  name: string;
+  label: string;
+  active: boolean;
+  has_key: boolean;
+  keyless: boolean;
+  key_env: string | null;
+  missing_env: string[];
+  privacy: Privacy;
+  local: boolean;
+  /** Local providers only: whether it answers right now. */
+  running?: boolean;
+  signup: string;
 }
 
 export interface TaskSpec {
@@ -81,7 +120,17 @@ export interface ModelStats {
 export interface Health {
   version: string;
   /** `fake`: scripted test gateway (STUDIO_FAKE_GATEWAY=1), never a live model. */
-  gateway: { reachable: boolean; status?: number; error?: string; fake?: boolean; launchable?: boolean };
+  gateway: {
+    reachable: boolean;
+    status?: number;
+    error?: string;
+    fake?: boolean;
+    launchable?: boolean;
+    /** OmniRoute itself; `reachable` above is true when OmniRoute or a direct provider works. */
+    omniroute?: { reachable: boolean; status?: number; error?: string };
+    /** Direct providers in use (keys present or switched on). */
+    direct?: string[];
+  };
   leads: Partial<Record<AnyLead, { installed: boolean; path?: string | null }>>;
   worker_models: string[];
   lead_models: string[];
@@ -113,6 +162,8 @@ export interface SettingsSnapshot {
   recent_repos: string[];
   /** Vault project note of the last task, for one-click resume. */
   last_project: string | null;
+  /** Memory folder chosen in Settings (null: config.toml / STUDIO_VAULT or none). */
+  memory_path?: string | null;
 }
 
 export type RunState =
@@ -525,6 +576,13 @@ export const api = {
   startOmniRoute: () => send<{ started: boolean; reachable: boolean }>("POST", "/api/omniroute/start", {}),
   probeModel: (model: string) => send<ProbeResult>("POST", "/api/models/probe", { model }),
   vault: () => request<VaultOverview>("/api/vault"),
+  setMemoryPath: (path: string | null) => send<VaultOverview>("PUT", "/api/vault/path", { path }),
+  agents: () => request<AgentInfo[]>("/api/agents"),
+  setAgent: (name: CliLead, roles: Partial<Record<AgentRole, boolean>>) =>
+    send<AgentInfo[]>("PUT", `/api/agents/${name}`, roles),
+  providers: () => request<ProviderInfo[]>("/api/providers"),
+  setProvider: (name: string, body: { enabled?: boolean; key?: string }) =>
+    send<ProviderInfo[]>("PUT", `/api/providers/${encodeURIComponent(name)}`, body),
   vaultProject: (note: string) => request<VaultProject>(`/api/vault/project?note=${encodeURIComponent(note)}`),
   streamUrl: (id: string, cursors: { events: number; agent: number; messages: number }) =>
     `${runPath(id)}/stream?events=${cursors.events}&agent=${cursors.agent}&messages=${cursors.messages}`,

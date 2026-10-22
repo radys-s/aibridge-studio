@@ -39,9 +39,10 @@ from studio.apply import ApplyError, apply_run
 from studio.db import AUTO_APPROVED, Database
 from studio.domain import (
     AUTOPILOT,
-    LEGACY_LEADS,
+    CLI_LEADS,
     Draft,
     ImplementReport,
+    LeadConfig,
     MemoryProposal,
     Message,
     Plan,
@@ -57,6 +58,7 @@ from studio.sandbox import (
     SENSITIVE_OUTPUT,
     Denied,
     Sandbox,
+    in_scope,
     safe_text,
     safe_value,
     secret_findings,
@@ -76,6 +78,8 @@ PHASE_STATE = {
     "review": RunState.REVIEWING,
 }
 EXTERNAL_AGENT = "freebuff"
+# The Settings role a CLI lead needs for each kind of step (ADR 0007).
+AGENT_ROLE_OF_STEP = {"draft": "plan", "plan": "plan", "review": "review", "work": "takeover"}
 # Worker outcomes that mean "the cheap path cannot do this", not "it did something partial".
 ESCALATE_WORKER = frozenset({"no_model", "gateway_down", "error", "budget"})
 # Autopilot uses the same gateway and budget as the worker: it cannot fix these.
@@ -96,8 +100,11 @@ class Runner:
         leads: dict[str, Lead],
         workspaces_dir: Path,
         vault: Callable[[], Vault | None] = lambda: None,
+        agent_enabled: Callable[[str, str], bool] = lambda _name, _role: True,
     ) -> None:
         self.vault = vault
+        # Whether the user still allows a CLI lead in a role (Settings can change mid-run).
+        self.agent_enabled = agent_enabled
         self._vault_lock = threading.Lock()  # one proposal read-modify-write at a time
         self.db = db
         self.gateway = gateway
@@ -225,16 +232,18 @@ class Runner:
         self.db.event(run_id, "decision", "Uživatel schválil zadání")
 
     def takeover(self, run_id: str, lead: str | None = None, note: str = "") -> None:
-        """Autopilot implements from the next iteration on (manual escalation)."""
+        """A strong lead implements from the next iteration on (manual escalation)."""
         run = self._require(run_id)
         if run["state"] not in (RunState.NEEDS_DECISION, RunState.INTERRUPTED):
             raise ValueError("takeover is possible only when the run is stopped")
         if not run["workspace"] or run["phase"] in ("setup", "draft", "approve"):
             raise ValueError("the task is not ready for implementation yet")
         spec = TaskSpec.model_validate_json(run["spec_json"])
-        name = lead or spec.orchestration.primary
-        if name != AUTOPILOT or name not in self.leads:
-            raise ValueError(f"unknown lead {name}; Studio routes only through Autopilot")
+        name = lead or spec.orchestration.takeover
+        if name not in (AUTOPILOT, *CLI_LEADS) or name not in self.leads:
+            raise ValueError(f"unknown lead {name}")
+        if name in CLI_LEADS and name == spec.orchestration.reviewer:
+            raise ValueError(f"{name} reviews this task, so it cannot also implement it")
         feedback = json.loads(run["feedback_json"] or "[]")
         if note.strip():
             feedback.append(f"- Note from the user: {note.strip()}")
@@ -516,8 +525,8 @@ class Runner:
     ) -> tuple[int, T | LeadError]:
         """One lead call as one step. Cancel raises Stopped; other failures are returned.
 
-        Autopilot (`records_calls`) records each of its gateway calls itself, against the
-        run's API budget; any other lead (test doubles) is recorded here as one call.
+        CLI leads are recorded here as one subscription call; Autopilot (`records_calls`)
+        records each of its gateway calls itself, against the run's API budget.
         """
         run_id = run["id"]
         step = self.db.start_step(run_id, kind, run["iteration"], actor or name)
@@ -532,7 +541,16 @@ class Runner:
             error = LeadError(f"lead {name} is not configured in this Studio", "not_installed")
             self.db.finish_step(step, "failed", error=str(error))
             return step, error
+        role = AGENT_ROLE_OF_STEP.get(kind)
+        if name in CLI_LEADS and (role is None or not self.agent_enabled(name, role)):
+            error = LeadError(
+                f"{name} is switched off for {role or kind} in Settings", "not_installed"
+            )
+            self.db.finish_step(step, "failed", error=str(error))
+            return step, error
+        config = spec.orchestration.config(name)
         ctx = CallContext(
+            config=config,
             timeout_s=spec.budget.agent_timeout_s,
             should_stop=lambda: self._should_stop(run_id),
             on_event=lambda e: self.db.agent_event(run_id, step, name, e.kind, e.text, e.data),
@@ -555,7 +573,7 @@ class Runner:
         except LeadError as exc:
             result = exc
         if not getattr(lead, "records_calls", False):
-            self._record_lead_call(run_id, step, kind, name, ctx, result, started)
+            self._record_lead_call(run_id, step, kind, name, config, ctx, result, started)
         if isinstance(result, LeadError):
             if result.kind == "cancelled":
                 self.db.finish_step(step, "interrupted", error=str(result))
@@ -571,20 +589,27 @@ class Runner:
         step: int,
         kind: str,
         name: str,
+        config: LeadConfig,
         ctx: CallContext,
         result: object,
         started: float,
     ) -> None:
+        cli = name in CLI_LEADS
         self.db.record_model_call(
             run_id=run_id,
             step_id=step,
             role=kind,
-            requested_model=name,
+            requested_model=f"{name}:{config.model or 'default'}"
+            + (f"@{config.effort}" if config.effort else "")
+            if cli
+            else name,
             actual_model=ctx.usage.actual_model,
-            provider=name,
+            provider=f"{name} CLI (own login)" if cli else name,
             tokens_in=ctx.usage.tokens_in,
             tokens_out=ctx.usage.tokens_out,
-            cost_usd=ctx.usage.cost_usd,
+            # The CLI's figure is what the call would cost on the API; the user pays a
+            # subscription, so it must not count against the run's API budget.
+            cost_usd=0.0 if cli else ctx.usage.cost_usd,
             billing="subscription",
             outcome="ok" if not isinstance(result, LeadError) else result.kind,
             error=str(result)[:500] if isinstance(result, LeadError) else None,
@@ -802,7 +827,7 @@ class Runner:
         if spec.implementer != "auto":
             return spec.implementer
         if plan and plan.recommended_implementer == "strong_agent":
-            lead = spec.orchestration.primary
+            lead = spec.orchestration.takeover
             if spec.escalation == "auto":
                 self.db.update_run(run["id"], implementer=lead)
                 self.db.event(run["id"], "escalation", f"Plán doporučuje silného agenta: {lead}")
@@ -838,12 +863,12 @@ class Runner:
         if who == "ask":
             return self._needs_decision(
                 run_id,
-                f"plan recommends a strong agent; hand over to {spec.orchestration.primary}?",
+                f"plan recommends a strong agent; hand over to {spec.orchestration.takeover}?",
                 "takeover",
             )
         if who == "freebuff":
             return self._handoff(run, spec, plan, feedback)
-        if who == AUTOPILOT or who in LEGACY_LEADS:  # legacy names fail as not configured
+        if who == AUTOPILOT or who in CLI_LEADS:
             return self._lead_work(run, spec, who, plan, feedback)
         return self._worker_work(run, spec, plan, feedback)
 
@@ -873,6 +898,17 @@ class Runner:
         workspace.commit_all(root, f"studio: {name} iteration {run['iteration']}")
         if isinstance(result, LeadError):
             return self._needs_decision(run_id, f"implementation by {name} failed: {result}")
+        # The CLI edits files itself, outside Studio's sandbox: check the scope afterwards.
+        outside = [
+            f
+            for f in workspace.changed_files(root, run["iteration_base"])
+            if spec.allowed_paths and not in_scope(f, spec.allowed_paths)
+        ]
+        if outside:
+            return self._needs_decision(
+                run_id,
+                f"{name} changed files outside the task scope: {', '.join(outside[:10])}",
+            )
         self.db.update_run(run_id, phase="verify")
         return "next"
 
@@ -912,7 +948,7 @@ class Runner:
                 self.db.update_run(run_id, phase="verify")
                 return "next"
             why = f"worker stopped: {outcome.status} {outcome.detail}".strip()
-            if spec.orchestration.primary == AUTOPILOT and outcome.status in SHARED_POOL_FAILURES:
+            if spec.orchestration.takeover == AUTOPILOT and outcome.status in SHARED_POOL_FAILURES:
                 return self._needs_decision(run_id, why + " (Autopilot shares this pool)")
             if outcome.status in ESCALATE_WORKER:
                 return self._escalate_or_decide(run, spec, why, feedback, same_iteration=True)
@@ -935,7 +971,7 @@ class Runner:
         current = fresh["implementer"] or (
             "worker" if spec.implementer == "auto" else spec.implementer
         )
-        lead = spec.orchestration.primary
+        lead = spec.orchestration.takeover
         can = (
             spec.implementer in ("auto", "worker")
             and current == "worker"
@@ -1083,10 +1119,15 @@ class Runner:
             if steps:
                 review_step = steps[-1]
                 review_models = self._step_models(run_id, review_step["id"])
-                independent = (
-                    bool(exclude and review_models and not review_models & exclude)
-                    and name not in dependent
-                )
+                if name in CLI_LEADS:
+                    # A CLI lead is its own vendor; independence is a different agent and
+                    # different actual models (checked below).
+                    distinct = name != impl_name
+                elif impl_name in CLI_LEADS:
+                    distinct = bool(review_models)
+                else:
+                    distinct = bool(exclude and review_models and not review_models & exclude)
+                independent = distinct and name not in dependent
                 actual_work = self._step_actual_models(run_id, work["id"]) if work else frozenset()
                 actual_review = self._step_actual_models(run_id, review_step["id"])
                 if not actual_work or not actual_review or actual_review & actual_work:

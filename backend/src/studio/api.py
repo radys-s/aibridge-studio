@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -21,10 +21,10 @@ from pydantic import BaseModel, Field
 
 from studio import __version__
 from studio.agents.api_lead import ApiLead
-from studio.agents.leads import Lead
+from studio.agents.leads import ClaudeLead, CodexLead, Lead, cli_version
 from studio.config import DAILY_REQUEST_CAPS, Settings
 from studio.db import Database
-from studio.domain import AUTOPILOT, TaskSpec
+from studio.domain import AUTOPILOT, CLI_LEADS, AnyLead, TaskSpec
 from studio.gateway import ChatGateway, DirectGateway, OmniRouteGateway, RoutedGateway
 from studio.launcher import LaunchError, OmniRouteLauncher
 from studio.memory import project_memory
@@ -61,9 +61,15 @@ ACTIONS = (
 class ActionBody(BaseModel):
     note: str = Field("", max_length=20_000)
     text: str = Field("", max_length=20_000)
-    lead: Literal["autopilot"] | None = None  # Studio never routes to Claude/Codex
+    lead: AnyLead | None = None  # takeover: who implements (Claude/Codex only if enabled)
     edits: dict[str, Any] | None = None
     index: int | None = None  # which memory proposal (vault-write / vault-discard)
+
+
+class AgentBody(BaseModel):
+    plan: bool | None = None
+    review: bool | None = None
+    takeover: bool | None = None
 
 
 class ProviderBody(BaseModel):
@@ -174,13 +180,36 @@ def create_app(
 
     lead_map: dict[str, Lead] = leads or {
         AUTOPILOT: ApiLead(db, gw, router, current_vault),
+        "claude": ClaudeLead(),
+        "codex": CodexLead(),
     }
+
+    def agent_problems(spec: TaskSpec) -> list[str]:
+        """Claude Code / Codex roles a task wants that the user has not switched on."""
+        enabled = prefs.agents()
+        problems = []
+        for name, role in sorted(spec.orchestration.agent_roles(spec.implementer)):
+            lead = lead_map.get(name)
+            if not enabled[name][role]:
+                problems.append(f"{name} is not enabled for {role} (Settings, Agents)")
+            elif lead is None or not lead.available().get("installed"):
+                problems.append(f"{name} CLI is not installed")
+        return problems
+
     launcher = OmniRouteLauncher(
         settings.omniroute_url,
         settings.data_dir,
         lambda: bool(gw.health().get("reachable")),
     )
-    runner = Runner(db, gw, router, lead_map, settings.workspaces_dir, current_vault)
+    runner = Runner(
+        db,
+        gw,
+        router,
+        lead_map,
+        settings.workspaces_dir,
+        current_vault,
+        agent_enabled=lambda name, role: bool(prefs.agents().get(name, {}).get(role)),
+    )
     allowed_origins = {
         f"http://{settings.host}:{settings.port}",
         f"http://localhost:{settings.port}",
@@ -237,10 +266,44 @@ def create_app(
         gw.models(fresh=True)
         return result
 
+    @app.get("/api/agents")
+    def list_agents() -> list[dict[str, Any]]:
+        """Claude Code and Codex: installed or not, version, and the roles switched on."""
+        enabled = prefs.agents()
+        out = []
+        for name in CLI_LEADS:
+            lead = lead_map.get(name)
+            installed = bool(lead and lead.available().get("installed"))
+            executable = getattr(lead, "executable", name)
+            out.append(
+                {
+                    "name": name,
+                    "installed": installed,
+                    "version": cli_version(executable) if installed else None,
+                    "roles": enabled[name],
+                }
+            )
+        return out
+
+    @app.put("/api/agents/{name}")
+    def set_agent(name: str, body: AgentBody) -> list[dict[str, Any]]:
+        if name not in CLI_LEADS:
+            raise HTTPException(404, "unknown agent")
+        prefs.remember_agent(name, body.model_dump(exclude_none=True))
+        return list_agents()
+
+    def _describe_providers() -> list[dict[str, Any]]:
+        # A local provider is "active" by default but only usable while it runs.
+        reachable = set(direct.reachable_names())
+        return [
+            {**p, "running": p["name"] in reachable} if p["local"] else p
+            for p in providers.describe()
+        ]
+
     @app.get("/api/providers")
     def list_providers() -> list[dict[str, Any]]:
         """Direct providers and whether they are active. Key values are never returned."""
-        return providers.describe()
+        return _describe_providers()
 
     @app.put("/api/providers/{name}")
     def set_provider(name: str, body: ProviderBody) -> list[dict[str, Any]]:
@@ -248,22 +311,18 @@ def create_app(
         provider = providers.providers.get(name)
         if provider is None:
             raise HTTPException(404, "unknown provider")
-        if body.enabled is not None:
-            if body.enabled:
-                providers.enabled.add(name)
-            else:
-                providers.enabled.discard(name)
-            prefs.remember_enabled_providers(sorted(providers.enabled))
-        if body.key is not None:
+        if body.key is not None:  # first, so a refused key changes nothing else
             if not provider.api_key_env:
                 raise HTTPException(422, "this provider takes no key")
             try:
                 save_key(provider.api_key_env, body.key.strip() or None)
             except KeyStoreError as exc:
                 raise HTTPException(409, str(exc)) from None
+        if body.enabled is not None:
+            prefs.remember_enabled_providers(providers.set_enabled(name, body.enabled))
         gw.models(fresh=True)
         refresh_local_models()
-        return providers.describe()
+        return _describe_providers()
 
     @app.post("/api/models/probe")
     def probe(body: ProbeBody) -> dict[str, Any]:
@@ -311,6 +370,10 @@ def create_app(
             path = Path(body.path).expanduser()
             if not path.is_absolute() or not path.is_dir():
                 raise HTTPException(422, "the memory folder must be an existing absolute folder")
+            path = path.resolve()
+            if path == Path.home().resolve() or path.parent == path:
+                # Its README, notes/ and projects/ would be shared with models.
+                raise HTTPException(422, "choose a dedicated folder, not your home or a drive")
             prefs.remember_memory_path(str(path))
         else:
             prefs.remember_memory_path(None)
@@ -346,6 +409,9 @@ def create_app(
             vault = current_vault()
             if vault is None or not vault.shareable(spec.project_note):
                 raise HTTPException(422, "project_note is not a shared note in the vault")
+        problems = agent_problems(spec)
+        if problems:
+            raise HTTPException(422, "; ".join(problems))
         run_id = db.create_task_and_run(spec.model_dump_json())
         db.message(run_id, "user", spec.goal)
         prefs.remember_repo(str(repo))
@@ -369,7 +435,7 @@ def create_app(
                     "id": r["id"],
                     "title": spec.title,
                     "repo_path": spec.repo_path,
-                    "mode": spec.orchestration.mode,
+                    "mode": spec.orchestration.primary,
                     "implementer": r["implementer"] or spec.implementer,
                     "state": r["state"],
                     "phase": r["phase"],
@@ -489,7 +555,14 @@ def create_app(
                 case "approve":
                     runner.approve(run_id, body.edits)
                 case "takeover":
-                    runner.takeover(run_id, body.lead, body.note)
+                    # No lead given means the task's own takeover agent: gate that one too.
+                    lead = body.lead or _takeover_of(run_id)
+                    if lead in CLI_LEADS:
+                        if not prefs.agents()[lead]["takeover"]:
+                            raise HTTPException(422, f"{lead} is not enabled for takeover")
+                        if not lead_map[lead].available().get("installed"):
+                            raise HTTPException(422, f"{lead} CLI is not installed")
+                    runner.takeover(run_id, lead, body.note)
                 case "keep-worker":
                     runner.keep_worker(run_id)
                 case "accept":
@@ -513,6 +586,12 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"ok": action}
+
+    def _takeover_of(run_id: str) -> str:
+        run = db.run(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        return TaskSpec.model_validate_json(run["spec_json"]).orchestration.takeover
 
     @app.post("/api/runs/{run_id}/{action}")
     def decide(run_id: str, action: str, body: ActionBody | None = None) -> dict[str, str]:

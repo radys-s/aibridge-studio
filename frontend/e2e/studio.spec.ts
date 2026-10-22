@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 const TMP = process.env.STUDIO_E2E_TMP!;
 const REPO = join(TMP, "calc");
-const NOTE = join(TMP, "vault", "02 Projekty", "Calc.md");
+const NOTE = join(TMP, "vault", "projects", "Calc.md");
 
-test("settings: only Autopilot, privacy badges, test gateway is labelled", async ({ page }) => {
+test("settings: Autopilot by default, agents off, privacy badges, test gateway is labelled", async ({ page }) => {
   await page.goto("/#/settings");
   await expect(page.getByRole("heading", { name: "Modely", exact: true })).toBeVisible();
   await expect(page.getByText("testovací gateway")).toBeVisible();
@@ -15,13 +15,20 @@ test("settings: only Autopilot, privacy badges, test gateway is labelled", async
   await expect(page.getByText("bez tréninku").first()).toBeVisible();
   await page.getByText(/Nepoužívané modely/).click();
   await expect(page.getByText("pod hranicí soukromí").first()).toBeVisible();
-  // Claude/Codex are not offered anywhere in settings (ADR 0004); the one sentence that
-  // says so is the only mention.
-  const text = await page.locator("main").innerText();
-  expect(text.match(/Claude|Codex/g)).toEqual(["Claude", "Codex"]);
-  expect(text).toContain("Claude ani Codex přes Studio nejdou");
+  // Claude Code / Codex are optional and every role starts off (ADR 0007); no lead picker
+  // shows until one is enabled.
+  const agents = page.locator("section", { has: page.getByRole("heading", { name: "Agenti" }) });
+  await expect(agents.getByText("Claude Code", { exact: true })).toBeVisible();
+  await expect(agents.getByRole("switch")).toHaveCount(6);
+  for (const s of await agents.getByRole("switch").all()) await expect(s).not.toBeChecked();
+  await expect(page.locator(".settings .composer-options")).toHaveCount(0);
 
-  // Key sources and the one-click probe (ADR 0005).
+  // Direct providers: key inputs never echo a value.
+  const providers = page.locator("section", { has: page.getByRole("heading", { name: "Poskytovatelé" }) });
+  await expect(providers.getByLabel("Klíč pro Groq")).toHaveAttribute("type", "password");
+
+  // Key sources through OmniRoute and the one-click probe (ADR 0005).
+  await page.getByText("Přes OmniRoute (volitelné)").click();
   await page.getByText("Kde vzít klíče a kam je vložit").click();
   await expect(page.getByRole("link", { name: "OmniRoute → Providers" })).toHaveAttribute(
     "href",

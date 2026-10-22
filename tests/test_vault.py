@@ -24,6 +24,7 @@ def vault(tmp_path: Path) -> Vault:
         "projects/Tagged.md": "---\ntags:\n  - projekt\n  - osobni\n---\nnic",
         "projects/Klic.md": "api_key = abcdefgh12345678",
         "projects/secret plans.md": "# Recorder\nnahrávky",
+        "projects/Recorder export.md": "přepis nahrávky",
         "handoffs/2026-10-06 claude → codex - calc.md": (
             "---\ntype: handoff\nstatus: open\n---\n# calc\nDodělat variance"
         ),
@@ -53,6 +54,7 @@ def test_only_shared_folders_are_listed(vault: Vault) -> None:
         "projects/Tagged.md",
         "projects/Klic.md",
         "projects/secret plans.md",
+        "projects/Recorder export.md",  # recordings never reach a model
         "../outside.md",
         "projects/../private/Kdo jsem.md",
     ],

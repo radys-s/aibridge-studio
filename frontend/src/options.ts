@@ -1,9 +1,7 @@
 // Orchestration choices offered by the composer and settings, with Czech labels.
-import type { AnyLead, Escalation, Implementer, ModelInfo, Orchestration, Privacy } from "./api";
+import { AUTOPILOT, type AgentInfo, type AgentRole, type AnyLead, type Escalation, type Health, type Implementer, type ModelInfo, type Orchestration, type Privacy } from "./api";
 
-export const LEAD_LABELS: Record<AnyLead, string> = { autopilot: "Autopilot" };
-
-/** Labels for authors and actors, including Claude/Codex from runs before ADR 0004. */
+/** Labels for authors and actors in run history. */
 const HISTORY_LABELS: Record<string, string> = { autopilot: "Autopilot", claude: "Claude", codex: "Codex", studio: "Studio" };
 
 export function actorLabel(name: string | null): string | null {
@@ -14,6 +12,8 @@ export const IMPLEMENTERS: { id: Implementer; label: string; hint: string }[] = 
   { id: "auto", label: "Auto", hint: "Levný worker; silnější model jen když plán nebo selhání řekne." },
   { id: "worker", label: "Worker", hint: "Levný model přes OmniRoute." },
   { id: "autopilot", label: "Autopilot", hint: "Silnější free model píše kód sám (pro těžší úkoly)." },
+  { id: "claude", label: "Claude Code", hint: "Claude Code píše kód (tvoje předplatné)." },
+  { id: "codex", label: "Codex", hint: "Codex píše kód (tvoje předplatné)." },
   { id: "freebuff", label: "Freebuff", hint: "Spouštíš ho ručně v terminálu, Studio pak ověří." },
 ];
 
@@ -101,14 +101,59 @@ export function activeProviders(models: ModelInfo[]): string[] {
   return out;
 }
 
-/** Studio's only orchestration: Autopilot plans, reviews and writes memory proposals. */
-export function asAutopilot(orch: Orchestration): Orchestration {
-  return { mode: "autopilot", primary: "autopilot", plan: orch.plan ?? true };
+export const LEAD_LABELS: Record<AnyLead, string> = { autopilot: "Autopilot", claude: "Claude Code", codex: "Codex" };
+
+export const ROLE_LABELS: Record<AgentRole, string> = {
+  plan: "návrh a plán",
+  review: "review",
+  takeover: "převzetí implementace",
+};
+
+/** Leads allowed in a role: Autopilot always, a CLI lead only when the user enabled that role. */
+export function leadsFor(role: AgentRole, agents: AgentInfo[]): AnyLead[] {
+  return [AUTOPILOT, ...agents.filter((a) => a.installed && a.roles[role]).map((a) => a.name)];
+}
+
+/** Keep only roles that are still allowed; anything else falls back to Autopilot, and the
+ * reviewer never equals the takeover agent (Studio refuses self-review). */
+export function normalizeOrch(orch: Partial<Orchestration> | undefined, agents: AgentInfo[]): Orchestration {
+  const pick = (lead: AnyLead | undefined, role: AgentRole): AnyLead =>
+    lead && leadsFor(role, agents).includes(lead) ? lead : AUTOPILOT;
+  const takeover = pick(orch?.takeover, "takeover");
+  let reviewer = pick(orch?.reviewer, "review");
+  if (reviewer !== AUTOPILOT && reviewer === takeover) reviewer = AUTOPILOT;
+  return {
+    primary: pick(orch?.primary, "plan"),
+    reviewer,
+    takeover,
+    plan: orch?.plan ?? true,
+    ...(orch?.claude ? { claude: orch.claude } : {}),
+    ...(orch?.codex ? { codex: orch.codex } : {}),
+  };
 }
 
 /** Short summary for chips and the sidebar. */
 export function describe(orch: Orchestration): string {
-  return orch.plan === false ? "Autopilot · bez plánu" : "Autopilot · free modely";
+  const leads = [orch.primary, orch.reviewer, orch.takeover];
+  if (leads.every((l) => l === AUTOPILOT)) {
+    return orch.plan === false ? "Autopilot · bez plánu" : "Autopilot · free modely";
+  }
+  const parts = [`plán ${LEAD_LABELS[orch.primary]}`, `review ${LEAD_LABELS[orch.reviewer]}`];
+  if (orch.takeover !== AUTOPILOT) parts.push(`převzetí ${LEAD_LABELS[orch.takeover]}`);
+  return parts.join(" · ");
+}
+
+/** How Studio reaches models now: OmniRoute, direct providers, both, or nothing. */
+export function gatewayState(health: Health): { ok: boolean; omniroute: boolean; text: string } {
+  const omniroute = health.gateway.omniroute?.reachable ?? health.gateway.reachable;
+  const direct = health.gateway.direct ?? [];
+  const names = direct.map(providerLabel).join(", ");
+  let text: string;
+  if (omniroute && direct.length) text = `OmniRoute + přímo: ${names}`;
+  else if (omniroute) text = "OmniRoute běží";
+  else if (direct.length) text = `Přímo: ${names}`;
+  else text = "Žádný poskytovatel není dostupný";
+  return { ok: health.gateway.reachable, omniroute, text };
 }
 
 /** Turn a textarea (one item per line) into a list, dropping blanks. */

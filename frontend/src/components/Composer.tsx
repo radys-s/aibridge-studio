@@ -1,15 +1,32 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   api,
+  AUTOPILOT,
+  CLI_LEADS,
+  type AgentInfo,
+  type AgentRole,
+  type AnyLead,
+  type CliLead,
   type Escalation,
   type Health,
   type Implementer,
   type NewTask,
+  type Orchestration,
   type SettingsSnapshot,
   type VaultOverview,
   type VaultProject,
 } from "../api";
-import { activeProviders, asAutopilot, describe, ESCALATIONS, IMPLEMENTERS, lines } from "../options";
+import {
+  activeProviders,
+  describe,
+  ESCALATIONS,
+  gatewayState,
+  IMPLEMENTERS,
+  LEAD_LABELS,
+  leadsFor,
+  lines,
+  normalizeOrch,
+} from "../options";
 import { List } from "./bits";
 
 interface Props {
@@ -41,14 +58,15 @@ export function StatusLine({ health, onHealthChanged }: { health: Health | null;
   if (!health) return null;
   const providers = activeProviders(health.models ?? []);
   const calls = health.api_calls_today ?? 0;
+  const gw = gatewayState(health);
   return (
     <p
       className="status-line privacy-line"
       title="Posílá se kód z repozitáře a sdílené poznámky bez osobního obsahu. Limity free modelů se nulují o půlnoci UTC."
     >
-      <span className={`hdot ${health.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" />
-      <span>{health.gateway.reachable ? "OmniRoute běží" : "OmniRoute neběží"}</span>
-      {!health.gateway.reachable && health.gateway.launchable && <StartGateway onDone={onHealthChanged} />}
+      <span className={`hdot ${gw.ok ? "ok" : "bad"}`} aria-hidden="true" />
+      <span>{gw.text}</span>
+      {!gw.omniroute && health.gateway.launchable && <StartGateway onDone={onHealthChanged} />}
       <span aria-hidden="true">·</span>
       {providers.length ? (
         <span>
@@ -107,9 +125,13 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
   const [focus, setFocus] = useState("");
   const [goal, setGoal] = useState("");
   const [repo, setRepo] = useState(settings.recent_repos[0] ?? "");
-  const [implementer, setImplementer] = useState<Implementer>(d.implementer);
+  const [chosenImplementer, setImplementer] = useState<Implementer>(d.implementer);
   const [escalation, setEscalation] = useState<Escalation>(d.escalation);
   const [autoApprove, setAutoApprove] = useState(d.auto_approve === true);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  // Raw choices; normalized against the enabled agents at render, so a late agents load
+  // never overwrites them.
+  const [orch, setOrch] = useState<Orchestration>(d.orchestration);
   const [advanced, setAdvanced] = useState(false);
   const [paths, setPaths] = useState("");
   const [criteria, setCriteria] = useState("");
@@ -120,14 +142,24 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
   const [template, setTemplate] = useState<{ title: string } | null>(null);
   const templateRequested = useRef(!!fromRun);
 
-  // Settings may load after the first render or change in the settings view.
   useEffect(() => {
-    // An old default (Claude/Codex, removed in ADR 0004) falls back to auto.
-    const impl = settings.defaults.implementer;
-    setImplementer(IMPLEMENTERS.some((i) => i.id === impl) ? impl : "auto");
-    setEscalation(settings.defaults.escalation);
-    setAutoApprove(settings.defaults.auto_approve === true);
-  }, [settings.defaults]);
+    api.agents().then(setAgents, () => setAgents([]));
+  }, []);
+
+  // Settings may load after the first render or change in the settings view; only a real
+  // change of the saved defaults resets the form (not a refetch with the same values).
+  const defaultsKey = JSON.stringify(settings.defaults);
+  useEffect(() => {
+    const saved = JSON.parse(defaultsKey) as SettingsSnapshot["defaults"];
+    setImplementer(saved.implementer);
+    setEscalation(saved.escalation);
+    setAutoApprove(saved.auto_approve === true);
+    setOrch(saved.orchestration);
+  }, [defaultsKey]);
+  // A Claude/Codex role the user switched off falls back to Autopilot.
+  const implementer: Implementer = implementers(agents).some((i) => i.id === chosenImplementer)
+    ? chosenImplementer
+    : "auto";
 
   useEffect(() => {
     if (!fromRun) return;
@@ -140,6 +172,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
         setGoal(spec.goal);
         setRepo(spec.repo_path);
         if (IMPLEMENTERS.some((i) => i.id === spec.implementer)) setImplementer(spec.implementer);
+        setOrch((o) => ({ ...o, ...spec.orchestration }));
         if (ESCALATIONS.some((x) => x.id === spec.escalation)) setEscalation(spec.escalation);
         const hasManual = spec.allowed_paths.length + spec.acceptance_criteria.length + spec.acceptance_commands.length > 0;
         setAdvanced(hasManual);
@@ -204,7 +237,9 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     };
   }, [note]);
 
-  const orchestration = asAutopilot(d.orchestration);
+  // The reviewer is never the agent that writes the code (the backend refuses that too).
+  const orchestration = withoutSelfReview(normalizeOrch(orch, agents), implementer);
+  const agentsOn = agents.some((a) => a.installed && Object.values(a.roles).some(Boolean));
   const projects = vault?.projects ?? [];
   const projectReady = !!note && !loadingProject && !projectError && project?.note === note;
 
@@ -302,7 +337,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
             aria-checked={start === "project"}
             className={start === "project" ? "on" : undefined}
             disabled={!vault?.available || projects.length === 0}
-            title={vault?.available ? "Autopilot naváže na poznámku projektu a otevřené předávky." : "Obsidian vault není dostupný."}
+            title={vault?.available ? "Autopilot naváže na poznámku projektu a otevřené předávky." : "Paměťová složka není nastavená (Nastavení → Paměť)."}
             onClick={() => setStart("project")}
           >
             Pokračovat projekt
@@ -420,7 +455,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
             <label className="chip-field">
               <span>Kdo píše kód</span>
               <select value={implementer} onChange={(e) => setImplementer(e.target.value as Implementer)}>
-                {IMPLEMENTERS.map((i) => (
+                {implementers(agents).map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.label}
                   </option>
@@ -441,6 +476,24 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
           <p className="hint">
             {IMPLEMENTERS.find((i) => i.id === implementer)?.hint} {ESCALATIONS.find((x) => x.id === escalation)?.hint}
           </p>
+          {agentsOn && (
+            <>
+              <div className="composer-options">
+                <LeadSelect label="Návrh a plán" role="plan" value={orchestration.primary} agents={agents}
+                  onChange={(primary) => setOrch({ ...orchestration, primary })} />
+                <LeadSelect label="Review" role="review" value={orchestration.reviewer} agents={agents}
+                  exclude={[orchestration.takeover, implementer]}
+                  onChange={(reviewer) => setOrch({ ...orchestration, reviewer })} />
+                <LeadSelect label="Převzetí" role="takeover" value={orchestration.takeover} agents={agents}
+                  exclude={[orchestration.reviewer]}
+                  onChange={(takeover) => setOrch({ ...orchestration, takeover })} />
+              </div>
+              <p className="hint">
+                Claude Code a Codex běží na tvém předplatném a vidí kód projektu. Review dělá vždy jiný agent než ten,
+                kdo kód napsal.
+              </p>
+            </>
+          )}
 
           <details
             className="advanced"
@@ -482,5 +535,45 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
       <p className="hint execution-hint">Příkazy běží pod tvým uživatelským účtem. Používej pouze důvěryhodné projekty.</p>
       <StatusLine health={health} onHealthChanged={onHealthChanged} />
     </div>
+  );
+}
+
+/** Claude/Codex write code only when the user enabled them for takeover. */
+function implementers(agents: AgentInfo[]) {
+  const cli = leadsFor("takeover", agents);
+  return IMPLEMENTERS.filter((i) => !CLI_LEADS.includes(i.id as CliLead) || cli.includes(i.id as AnyLead));
+}
+
+function withoutSelfReview(orch: Orchestration, implementer: Implementer): Orchestration {
+  return orch.reviewer !== AUTOPILOT && orch.reviewer === implementer ? { ...orch, reviewer: AUTOPILOT } : orch;
+}
+
+function LeadSelect({
+  label,
+  role,
+  value,
+  agents,
+  exclude = [],
+  onChange,
+}: {
+  label: string;
+  role: AgentRole;
+  value: AnyLead;
+  agents: AgentInfo[];
+  exclude?: string[];
+  onChange: (lead: AnyLead) => void;
+}) {
+  const options = leadsFor(role, agents).filter((l) => l === AUTOPILOT || l === value || !exclude.includes(l));
+  return (
+    <label className="chip-field">
+      <span>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value as AnyLead)}>
+        {options.map((l) => (
+          <option key={l} value={l}>
+            {LEAD_LABELS[l]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

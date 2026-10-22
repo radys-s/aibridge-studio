@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { isActive, type Health, type RunSummary } from "../api";
-import { activeProviders } from "../options";
+import { activeProviders, gatewayState } from "../options";
 import { relativeTime, STATE_LABELS } from "../format";
 import { NEEDS_YOU } from "../notify";
 
@@ -109,7 +109,7 @@ export function Sidebar(p: Props) {
                 <span className="badge warn">testovací gateway</span>
               ) : (
                 <>
-                  <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> OmniRoute
+                  <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> {h ? gatewayState(h).text : "Modely"}
                 </>
               )}
               <span className={`hdot ${h && activeProviders(h.models ?? []).length ? "ok" : "bad"}`} /> soukromé modely
