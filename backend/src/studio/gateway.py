@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -222,7 +223,8 @@ def _post_chat(
 
 
 class ProviderUnreachable(ProviderError):
-    """A direct provider (e.g. local Ollama) did not answer. Cools like a transient error."""
+    """A direct provider (e.g. local Ollama) did not answer. The router cools the model
+    briefly ("not reachable" counts as transient), unlike a down OmniRoute."""
 
 
 class DirectGateway:
@@ -267,33 +269,54 @@ class DirectGateway:
         )
 
     def _provider_models(self, provider: Provider, fresh: bool) -> set[str]:
-        if provider.models:
+        """Model ids from the provider's /models: cached a minute, a failure 15 s.
+        A fixed model list skips the call, except for a local provider, which counts only
+        while it answers."""
+        if provider.models and not provider.local:
             return {f"{provider.name}/{m}" for m in provider.models}
         now = time.monotonic()
         cached = self._models.get(provider.name)
         if cached and not fresh and now - cached[0] < (60 if cached[1] else 15):
             return cached[1]
         url = provider.url(self.providers.env)
-        ids: set[str] = set()
-        if url:
-            try:
-                wait = 1 if provider.local else 5
-                r = httpx.get(f"{url}/models", headers=self._headers(provider), timeout=wait)
-                r.raise_for_status()
-                ids = {f"{provider.name}/{m['id']}" for m in r.json()["data"]}
-            except (httpx.HTTPError, ValueError, KeyError, TypeError):
-                ids = cached[1] if cached else set()
+        if not url:
+            return set()
+        try:
+            wait = 1 if provider.local else 5
+            r = httpx.get(f"{url}/models", headers=self._headers(provider), timeout=wait)
+            r.raise_for_status()
+            ids = {f"{provider.name}/{m['id']}" for m in r.json()["data"]}
+            if provider.models:
+                ids = {f"{provider.name}/{m}" for m in provider.models}
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            # Keep the last good list for a short outage, but ask again in about 15 s
+            # instead of renewing the stale list for another minute.
+            ids = cached[1] if cached else set()
+            self._models[provider.name] = (now - 45 if ids else now, ids)
+            return ids
         self._models[provider.name] = (now, ids)
         return ids
 
     def models(self, fresh: bool = False) -> set[str] | None:
-        out: set[str] = set()
+        active = [self.providers.providers[n] for n in self.providers.active_names()]
+        if len(active) <= 1:
+            return set().union(*(self._provider_models(p, fresh) for p in active))
+        # In parallel: several slow providers must not add up their timeouts.
+        with ThreadPoolExecutor(max_workers=min(8, len(active))) as pool:
+            found = pool.map(lambda p: self._provider_models(p, fresh), active)
+            return set().union(*found)
+
+    def reachable_names(self) -> list[str]:
+        """Active providers that can take a call: a local one (Ollama) only while it answers."""
+        out = []
         for name in self.providers.active_names():
-            out |= self._provider_models(self.providers.providers[name], fresh)
+            provider = self.providers.providers[name]
+            if not provider.local or self._provider_models(provider, fresh=False):
+                out.append(name)
         return out
 
     def health(self) -> dict[str, Any]:
-        return {"reachable": bool(self.providers.active_names())}
+        return {"reachable": bool(self.reachable_names())}
 
 
 class RoutedGateway:
@@ -324,7 +347,7 @@ class RoutedGateway:
 
     def health(self) -> dict[str, Any]:
         omni = self.omniroute.health()
-        direct = self.direct.providers.active_names()
+        direct = self.direct.reachable_names()
         return {
             "reachable": bool(omni.get("reachable")) or bool(direct),
             "omniroute": omni,

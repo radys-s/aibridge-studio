@@ -1,5 +1,47 @@
 # Status
 
+## 1.0 open-source track (2026-10-22, branch `oss/v1`, Claude Code)
+
+Plan: M1 de-personalize, M2 direct providers, M3 optional Claude Code / Codex, M4 i18n,
+M5 CLI + TUI, M6 packaging, M7 public repo files + CI, M8 publish (repo goes public only on
+the owner's explicit word).
+
+- **M1 + M2 (`01ff9cd`).** Memory folder instead of a fixed vault path (Settings or
+  `config.toml`), cross-platform external terminal and desktop window, `DirectGateway` for
+  OpenAI-compatible providers (Groq, Cloudflare, Cerebras, Ollama Cloud, OVH, OpenRouter,
+  local Ollama). OmniRoute is optional.
+- **M3 (ADR 0007).** Claude Code and Codex are back as optional leads, per role (plan,
+  review, takeover), all off by default (Settings → Agenti). Self-review is refused in four
+  places; a CLI failure stops in `needs_decision`, never a silent switch.
+- **Review fixes for `01ff9cd`.** `providers.toml` cannot redirect a built-in provider;
+  custom providers need https unless on loopback; key saved before a provider is enabled;
+  stale model lists retried after ~15 s; providers fetched in parallel; the memory folder
+  cannot be the home folder or a drive root; Recorder exports refused.
+- **Found in the browser check.** A stopped local Ollama counted as a working provider
+  ("Přímo: Ollama"). Now a local provider counts only while its `/models` answers, and
+  Settings shows "neběží".
+- **M3 review (independent subagent): 5 critical, 12 risks.** Fixed: CLI edits outside
+  the task scope now stop the run; takeover without a named lead was not gated; a custom
+  provider could borrow a built-in key (`GROQ_API_KEY`) for its own host; Codex docs
+  claimed "no shell" (it runs commands in its own sandbox; now stated honestly in UI and
+  ADR). Also: roles re-checked before every CLI call, wider secret-name filter, stdin fed in
+  a thread, `.cmd` shim argument guard, Claude deny rules for its config and credential
+  files, subscription cost not counted as API spend, loopback no longer implies no-train,
+  local providers with a fixed model list still probed, Composer / Settings no longer drop
+  agent choices while agents load. Accepted risk: both CLIs may read outside the working
+  copy within their own permissions (documented).
+- **E2E fixture** still used the old personal vault layout (`02 Projekty/`); now
+  `projects/` and `handoffs/`.
+- **Gates (M3).** Backend 214 passed / 2 skipped, ruff, format, mypy clean; Vitest 26/26;
+  Playwright 11/11 (27 s) from a checkout outside OneDrive.
+- **Windows + OneDrive caveat (dev only).** When the venv lives in a OneDrive-synced folder,
+  a server started through the venv's `studio.exe` launcher gets its whole process tree
+  suspended by the OS (all threads `Suspended`, even the faulthandler watchdog) a few
+  seconds into the first runs. The same code passes from `python -m studio.cli serve`, and
+  passes through `studio.exe` from a folder outside OneDrive; v0.6 outside OneDrive also
+  passes. Not a Studio bug; keep dev checkouts and e2e runs outside OneDrive.
+- Open: M7 must scrub `CLAUDE.md` and `docs/*` of personal names and paths before publish.
+
 ## v0.6 — more free no-train providers (2026-10-10, branch `v0.6`, Claude Code)
 
 v0.5 merged into `main` (fast-forward to `6850bb9`) on Tomáš's word.

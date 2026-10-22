@@ -174,11 +174,12 @@ def test_api_csrf_guard_and_validation(tmp_path: Path, repo: Path) -> None:
         c.post("/api/tasks", json=dict(body, goal=" "), headers={"X-Studio": "1"}).status_code
         == 422
     )
-    # Old Claude/Codex orchestration is accepted but always runs as Autopilot (ADR 0004).
+    # Old cross/duo orchestration is accepted but runs as Autopilot (ADR 0004).
     legacy = dict(body, orchestration={"mode": "cross", "second_opinion": ["codex"]})
     legacy_run = c.post("/api/tasks", json=legacy, headers={"X-Studio": "1"}).json()["run_id"]
     orch = c.get(f"/api/runs/{legacy_run}").json()["run"]["spec"]["orchestration"]
-    assert orch == {"mode": "autopilot", "primary": "autopilot", "plan": True}
+    assert orch["primary"] == orch["reviewer"] == orch["takeover"] == "autopilot"
+    # Claude Code / Codex stay off until the user enables a role (ADR 0007).
     takeover = c.post(
         f"/api/runs/{legacy_run}/takeover", json={"lead": "claude"}, headers={"X-Studio": "1"}
     )

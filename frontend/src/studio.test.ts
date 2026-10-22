@@ -1,6 +1,6 @@
 import { describe as group, expect, it } from "vitest";
 import type { ModelInfo, Orchestration, RunDetail, RunSummary } from "./api";
-import { actorLabel, activeProviders, asAutopilot, describe, IMPLEMENTERS, lines } from "./options";
+import { actorLabel, activeProviders, describe, IMPLEMENTERS, leadsFor, lines, normalizeOrch } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
 import { actorLead, buildThread, latestDraftId, progress, reviewAccepted } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
@@ -11,7 +11,7 @@ import { oneDecimal, percent } from "./components/OverviewView";
 import { keyStatus } from "./components/SettingsView";
 import { budgetLevel, modelName, probeText, reliabilityText } from "./components/SettingsView";
 
-const ORCH: Orchestration = { mode: "autopilot", primary: "autopilot", plan: true };
+const ORCH: Orchestration = { primary: "autopilot", reviewer: "autopilot", takeover: "autopilot", plan: true };
 
 function model(id: string, over: Partial<ModelInfo> = {}): ModelInfo {
   return {
@@ -46,11 +46,23 @@ function detail(over: Partial<RunDetail> = {}): RunDetail {
 }
 
 group("orchestration", () => {
-  it("is only Autopilot; old saved Claude/Codex orchestration is upgraded", () => {
+  it("falls back to Autopilot unless the agent role is enabled", () => {
     const old = { mode: "cross", primary: "claude", plan: false, second_opinion: ["codex"] } as unknown as Orchestration;
-    expect(asAutopilot(old)).toEqual({ mode: "autopilot", primary: "autopilot", plan: false });
+    expect(normalizeOrch(old, [])).toEqual({ ...ORCH, plan: false });
     expect(describe(ORCH)).toBe("Autopilot · free modely");
-    expect(IMPLEMENTERS.map((i) => i.id)).toEqual(["auto", "worker", "autopilot", "freebuff"]);
+    expect(IMPLEMENTERS.map((i) => i.id)).toEqual(["auto", "worker", "autopilot", "claude", "codex", "freebuff"]);
+  });
+
+  it("never lets the takeover agent review itself", () => {
+    const on = { plan: true, review: true, takeover: true };
+    const agents = [
+      { name: "claude" as const, installed: true, version: "2.1", roles: on },
+      { name: "codex" as const, installed: false, version: null, roles: on },
+    ];
+    expect(leadsFor("review", agents)).toEqual(["autopilot", "claude"]);
+    const orch = normalizeOrch({ ...ORCH, reviewer: "claude", takeover: "claude", primary: "codex" }, agents);
+    expect(orch).toEqual({ ...ORCH, takeover: "claude" });
+    expect(describe({ ...ORCH, reviewer: "claude" })).toBe("plán Autopilot · review Claude Code");
     expect(actorLabel("codex")).toBe("Codex"); // history from before ADR 0004
   });
 

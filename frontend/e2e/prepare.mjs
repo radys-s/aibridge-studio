@@ -18,9 +18,9 @@ git("add", "-A");
 git("commit", "-qm", "init");
 
 const notes = {
-  "02 Projekty/Calc.md": `# Calc\n\nRepozitář: ${REPO}\n\n## Stav\n- další krok: přidat median()\n`,
-  "02 Projekty/Tajné.md": "---\nprivate: true\n---\n# Tajné\nosobní obsah\n",
-  "08 Předávání/2026-10-08 claude → codex - Calc median.md": "---\nstatus: open\nto: codex\n---\nCalc: přidat median\n",
+  "projects/Calc.md": `# Calc\n\nRepozitář: ${REPO}\n\n## Stav\n- další krok: přidat median()\n`,
+  "projects/Tajné.md": "---\nprivate: true\n---\n# Tajné\nosobní obsah\n",
+  "handoffs/2026-10-08 claude → codex - Calc median.md": "---\nstatus: open\nto: codex\n---\nCalc: přidat median\n",
 };
 for (const [rel, text] of Object.entries(notes)) {
   mkdirSync(dirname(join(VAULT, rel)), { recursive: true });

@@ -4,7 +4,7 @@ import { join } from "node:path";
 const ARTIFACTS = join(process.env.STUDIO_E2E_TMP!, "screenshots");
 
 test("project switching clears preview and repository before a delayed load; errors block submit", async ({ page }) => {
-  const notes = ["02 Projekty/Alpha.md", "02 Projekty/Beta.md", "02 Projekty/Broken.md"];
+  const notes = ["projects/Alpha.md", "projects/Beta.md", "projects/Broken.md"];
   await page.route("**/api/vault", (route) => route.fulfill({ json: { available: true, projects: notes } }));
   let finishBeta: (() => void) | undefined;
   await page.route("**/api/vault/project?*", async (route) => {

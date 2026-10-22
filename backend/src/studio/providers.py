@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from studio.config import ModelSpec
 
@@ -52,7 +53,7 @@ class Provider:
             if not value:
                 return None
             url = url.replace("{" + name + "}", value)
-        return url.rstrip("/")
+        return url.rstrip("/") or None
 
 
 PRESETS: tuple[Provider, ...] = (
@@ -150,6 +151,16 @@ class ProviderSet:
     def key(self, provider: Provider) -> str | None:
         return self.env(provider.api_key_env) if provider.api_key_env else None
 
+    def set_enabled(self, name: str, on: bool) -> list[str]:
+        """Swap in a new set (never mutate it) so readers on other threads stay safe."""
+        enabled = set(self.enabled)
+        if on:
+            enabled.add(name)
+        else:
+            enabled.discard(name)
+        self.enabled = enabled
+        return sorted(enabled)
+
     def active(self, provider: Provider) -> bool:
         if provider.url(self.env) is None:
             return False
@@ -186,7 +197,18 @@ class ProviderSet:
         return out
 
 
+def _is_loopback(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1")
+
+
 def load_providers(data_dir: Path, enabled: set[str] | None = None) -> ProviderSet:
+    """Presets plus `providers.toml`.
+
+    A preset keeps its URL and key variable: the file may only rename it, list models or
+    switch it on, so a shared config cannot send a preset's key somewhere else. Custom
+    providers need https unless they run on this machine; only those count as local.
+    """
     providers = {p.name: p for p in PRESETS}
     path = data_dir / "providers.toml"
     if path.is_file():
@@ -200,16 +222,44 @@ def load_providers(data_dir: Path, enabled: set[str] | None = None) -> ProviderS
                 continue
             if "api_key" in cfg:
                 raise SystemExit(f"{path}: put keys in the environment (api_key_env), not here")
-            base = providers.get(name, Provider(name, str(cfg.get("base_url", ""))))
-            providers[name] = replace(
-                base,
-                base_url=str(cfg.get("base_url", base.base_url)),
-                label=str(cfg.get("label", base.label or name)),
-                api_key_env=cfg.get("api_key_env", base.api_key_env),
-                keyless=bool(cfg.get("keyless", base.keyless or not cfg.get("api_key_env"))),
-                privacy=str(cfg.get("privacy", base.privacy)),
-                models=tuple(str(m) for m in cfg.get("models", base.models)),
-                enabled_by_default=bool(cfg.get("enabled", base.enabled_by_default)),
+            models = tuple(str(m) for m in cfg.get("models", ()))
+            preset = providers.get(name) if name in {p.name for p in PRESETS} else None
+            if preset is not None:
+                if {"base_url", "api_key_env", "privacy", "keyless"} & set(cfg):
+                    raise SystemExit(
+                        f"{path}: [{name}] is a built-in provider; only label, models and "
+                        "enabled can change. Add your own name for another endpoint."
+                    )
+                providers[name] = replace(
+                    preset,
+                    label=str(cfg.get("label", preset.label)),
+                    models=models or preset.models,
+                    enabled_by_default=bool(cfg.get("enabled", preset.enabled_by_default)),
+                )
+                continue
+            base_url = str(cfg.get("base_url", "")).strip()
+            local = _is_loopback(base_url)
+            if not base_url.startswith("https://") and not local:
+                raise SystemExit(f"{path}: [{name}] base_url must be https (or localhost)")
+            privacy = str(cfg.get("privacy", "unknown"))
+            if privacy not in ("no_train", "unknown", "may_train"):
+                raise SystemExit(f"{path}: [{name}] privacy must be no_train, unknown or may_train")
+            key_env = cfg.get("api_key_env")
+            if key_env and str(key_env) in {p.api_key_env for p in PRESETS if p.api_key_env}:
+                # Otherwise a shared config could send e.g. the Groq key to its own host.
+                raise SystemExit(
+                    f"{path}: [{name}] api_key_env {key_env} belongs to a built-in provider"
+                )
+            providers[name] = Provider(
+                name,
+                base_url,
+                str(cfg.get("label", name)),
+                api_key_env=str(key_env) if key_env else None,
+                keyless=bool(cfg.get("keyless", not key_env)),
+                privacy=privacy,
+                models=models,
+                local=local,
+                enabled_by_default=bool(cfg.get("enabled", False)),
             )
     return ProviderSet(providers, set(enabled or ()))
 
