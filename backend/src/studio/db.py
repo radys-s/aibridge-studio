@@ -1,4 +1,4 @@
-"""SQLite persistence. Studio owns this database; it never opens AI Bridge or Prizma databases.
+"""SQLite persistence. Studio owns this database; it never opens other apps' databases.
 
 Every state change is written before the action it describes continues, so a crash at any
 point leaves a row that `recover()` can classify.
@@ -22,7 +22,7 @@ from studio.sandbox import safe_text, safe_value
 SCHEMA_VERSION = 2
 
 # Message of the decision event the runner writes for an automatic draft approval; the
-# overview does not count it as Tomáš's decision.
+# overview does not count it as the user's decision.
 AUTO_APPROVED = "Zadání schváleno automaticky"
 
 _SCHEMA = """
@@ -478,7 +478,7 @@ class Database:
                 "AND model_call.billing = 'api'",
                 (since,),
             ).fetchone()
-            # Decisions Tomáš made himself; the automatic draft approval is not one.
+            # Decisions the user made; the automatic draft approval is not one.
             decisions = c.execute(
                 "SELECT COUNT(*) AS n FROM event JOIN run ON run.id = event.run_id "
                 "WHERE run.created_at >= ? AND event.kind = 'decision' "

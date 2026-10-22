@@ -209,26 +209,26 @@ def test_read_mode_has_no_write_tools(env: dict[str, Any]) -> None:
 
 def test_vault_tools_respect_policy_and_log_reads(env: dict[str, Any], tmp_path: Path) -> None:
     root = tmp_path / "vault"
-    (root / "02 Projekty").mkdir(parents=True)
-    (root / "01 Profil").mkdir()
-    (root / "02 Projekty/Calc.md").write_text("# Calc\nNext: median", encoding="utf-8")
-    (root / "01 Profil/Ja.md").write_text("osobni", encoding="utf-8")
+    (root / "projects").mkdir(parents=True)
+    (root / "private").mkdir()
+    (root / "projects/Calc.md").write_text("# Calc\nNext: median", encoding="utf-8")
+    (root / "private/Ja.md").write_text("osobni", encoding="utf-8")
     vault = Vault(root)
     gw = FakeGateway(
         [
             assistant(tool_call("vault_search", {"query": "median"})),
             assistant(
-                tool_call("vault_read", {"path": "02 Projekty/Calc.md"}, 1),
-                tool_call("vault_read", {"path": "01 Profil/Ja.md"}, 2),
+                tool_call("vault_read", {"path": "projects/Calc.md"}, 1),
+                tool_call("vault_read", {"path": "private/Ja.md"}, 2),
             ),
             assistant(tool_call("submit", PLAN, 3)),
         ]
     )
     c, events = ctx(env)
     make_lead(env, gw, vault).ask("plan", PLAN_SCHEMA, env["repo"], c)
-    assert vault.reads == ["02 Projekty/Calc.md"]
+    assert vault.reads == ["projects/Calc.md"]
     logged = [e.data for e in events if e.data]
-    assert logged == [{"vault": "02 Projekty/Calc.md"}]
+    assert logged == [{"vault": "projects/Calc.md"}]
     results = [e.text for e in events if e.kind == "tool_result"]
     assert any(r.startswith("denied") for r in results)
 

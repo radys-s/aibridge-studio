@@ -1,8 +1,7 @@
 """The lead protocol: who drafts, plans, reviews and (on takeover) implements.
 
 Since ADR 0004 the only lead is Autopilot (`agents/api_lead.py`) on free models through
-OmniRoute. The Claude Code and Codex CLI leads were removed: Tomáš uses those directly, and
-Studio is the tool for after their limits run out.
+OmniRoute.
 """
 
 from __future__ import annotations

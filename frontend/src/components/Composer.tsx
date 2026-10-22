@@ -93,7 +93,7 @@ function StartGateway({ onDone }: { onDone?: () => void }) {
   );
 }
 
-/** New task. Main path: continue a project from the shared Obsidian memory; or a free prompt. */
+/** New task. Main path: continue a project from the memory folder; or a free prompt. */
 export function Composer({ settings, health, onCreated, onSettingsSaved, onHealthChanged, fromRun }: Props) {
   const d = settings.defaults;
   const [vault, setVault] = useState<VaultOverview | null>(null);

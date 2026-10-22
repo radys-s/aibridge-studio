@@ -14,7 +14,7 @@ from typing import Any
 
 from studio.domain import MemoryProposal
 from studio.sandbox import Denied
-from studio.vault import Vault, handoff_name
+from studio.vault import Vault
 
 MAX_HANDOFFS = 3
 MAX_UPDATE_CHARS = 4_000
@@ -101,7 +101,7 @@ def build_proposals(
         out.append(
             {
                 "kind": "new",
-                "path": handoff_name(topic, proposal.handoff_to, day),
+                "path": vault.handoff_name(topic, proposal.handoff_to, day),
                 "content": "\n".join(body),
                 "status": "proposed",
             }

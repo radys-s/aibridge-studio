@@ -56,7 +56,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
 };
 
-/** Where Tomáš creates a free key and which provider to pick in the OmniRoute dashboard
+/** Where the user creates a free key and which provider to pick in the OmniRoute dashboard
  * (ADR 0005). Only providers that do not train on inputs are offered. */
 export const KEY_SOURCES: { provider: string; label: string; signup: string; signupLabel?: string; omniroute: string; note: string }[] = [
   { provider: "groq", label: "Groq", signup: "https://console.groq.com/keys", omniroute: "Groq", note: "V Data Controls zapni Zero Data Retention." },

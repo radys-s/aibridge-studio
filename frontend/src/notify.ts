@@ -1,4 +1,4 @@
-// Tab title and system notifications for runs that need Tomáš or just ended (v0.5).
+// Tab title and system notifications for runs that need the user or just ended.
 import { useEffect, useRef } from "react";
 import type { RunSummary } from "./api";
 

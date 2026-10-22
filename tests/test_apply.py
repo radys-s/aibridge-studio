@@ -14,7 +14,7 @@ from studio.apply import ApplyError, apply_run
 
 @pytest.fixture
 def accepted(tmp_path: Path, repo: Path) -> tuple[Path, Path, str]:
-    git(repo, "config", "user.name", "Tomas")
+    git(repo, "config", "user.name", "Tester")
     git(repo, "config", "user.email", "t@example.com")
     work = tmp_path / "ws" / "r1"
     base = workspace.create(repo, work)
@@ -45,7 +45,7 @@ def test_branch_is_created_and_user_checkout_is_untouched(
         encoding="utf-8",
         check=True,
     ).stdout.strip()
-    assert log == f"Tomas|Přidat median|{base}"  # one squashed commit on the source commit
+    assert log == f"Tester|Přidat median|{base}"  # one squashed commit on the source commit
     assert "def median" in git(repo, "show", "studio/r1:calc/stats.py")
 
     with pytest.raises(ApplyError, match="already exists"):
@@ -80,7 +80,7 @@ def test_refuses_an_empty_change(tmp_path: Path, repo: Path) -> None:
 def test_runner_applies_only_accepted_runs(studio, repo: Path) -> None:  # type: ignore[no-untyped-def]
     from conftest import ACCEPT, FakeGateway, good_script, make_spec
 
-    git(repo, "config", "user.name", "Tomas")
+    git(repo, "config", "user.name", "Tester")
     git(repo, "config", "user.email", "t@example.com")
     runner, db, _ = studio(FakeGateway(good_script()), [ACCEPT])
     run_id = db.create_task_and_run(make_spec(repo).model_dump_json())

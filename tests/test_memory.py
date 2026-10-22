@@ -1,4 +1,4 @@
-"""Continuing a project from Obsidian: what is sent, and writes only after approval."""
+"""Continuing a project from the memory folder: what is sent, and writes only after approval."""
 
 from __future__ import annotations
 
@@ -74,13 +74,13 @@ class Spy(FakeGateway):
 
 @pytest.fixture
 def vault(tmp_path: Path) -> Vault:
-    root = tmp_path / "AI paměť"
+    root = tmp_path / "memory"
     files = {
-        "02 Projekty/Calc.md": "# Calc\nStav: chybí median. Kontakt jan@example.com",
-        "02 Projekty/Tajne.md": "---\nprivate: true\n---\nnic",
-        "08 Předávání/2026-10-06 claude → codex - Calc.md": "---\nstatus: open\n---\nCalc: median",
-        "08 Předávání/2026-10-06 claude → codex - jiné.md": "---\nstatus: open\n---\nnesouvisí",
-        "01 Profil/Ja.md": "Calc osobní",
+        "projects/Calc.md": "# Calc\nStav: chybí median. Kontakt jan@example.com",
+        "projects/Tajne.md": "---\nprivate: true\n---\nnic",
+        "handoffs/2026-10-06 claude → codex - Calc.md": "---\nstatus: open\n---\nCalc: median",
+        "handoffs/2026-10-06 claude → codex - jiné.md": "---\nstatus: open\n---\nnesouvisí",
+        "private/Ja.md": "Calc osobní",
     }
     for rel, text in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ def test_continue_project_then_write_memory_only_after_approval(
     gw = Spy([submit(DRAFT), submit(PLAN), *good_script(), submit(ACCEPT), submit(MEMORY)])
     runner, db = build(tmp_path, gw, vault)
     spec = TaskSpec(
-        goal="Pokračuj v projektu Calc", repo_path=str(repo), project_note="02 Projekty/Calc.md"
+        goal="Pokračuj v projektu Calc", repo_path=str(repo), project_note="projects/Calc.md"
     )
     run_id = start(db, spec)
     runner.execute(run_id)
@@ -122,30 +122,30 @@ def test_continue_project_then_write_memory_only_after_approval(
     assert "Calc: median" in draft and "nesouvisí" not in draft  # only related handoffs
     assert "jan@example.com" not in draft and "osobní" not in draft
     sent = next(e for e in db.events(run_id) if e["kind"] == "vault")
-    assert "02 Projekty/Calc.md" in sent["message"]
+    assert "projects/Calc.md" in sent["message"]
 
     runner.approve(run_id)
     runner.execute(run_id)
     assert db.run(run_id)["state"] == "accepted"
-    before = (vault.root / "02 Projekty/Calc.md").read_text(encoding="utf-8")
+    before = (vault.root / "projects/Calc.md").read_text(encoding="utf-8")
     proposals = runner._proposals(run_id)[1]
     assert [p["kind"] for p in proposals] == ["append", "new"]
-    assert not list((vault.root / "08 Předávání").glob("*studio*"))  # nothing written yet
+    assert not list((vault.root / "handoffs").glob("*studio*"))  # nothing written yet
 
-    assert runner.vault_write(run_id, 0) == "02 Projekty/Calc.md"
-    after = (vault.root / "02 Projekty/Calc.md").read_text(encoding="utf-8")
+    assert runner.vault_write(run_id, 0) == "projects/Calc.md"
+    after = (vault.root / "projects/Calc.md").read_text(encoding="utf-8")
     assert after.startswith(before) and "median hotový" in after
     with pytest.raises(ValueError):
         runner.vault_write(run_id, 0)  # each proposal is written at most once
     runner.vault_discard(run_id, 1)
-    assert not list((vault.root / "08 Předávání").glob("*studio*"))
+    assert not list((vault.root / "handoffs").glob("*studio*"))
     assert [p["status"] for p in runner._proposals(run_id)[1]] == ["written", "discarded"]
 
 
 def test_private_project_note_is_never_sent(tmp_path: Path, repo: Path, vault: Vault) -> None:
     gw = Spy([])
     runner, db = build(tmp_path, gw, vault)
-    spec = TaskSpec(goal="Pokračuj", repo_path=str(repo), project_note="02 Projekty/Tajne.md")
+    spec = TaskSpec(goal="Pokračuj", repo_path=str(repo), project_note="projects/Tajne.md")
     run_id = start(db, spec)
     runner.execute(run_id)
     run = db.run(run_id)
@@ -155,13 +155,13 @@ def test_private_project_note_is_never_sent(tmp_path: Path, repo: Path, vault: V
 
 def test_handoff_proposal_follows_the_template(vault: Vault) -> None:
     items = build_proposals(
-        vault, MemoryProposal(**MEMORY), "02 Projekty/Calc.md", "r1", "Median", date(2026, 10, 7)
+        vault, MemoryProposal(**MEMORY), "projects/Calc.md", "r1", "Median", date(2026, 10, 7)
     )
     handoff = items[1]
-    assert handoff["path"] == "08 Předávání/2026-10-07 studio → codex - Calc review median.md"
+    assert handoff["path"] == "handoffs/2026-10-07 studio → codex - Calc review median.md"
     text = handoff["content"]
     assert "status: open" in text and "to: codex" in text and "## Odpověď" in text
-    assert "[[AI paměť/02 Projekty/Calc|Calc]]" in text
+    assert "[[memory/projects/Calc|Calc]]" in text
     vault.write(handoff["path"], text, "new")
     assert handoff["path"] in vault.open_handoffs()
 
@@ -171,13 +171,13 @@ def test_vault_api_lists_only_shared_projects(tmp_path: Path, repo: Path, vault:
     app = create_app(settings, gateway=FakeGateway([]), leads={}, start_runner=False)
     with TestClient(app) as c:
         overview = c.get("/api/vault").json()
-        assert overview["projects"] == ["02 Projekty/Calc.md"]
-        project = c.get("/api/vault/project", params={"note": "02 Projekty/Calc.md"}).json()
-        assert project["handoffs"] == ["08 Předávání/2026-10-06 claude → codex - Calc.md"]
+        assert overview["projects"] == ["projects/Calc.md"]
+        project = c.get("/api/vault/project", params={"note": "projects/Calc.md"}).json()
+        assert project["handoffs"] == ["handoffs/2026-10-06 claude → codex - Calc.md"]
         assert "jan@example.com" not in project["preview"]
-        denied = c.get("/api/vault/project", params={"note": "01 Profil/Ja.md"})
+        denied = c.get("/api/vault/project", params={"note": "private/Ja.md"})
         assert denied.status_code == 403
-        body = {"goal": "Pokračuj", "repo_path": str(repo), "project_note": "02 Projekty/Tajne.md"}
+        body = {"goal": "Pokračuj", "repo_path": str(repo), "project_note": "projects/Tajne.md"}
         assert c.post("/api/tasks", json=body, headers={"X-Studio": "1"}).status_code == 422
 
 
@@ -195,7 +195,7 @@ def accepted_run(tmp_path: Path, repo: Path, vault: Vault, memory: list[Any]) ->
     gw = ToolSpy([submit(DRAFT), submit(PLAN), *good_script(), submit(ACCEPT), *memory])
     runner, db = build(tmp_path, gw, vault)
     spec = TaskSpec(
-        goal="Pokračuj v projektu Calc", repo_path=str(repo), project_note="02 Projekty/Calc.md"
+        goal="Pokračuj v projektu Calc", repo_path=str(repo), project_note="projects/Calc.md"
     )
     run_id = start(db, spec)
     runner.execute(run_id)

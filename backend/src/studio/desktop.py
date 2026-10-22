@@ -27,7 +27,8 @@ from studio.config import Settings
 
 def find_browser() -> str | None:
     """A Chromium browser that supports --app windows. Edge ships with Windows."""
-    for name in ("msedge", "chrome", "chromium", "google-chrome"):
+    names = ("msedge", "chrome", "chromium", "google-chrome", "chromium-browser", "microsoft-edge")
+    for name in names:
         found = shutil.which(name)
         if found:
             return found
@@ -41,6 +42,13 @@ def find_browser() -> str | None:
             candidate = Path(root) / tail
             if candidate.is_file():
                 return str(candidate)
+    for app in (
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ):
+        if Path(app).is_file():
+            return app
     return None
 
 

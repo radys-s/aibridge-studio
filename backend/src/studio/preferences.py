@@ -1,7 +1,6 @@
 """User preferences stored in Studio's own database: defaults for new tasks, recent repos.
 
-Since ADR 0004 there is no lead catalog: the only lead is Autopilot, and the router picks
-its model from the configured free pool (`config.py`).
+The router picks Autopilot's model from the configured pool (`config.py`).
 """
 
 from __future__ import annotations
@@ -51,9 +50,23 @@ class Preferences:
     def remember_project(self, note: str) -> None:
         self.db.set_setting("last_project", note)
 
+    def memory_path(self) -> str | None:
+        value = self.db.setting("memory_path")
+        return str(value) if value else None
+
+    def remember_memory_path(self, path: str | None) -> None:
+        self.db.set_setting("memory_path", path)
+
+    def enabled_providers(self) -> list[str]:
+        return [str(n) for n in self.db.setting("enabled_providers") or []]
+
+    def remember_enabled_providers(self, names: list[str]) -> None:
+        self.db.set_setting("enabled_providers", names)
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "defaults": self.defaults().model_dump(mode="json"),
             "recent_repos": self.recent_repos(),
             "last_project": self.last_project(),
+            "memory_path": self.memory_path(),
         }
