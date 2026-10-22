@@ -32,7 +32,7 @@ ACTIVE_STATES = frozenset(
 TERMINAL_STATES = frozenset({RunState.ACCEPTED, RunState.ABANDONED})
 
 # Studio's own orchestrator on free models (ADR 0003). Claude and Codex are never routed
-# through Studio (ADR 0004): Tomáš uses them directly; Studio is for after their limits.
+# through Autopilot; Claude Code and Codex are separate, optional leads.
 AUTOPILOT: Literal["autopilot"] = "autopilot"
 AnyLead = Literal["autopilot"]
 # Run history from before ADR 0004 still names these as authors and implementers.

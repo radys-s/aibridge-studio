@@ -1,11 +1,11 @@
 """Autopilot: the orchestrator that runs on free models through OmniRoute.
 
-Studio is the tool Tomáš opens after his Claude/Codex limits run out. Autopilot drafts,
+Autopilot is Studio's built-in orchestrator on free or cheap models. It drafts,
 plans, reviews and (for hard tasks) implements, like the CLI leads, but on HTTP models:
 
 - Model choice and fallback stay with `ModelRouter` (capability `lead`). Autopilot never
   picks raw model ids; it classifies tasks (`complexity`) and the router decides.
-- Tools: read files in the working copy, search/read the shared Obsidian memory (only what
+- Tools: read files in the working copy, search/read the memory folder (only what
   `Vault` allows), and in write mode edit files inside the task scope. No commands: Studio
   runs acceptance commands itself.
 - Structured output comes through a final `submit` tool whose parameters are the phase
@@ -38,7 +38,7 @@ TREE_LINES = 150
 
 VAULT_SEARCH = spec(
     "vault_search",
-    "Search Tomáš's shared project memory (Obsidian notes: projects, handoffs, technology "
+    "Search the user's project memory (Markdown notes: projects, handoffs, technology "
     "notes). Returns note paths with snippets.",
     {"query": {"type": "string"}},
     ["query"],

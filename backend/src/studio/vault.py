@@ -1,14 +1,16 @@
-"""Read-only access to the shared Obsidian memory, minus anything personal.
+"""Read-only access to the memory folder (Markdown notes), minus anything personal.
 
-The vault is where Claude, Codex and Tomáš keep project state and handoffs. Autopilot reads
-it to continue a project after the subscription limits run out. Notes go to external free
-models, so the policy is strict:
+The memory folder is where the user and their coding agents keep project state and handoffs
+(an Obsidian vault works; so does any folder of Markdown files). Autopilot reads it to
+continue a project. Notes may go to external models, so the policy is strict:
 
 - only notes under the include list and not under the exclude list (folder or file prefix);
-- never notes marked `private: true` or tagged `osobni`/`private`, nor notes whose path
-  names an excluded word (Recorder);
+- never notes marked `private: true` or tagged `private`, nor notes whose path names an
+  excluded word;
 - never notes with secrets; emails and phone numbers are redacted before anything leaves;
 - writes only as approved proposals: append to a project note, or a new handoff note.
+
+Folder names come from `Layout`, configurable in `config.toml` (`[memory]`).
 """
 
 from __future__ import annotations
@@ -24,37 +26,29 @@ from studio.sandbox import Denied, secret_findings
 MAX_NOTE_CHARS = 40_000
 MAX_NOTE_BYTES = 1024 * 1024
 
-DEFAULT_INCLUDE = (
-    "00 Rozcestník.md",
-    "Pravidla pro asistenta.md",
-    "02 Projekty",
-    "05 Učení",
-    "06 Zdroje",
-    "08 Předávání",
-    "09 Šablony",
-    "11 Technologie",
-    "12 Architektura",
-)
-DEFAULT_EXCLUDE = (
-    "01 Profil",
-    "03 Počítač",
-    "04 Hardware",
-    "07 Claude",
-    "10 Chaty",
-    "13 Časová osa",
-)
-# Notes whose path names these never leave (Recorder data must not reach models).
-DEFAULT_EXCLUDE_WORDS = ("recorder",)
-PROJECTS = "02 Projekty"
-HANDOFFS = "08 Předávání"
-WRITABLE = (PROJECTS, HANDOFFS)
+
+@dataclass(frozen=True)
+class Layout:
+    """Which folders hold projects and handoffs, and which notes may be shared."""
+
+    projects: str = "projects"
+    handoffs: str = "handoffs"
+    # Shared with models: these files/folders (prefixes), minus `exclude` and `exclude_words`.
+    include: tuple[str, ...] = ("README.md", "index.md", "projects", "handoffs", "notes")
+    exclude: tuple[str, ...] = ("private",)
+    exclude_words: tuple[str, ...] = ("private", "password", "secret")
+
+    @property
+    def writable(self) -> tuple[str, str]:
+        return (self.projects, self.handoffs)
+
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _PHONE = re.compile(r"(?<![\w.:/-])(?:\+\d{3} ?)?\d{3} ?\d{3} ?\d{3}(?![\w.:/-])")
 _PRIVATE_FLAG = re.compile(r"(?im)^\s*private\s*:\s*(true|yes|ano)\s*$")
 _PRIVATE_TAG = re.compile(r"(?i)(?:^|[\s,\[\-#])(osobni|osobní|private)(?:$|[\s,\]])")
 _STATUS_OPEN = re.compile(r"(?im)^\s*status\s*:\s*open\s*$")
-_REPO_PATH = re.compile(r"(?i)\b([A-Z]:[\\/][^\s`'\"<>|]+)")
+_REPO_PATH = re.compile(r"(?i)(\b[A-Z]:[\\/][^\s`'\"<>|]+|(?<![\w.:/~-])/[^\s`'\"<>|]+)")
 
 
 @dataclass(frozen=True)
@@ -67,9 +61,7 @@ class Note:
 @dataclass
 class Vault:
     root: Path
-    include: tuple[str, ...] = DEFAULT_INCLUDE
-    exclude: tuple[str, ...] = DEFAULT_EXCLUDE
-    exclude_words: tuple[str, ...] = DEFAULT_EXCLUDE_WORDS
+    layout: Layout = field(default_factory=Layout)
     reads: list[str] = field(default_factory=list)
 
     # --- policy -----------------------------------------------------------------------
@@ -81,11 +73,11 @@ class Vault:
         rel = rel.replace("\\", "/").strip("/")
         if not rel.lower().endswith(".md"):
             return False
-        if any(_under(rel, p) for p in self.exclude):
+        if any(_under(rel, p) for p in self.layout.exclude):
             return False
-        if any(word in rel.lower() for word in self.exclude_words):
+        if any(word.lower() in rel.lower() for word in self.layout.exclude_words):
             return False
-        return any(_under(rel, p) for p in self.include)
+        return any(_under(rel, p) for p in self.layout.include)
 
     def _resolve(self, raw: str) -> tuple[Path, str]:
         if not raw or not raw.strip():
@@ -184,11 +176,11 @@ class Vault:
         return True
 
     def projects(self) -> list[str]:
-        return [rel for rel in self.notes(PROJECTS) if self.shareable(rel)]
+        return [rel for rel in self.notes(self.layout.projects) if self.shareable(rel)]
 
     def open_handoffs(self) -> list[str]:
         out = []
-        for rel in self.notes(HANDOFFS):
+        for rel in self.notes(self.layout.handoffs):
             try:
                 _, head = self._load(rel)
             except (Denied, OSError):
@@ -198,7 +190,7 @@ class Vault:
         return out
 
     def repo_hint(self, note: Note) -> str | None:
-        """First Windows path in a project note that is an existing git repository."""
+        """First absolute path in a project note that is an existing git repository."""
         for match in _REPO_PATH.finditer(note.text):
             candidate = Path(match.group(1).rstrip(".,;:)`"))
             if (candidate / ".git").exists():
@@ -229,12 +221,18 @@ class Vault:
             )
         return out
 
+    def handoff_name(self, topic: str, to: str = "claude", day: str | None = None) -> str:
+        safe = " ".join(re.sub(r'[\\/:*?"<>|]+', " ", topic).split())[:80] or "follow-up"
+        day = day or date.today().isoformat()
+        return f"{self.layout.handoffs}/{day} studio → {to} - {safe}.md"
+
     # --- write (only after the user approved a proposal) ------------------------------
 
     def write(self, rel: str, content: str, kind: str) -> str:
         path, rel = self._resolve(rel)
-        if not rel.lower().endswith(".md") or not any(_under(rel, w) for w in WRITABLE):
-            raise Denied(f"Studio writes only into {', '.join(WRITABLE)}.")
+        writable = self.layout.writable
+        if not rel.lower().endswith(".md") or not any(_under(rel, w) for w in writable):
+            raise Denied(f"Studio writes only into {', '.join(writable)}.")
         found = secret_findings(content)
         if found:
             raise Denied(f"The proposed text contains secrets ({', '.join(found)}).")
@@ -251,11 +249,6 @@ class Vault:
         else:
             raise Denied(f"Unknown write kind {kind!r}.")
         return rel
-
-
-def handoff_name(topic: str, to: str = "claude", day: str | None = None) -> str:
-    safe = " ".join(re.sub(r'[\\/:*?"<>|]+', " ", topic).split())[:80] or "pokračování"
-    return f"{HANDOFFS}/{day or date.today().isoformat()} studio → {to} - {safe}.md"
 
 
 def redact(text: str) -> str:

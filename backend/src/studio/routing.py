@@ -1,9 +1,9 @@
 """Model router: the single owner of model choice and fallback.
 
 Provenance: ordering idea (capability first, complexity reorders by strength, cooled-down
-models last rather than dropped) derived from Prizma `backend/app/routing/selector.py`
-(commit 49022f7). Changes: cooldowns persisted in SQLite (Prizma kept them in RAM and
-forgot them on restart); candidates are explicit OmniRoute model ids; budget gate.
+models last rather than dropped) derived from the author's earlier multi-agent router
+(see docs/PROVENANCE.md). Changes: cooldowns persisted in SQLite; candidates are explicit
+model ids; budget gate.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ COOLDOWN_S = {
     "rate_limit": 60.0,
     "daily_limit": 3600.0,
     "transient": 30.0,
-    # Missing key or provider setting: nothing changes until Tomáš fixes it in OmniRoute;
+    # Missing key or provider setting: nothing changes until the user fixes it in OmniRoute;
     # "Otestovat" in Settings clears the cooldown as soon as it works.
     "setup": 3600.0,
 }
@@ -119,6 +119,11 @@ class ModelRouter:
         self.stats_ttl_s = stats_ttl_s
         self._stats: tuple[float, dict[str, ModelStats]] | None = None
         self._role_stats: dict[str, tuple[float, dict[str, ModelStats]]] = {}
+
+    def extend(self, specs: list[ModelSpec]) -> None:
+        """Add catalog entries found at runtime (local models); known ids stay as they are."""
+        known = {m.id for m in self.models}
+        self.models = self.models + tuple(m for m in specs if m.id not in known)
 
     def blocked(self, model: ModelSpec, exposed: set[str] | None = None) -> str | None:
         """Why this model may not be used, or None."""

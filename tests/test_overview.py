@@ -61,7 +61,7 @@ def test_overview_counts_only_runs_in_the_window(tmp_path: Path) -> None:
     assert abs(o["accept_rate"] - 2 / 3) < 1e-9
     assert abs(o["median_seconds_to_accepted"] - 600) < 1  # median of 300 s and 900 s
     assert o["fix_rounds_avg"] == 1.0 and o["first_try"] == 1
-    assert o["decisions"] == 2  # the automatic draft approval is not Tomáš's decision
+    assert o["decisions"] == 2  # the automatic draft approval is not the user's decision
     assert o["applied"] == 1
     assert o["api"] == {"calls": 3, "failed": 1, "tokens": 4000, "cost": 0.0}
     assert o["subscription"]["calls"] == 1 and o["subscription"]["cost"] == 0.2

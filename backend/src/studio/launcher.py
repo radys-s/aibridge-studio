@@ -1,4 +1,4 @@
-"""Start a local OmniRoute on Tomáš's click (v0.4).
+"""Start a local OmniRoute on the user's click.
 
 OmniRoute stays an external install; Studio only runs its fixed `omniroute serve` command,
 detached, when the gateway URL is local and nothing answers there. No shell, no user input
@@ -93,7 +93,7 @@ class OmniRouteLauncher:
             # console exits at once without a word (seen live 2026-10-10).
             flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         try:
-            # OmniRoute is Tomáš's own gateway and reads its own config; it gets his environment.
+            # OmniRoute is the user's own gateway and reads its own config: it gets their env.
             # Studio's own PORT (8765 under a dev server) must not leak into OmniRoute,
             # which reads PORT too (seen live: it came up on Studio's port).
             env = {k: v for k, v in os.environ.items() if k.upper() != "PORT"}

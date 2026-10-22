@@ -1,6 +1,6 @@
 """One-shot connectivity check for a catalog model ("Otestovat" in Settings).
 
-After Tomáš adds a provider key in the OmniRoute dashboard he can check the model right away:
+After adding a provider key in the OmniRoute dashboard the user can check the model right away:
 one tiny request with one tool, no code and no notes. It is not a routing decision: it never
 picks or substitutes a model, and it never sends anything to a model below the privacy floor.
 """

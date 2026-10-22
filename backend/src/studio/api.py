@@ -25,14 +25,16 @@ from studio.agents.leads import Lead
 from studio.config import DAILY_REQUEST_CAPS, Settings
 from studio.db import Database
 from studio.domain import AUTOPILOT, TaskSpec
-from studio.gateway import ChatGateway, OmniRouteGateway
+from studio.gateway import ChatGateway, DirectGateway, OmniRouteGateway, RoutedGateway
 from studio.launcher import LaunchError, OmniRouteLauncher
 from studio.memory import project_memory
 from studio.preferences import Defaults, Preferences
 from studio.probe import UnknownModel, probe_model
+from studio.providers import KeyStoreError, load_providers, local_specs, save_key
 from studio.routing import ModelRouter
 from studio.runner import Runner
 from studio.sandbox import Denied
+from studio.vault import Vault
 
 UI_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 ACTIONS = (
@@ -62,6 +64,16 @@ class ActionBody(BaseModel):
     lead: Literal["autopilot"] | None = None  # Studio never routes to Claude/Codex
     edits: dict[str, Any] | None = None
     index: int | None = None  # which memory proposal (vault-write / vault-discard)
+
+
+class ProviderBody(BaseModel):
+    enabled: bool | None = None
+    # A key to save in the OS keyring ("" deletes it). Never stored by Studio itself.
+    key: str | None = Field(default=None, max_length=500)
+
+
+class MemoryPathBody(BaseModel):
+    path: str | None = None
 
 
 class SettingsBody(BaseModel):
@@ -122,13 +134,17 @@ def create_app(
     start_runner: bool = True,
 ) -> FastAPI:
     db = Database(settings.db_path)
+    prefs = Preferences(db)
     if gateway is None and settings.fake_gateway:
         from studio.testing import ScriptedGateway
 
         gateway = ScriptedGateway()
-    gw = gateway or OmniRouteGateway(
+    providers = load_providers(settings.data_dir, set(prefs.enabled_providers()))
+    direct = DirectGateway(providers, settings.gateway_timeout_s)
+    omniroute = OmniRouteGateway(
         settings.omniroute_url, settings.omniroute_api_key, settings.gateway_timeout_s
     )
+    gw: ChatGateway = gateway or RoutedGateway(omniroute, direct)
     router = ModelRouter(
         db,
         settings.worker_models,
@@ -137,16 +153,34 @@ def create_app(
         exposed=gw.models,
         max_wait_s=settings.route_wait_s,
     )
+
+    def refresh_local_models() -> None:
+        """Models of local providers (Ollama) join the catalog when they appear."""
+        if gateway is None:
+            router.extend(local_specs(providers, direct.models(fresh=True) or set()))
+
+    refresh_local_models()
+
+    def memory_path() -> Path | None:
+        """The memory folder chosen in Settings wins over config.toml / STUDIO_VAULT."""
+        chosen = prefs.memory_path()
+        return Path(chosen) if chosen else settings.vault_path
+
+    def current_vault() -> Vault | None:
+        path = memory_path()
+        if path is None or not path.is_dir():
+            return None
+        return Vault(path, settings.memory_layout)
+
     lead_map: dict[str, Lead] = leads or {
-        AUTOPILOT: ApiLead(db, gw, router, lambda: settings.vault()),
+        AUTOPILOT: ApiLead(db, gw, router, current_vault),
     }
-    prefs = Preferences(db)
     launcher = OmniRouteLauncher(
         settings.omniroute_url,
         settings.data_dir,
         lambda: bool(gw.health().get("reachable")),
     )
-    runner = Runner(db, gw, router, lead_map, settings.workspaces_dir, settings.vault)
+    runner = Runner(db, gw, router, lead_map, settings.workspaces_dir, current_vault)
     allowed_origins = {
         f"http://{settings.host}:{settings.port}",
         f"http://localhost:{settings.port}",
@@ -193,7 +227,7 @@ def create_app(
 
     @app.post("/api/omniroute/start")
     def start_omniroute() -> dict[str, object]:
-        """Run `omniroute serve` on Tomáš's click and wait until it answers."""
+        """Run `omniroute serve` on the user's click and wait until it answers."""
         if gateway is not None:
             raise HTTPException(409, "Studio uses a test gateway")
         try:
@@ -202,6 +236,34 @@ def create_app(
             raise HTTPException(409, str(exc)) from None
         gw.models(fresh=True)
         return result
+
+    @app.get("/api/providers")
+    def list_providers() -> list[dict[str, Any]]:
+        """Direct providers and whether they are active. Key values are never returned."""
+        return providers.describe()
+
+    @app.put("/api/providers/{name}")
+    def set_provider(name: str, body: ProviderBody) -> list[dict[str, Any]]:
+        """Turn a keyless provider on or off, or save / delete its key in the OS keyring."""
+        provider = providers.providers.get(name)
+        if provider is None:
+            raise HTTPException(404, "unknown provider")
+        if body.enabled is not None:
+            if body.enabled:
+                providers.enabled.add(name)
+            else:
+                providers.enabled.discard(name)
+            prefs.remember_enabled_providers(sorted(providers.enabled))
+        if body.key is not None:
+            if not provider.api_key_env:
+                raise HTTPException(422, "this provider takes no key")
+            try:
+                save_key(provider.api_key_env, body.key.strip() or None)
+            except KeyStoreError as exc:
+                raise HTTPException(409, str(exc)) from None
+        gw.models(fresh=True)
+        refresh_local_models()
+        return providers.describe()
 
     @app.post("/api/models/probe")
     def probe(body: ProbeBody) -> dict[str, Any]:
@@ -222,27 +284,43 @@ def create_app(
         prefs.save(body.defaults)
         return prefs.snapshot()
 
-    # --- shared memory (Obsidian) ------------------------------------------------------
+    # --- memory folder ------------------------------------------------------------------
 
     @app.get("/api/vault")
     def vault_overview() -> dict[str, Any]:
         """Projects and open handoffs Studio may use. Names only; nothing is sent anywhere."""
-        vault = settings.vault()
+        lay = settings.memory_layout
+        layout = {"projects": lay.projects, "handoffs": lay.handoffs, "include": list(lay.include)}
+        vault = current_vault()
         if vault is None:
-            return {"available": False, "path": str(settings.vault_path or "")}
+            path = memory_path()
+            return {"available": False, "path": str(path or ""), "layout": layout}
         return {
             "available": True,
             "path": str(vault.root),
             "projects": vault.projects(),
             "handoffs": vault.open_handoffs(),
             "folders": vault.folder_counts(),
+            "layout": layout,
         }
+
+    @app.put("/api/vault/path")
+    def set_memory_path(body: MemoryPathBody) -> dict[str, Any]:
+        """Choose the memory folder (or clear the choice with null). Must be an existing folder."""
+        if body.path:
+            path = Path(body.path).expanduser()
+            if not path.is_absolute() or not path.is_dir():
+                raise HTTPException(422, "the memory folder must be an existing absolute folder")
+            prefs.remember_memory_path(str(path))
+        else:
+            prefs.remember_memory_path(None)
+        return vault_overview()
 
     @app.get("/api/vault/project")
     def vault_project(note: str) -> dict[str, Any]:
-        vault = settings.vault()
+        vault = current_vault()
         if vault is None:
-            raise HTTPException(404, "the Obsidian vault is not available")
+            raise HTTPException(404, "the memory folder is not configured or missing")
         try:
             notes, refused = project_memory(vault, note)
         except Denied as exc:
@@ -265,7 +343,7 @@ def create_app(
         if not repo.is_absolute() or not (repo / ".git").exists():
             raise HTTPException(422, "repo_path must be an absolute path to a git repository")
         if spec.project_note:
-            vault = settings.vault()
+            vault = current_vault()
             if vault is None or not vault.shareable(spec.project_note):
                 raise HTTPException(422, "project_note is not a shared note in the vault")
         run_id = db.create_task_and_run(spec.model_dump_json())

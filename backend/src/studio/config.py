@@ -1,22 +1,58 @@
-"""Runtime configuration. Everything comes from environment variables with safe defaults."""
+"""Runtime configuration.
+
+Sources, first wins: environment variables, then `config.toml` in the data dir, then safe
+defaults. `docs/CONFIGURATION.md` lists every key.
+"""
 
 from __future__ import annotations
 
 import os
+import sys
+import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from studio.vault import Vault
+from studio.vault import Layout, Vault
 
 
 def _default_data_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
+    if os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "aibridge-studio"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "aibridge-studio"
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / "aibridge-studio"
 
 
-def _default_vault() -> Path:
-    return Path.home() / "Documents" / "Obsidian Vault" / "AI paměť"
+def load_file_config(data_dir: Path) -> dict[str, Any]:
+    """`config.toml` in the data dir; a missing file is an empty config, a broken one fails."""
+    path = data_dir / "config.toml"
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("rb") as fh:
+            return tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"{path}: invalid TOML ({exc})") from exc
+
+
+def _layout(raw: Any) -> Layout:
+    if not isinstance(raw, dict):
+        return Layout()
+    base = Layout()
+
+    def names(key: str, default: tuple[str, ...]) -> tuple[str, ...]:
+        value = raw.get(key)
+        return tuple(str(v) for v in value) if isinstance(value, list) else default
+
+    return Layout(
+        projects=str(raw.get("projects", base.projects)),
+        handoffs=str(raw.get("handoffs", base.handoffs)),
+        include=names("include", base.include),
+        exclude=names("exclude", base.exclude),
+        exclude_words=names("exclude_words", base.exclude_words),
+    )
 
 
 Privacy = Literal["no_train", "unknown", "may_train"]
@@ -48,8 +84,7 @@ _CODE = frozenset({"coding", "tools"})
 # huggingface), so ids here use the alias too.
 # Order and strength: strongest no-train lead first. Models OmniRoute does not expose (a
 # provider not connected yet) are skipped by the router, so listing them is harmless.
-# The provider set mirrors the keys Prizma (`../multiagent`) already uses; Tomáš adds the
-# same keys in the OmniRoute dashboard (ADR 0005). Privacy comes from PROVIDER_PRIVACY.
+# Keys are added in the OmniRoute dashboard. Privacy comes from PROVIDER_PRIVACY.
 # Verified live through OmniRoute on 2026-10-08: groq/openai/gpt-oss-120b (tool calling).
 _CATALOG: tuple[ModelSpec, ...] = (
     ModelSpec("groq/openai/gpt-oss-120b", _LEAD, 6),
@@ -81,7 +116,7 @@ _CATALOG: tuple[ModelSpec, ...] = (
     ModelSpec("openrouter/cohere/north-mini-code:free", _CODE, 2),
     ModelSpec("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", frozenset({"tools", "lead"}), 4),
     ModelSpec("openrouter/google/gemma-4-31b-it:free", frozenset({"tools", "lead"}), 2),
-    # may_train: free tiers whose terms allow training on inputs. Never routed unless Tomáš
+    # may_train: free tiers whose terms allow training on inputs. Never routed unless the user
     # opts out with the provider and lists it in STUDIO_NO_TRAIN_PROVIDERS.
     ModelSpec("nvidia/moonshotai/kimi-k2.6", _LEAD, 6),
     ModelSpec("nvidia/deepseek-ai/deepseek-v4-pro", _LEAD, 6),
@@ -112,6 +147,7 @@ PROVIDER_PRIVACY: dict[str, Privacy] = {
     "ollama-cloud": "no_train",
     "ovh": "no_train",
     "ovhcloud": "no_train",
+    "ollama": "no_train",  # local: nothing leaves the machine
     "nvidia": "may_train",
     "gemini": "may_train",
     "mistral": "may_train",
@@ -126,11 +162,11 @@ DAILY_REQUEST_CAPS: dict[str, int] = {"groq": 1000, "openrouter": 50}
 
 def _privacy(model_id: str) -> Privacy:
     provider = model_id.split("/", 1)[0]
-    # Tomáš opted out of training with these providers (e.g. Mistral admin console).
+    # The user opted out of training with these providers (e.g. Mistral admin console).
     if provider in _ids("STUDIO_NO_TRAIN_PROVIDERS"):
         return "no_train"
     if provider == "openrouter" and os.environ.get("STUDIO_OPENROUTER_NO_TRAIN") == "1":
-        return "no_train"  # Tomáš turned off "may train" for free models in his account
+        return "no_train"  # the user turned off "may train" for free models
     return PROVIDER_PRIVACY.get(provider, "unknown")
 
 
@@ -188,15 +224,16 @@ class Settings:
     # End-to-end UI tests only: a scripted gateway instead of OmniRoute (studio/testing.py).
     fake_gateway: bool = False
     gateway_timeout_s: float = 180.0
-    # Shared Obsidian memory (Autopilot reads non-personal notes; see vault.py).
-    vault_path: Path | None = field(default_factory=lambda: _default_vault())
+    # Optional memory folder of Markdown notes (Autopilot reads non-personal notes; vault.py).
+    vault_path: Path | None = None
+    memory_layout: Layout = field(default_factory=Layout)
     host: str = "127.0.0.1"
     port: int = 8765
 
     def vault(self) -> Vault | None:
         if self.vault_path is None or not self.vault_path.is_dir():
             return None
-        return Vault(self.vault_path)
+        return Vault(self.vault_path, self.memory_layout)
 
     @property
     def db_path(self) -> Path:
@@ -208,23 +245,32 @@ class Settings:
 
     @staticmethod
     def from_env() -> Settings:
-        data_dir = os.environ.get("STUDIO_DATA_DIR")
+        raw_dir = os.environ.get("STUDIO_DATA_DIR")
+        data_dir = Path(raw_dir).resolve() if raw_dir else _default_data_dir()
+        file = load_file_config(data_dir)
+        memory = file.get("memory") if isinstance(file.get("memory"), dict) else {}
+
+        def get(env: str, key: str, default: str) -> str:
+            value = os.environ.get(env)
+            if value:
+                return value
+            return str(file[key]) if key in file else default
+
+        vault = os.environ.get("STUDIO_VAULT") or (memory or {}).get("path")
         return Settings(
-            data_dir=Path(data_dir).resolve() if data_dir else _default_data_dir(),
-            omniroute_url=os.environ.get("STUDIO_OMNIROUTE_URL", "http://127.0.0.1:20128"),
+            data_dir=data_dir,
+            omniroute_url=get("STUDIO_OMNIROUTE_URL", "omniroute_url", "http://127.0.0.1:20128"),
+            # Keys only from the environment, never from a file Studio might show or copy.
             omniroute_api_key=os.environ.get("OMNIROUTE_API_KEY") or None,
             worker_models=_models_from_env(),
-            privacy_floor=(
-                "unknown" if os.environ.get("STUDIO_PRIVACY") == "unknown" else "no_train"
-            ),
-            allow_paid=os.environ.get("STUDIO_ALLOW_PAID") == "1",
-            route_wait_s=float(os.environ.get("STUDIO_ROUTE_WAIT", "45")),
+            privacy_floor="unknown"
+            if get("STUDIO_PRIVACY", "privacy", "") == "unknown"
+            else "no_train",
+            allow_paid=get("STUDIO_ALLOW_PAID", "allow_paid", "0") in ("1", "True", "true"),
+            route_wait_s=float(get("STUDIO_ROUTE_WAIT", "route_wait", "45")),
             fake_gateway=os.environ.get("STUDIO_FAKE_GATEWAY") == "1",
-            gateway_timeout_s=float(os.environ.get("STUDIO_GATEWAY_TIMEOUT", "180")),
-            port=int(os.environ.get("STUDIO_PORT", "8765")),
-            vault_path=(
-                Path(os.environ["STUDIO_VAULT"])
-                if os.environ.get("STUDIO_VAULT")
-                else _default_vault()
-            ),
+            gateway_timeout_s=float(get("STUDIO_GATEWAY_TIMEOUT", "gateway_timeout", "180")),
+            port=int(get("STUDIO_PORT", "port", "8765")),
+            vault_path=Path(str(vault)).expanduser() if vault else None,
+            memory_layout=_layout(memory),
         )

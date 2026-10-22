@@ -36,7 +36,7 @@ export interface TaskSpec {
   implementer: Implementer;
   escalation: Escalation;
   auto_approve: boolean;
-  /** Project note in the Obsidian vault to continue (relative path). */
+  /** Project note in the memory folder to continue (relative path). */
   project_note?: string | null;
   budget?: Partial<Budget>;
 }

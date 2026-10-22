@@ -1,10 +1,9 @@
 """Policy for what a model-driven worker may touch: paths, file content, commands, environment.
 
-Provenance: path and command policy derived from Prizma `backend/app/tools/sandbox.py`
-(commit 49022f7, same author). Changes: the only root is the run's working copy (Prizma used
-global user-configured roots), scope globs per task, `.git` writes denied, minimal
-subprocess environment, secret scanning of file content (from AI Bridge
-`adapters/security.py`, commit 953e0b9).
+Provenance: path and command policy and secret patterns derived from the author's earlier
+projects (see docs/PROVENANCE.md). Changes: the only root is the run's working copy, scope
+globs per task, `.git` writes denied, minimal subprocess environment, secret scanning of
+file content.
 
 This module does not isolate processes. An allowed `python` can run arbitrary code as the
 user. The protection is: the working copy is a disposable clone, commands run without a

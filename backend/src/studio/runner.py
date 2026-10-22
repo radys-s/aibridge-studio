@@ -293,7 +293,7 @@ class Runner:
             raise ValueError("no such open proposal")
         vault = self.vault()
         if vault is None:
-            raise ValueError("the shared memory (Obsidian vault) is not available")
+            raise ValueError("the memory folder is not configured or missing")
         item = proposals[index]
         try:
             rel = vault.write(item["path"], item["content"], item["kind"])
@@ -688,7 +688,9 @@ class Runner:
         if spec.project_note:
             vault = self.vault()
             if vault is None:
-                return self._needs_decision(run_id, "the shared memory (Obsidian) is not available")
+                return self._needs_decision(
+                    run_id, "the memory folder is not configured or missing"
+                )
             try:
                 memory, refused = project_memory(vault, spec.project_note)
             except (Denied, OSError) as exc:
@@ -1202,7 +1204,7 @@ class Runner:
         if not spec.project_note:
             raise ValueError("this run did not continue a project note")
         if self.vault() is None:
-            raise ValueError("the shared memory (Obsidian vault) is not available")
+            raise ValueError("the memory folder is not configured or missing")
         threading.Thread(
             target=self._propose_memory, args=(run_id,), name="studio-memory", daemon=True
         ).start()

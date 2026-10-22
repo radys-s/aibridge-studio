@@ -16,25 +16,25 @@ TOKEN = "sk-" + "z" * 24
 
 @pytest.mark.parametrize("tail", [TOKEN, "#osobni"])
 def test_vault_scans_after_context_boundary(tmp_path: Path, tail: str) -> None:
-    folder = tmp_path / "02 Projekty"
+    folder = tmp_path / "projects"
     folder.mkdir()
     (folder / "Safe.md").write_text("needle safe", encoding="utf-8")
     (folder / "Hidden.md").write_text("needle " + "x" * 45_000 + "\n" + tail, encoding="utf-8")
     vault = Vault(tmp_path)
     with pytest.raises(Denied):
-        vault.read("02 Projekty/Hidden.md")
-    assert not vault.shareable("02 Projekty/Hidden.md")
-    assert [h["path"] for h in vault.search("needle")] == ["02 Projekty/Safe.md"]
+        vault.read("projects/Hidden.md")
+    assert not vault.shareable("projects/Hidden.md")
+    assert [h["path"] for h in vault.search("needle")] == ["projects/Safe.md"]
 
 
 def test_vault_rejects_oversized_notes_and_outside_links(tmp_path: Path) -> None:
     root = tmp_path / "vault"
-    folder = root / "02 Projekty"
+    folder = root / "projects"
     folder.mkdir(parents=True)
     (folder / "Big.md").write_bytes(b"x" * (MAX_NOTE_BYTES + 1))
     vault = Vault(root)
     with pytest.raises(Denied, match="1 MiB"):
-        vault.read("02 Projekty/Big.md")
+        vault.read("projects/Big.md")
     assert vault.projects() == []
     outside = tmp_path / "outside.md"
     outside.write_text("secret fixture", encoding="utf-8")
@@ -42,7 +42,7 @@ def test_vault_rejects_oversized_notes_and_outside_links(tmp_path: Path) -> None
         (folder / "Outside.md").symlink_to(outside)
     except OSError:
         pytest.skip("Symbolic links require Windows developer mode or privilege")
-    assert "02 Projekty/Outside.md" not in vault.notes()
+    assert "projects/Outside.md" not in vault.notes()
 
 
 @pytest.mark.parametrize(

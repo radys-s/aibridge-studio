@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn>=0.30",
     "httpx>=0.27",
     "pydantic>=2.8",
+    "keyring>=25",
 ]
 
 [project.scripts]
