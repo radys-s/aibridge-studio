@@ -18,7 +18,13 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   reporter: "list",
-  use: { baseURL: `http://127.0.0.1:${PORT}`, trace: "retain-on-failure", channel: process.env.STUDIO_E2E_BROWSER },
+  // The specs use Czech labels; english.spec.ts switches to en-US itself.
+  use: {
+    baseURL: `http://127.0.0.1:${PORT}`,
+    locale: "cs-CZ",
+    trace: "retain-on-failure",
+    channel: process.env.STUDIO_E2E_BROWSER,
+  },
   webServer: {
     command: "npm run build && node e2e/prepare.mjs && uv run studio serve",
     url: `http://127.0.0.1:${PORT}/api/health`,

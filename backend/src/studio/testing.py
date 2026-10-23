@@ -50,17 +50,19 @@ COMMAND = "python -m unittest discover -s tests -t ."
 
 ANSWERS: dict[str, dict[str, Any]] = {
     "draft": {
-        "title": "Přidat median() do calc",
-        "goal": "Přidej median() do calc/stats.py ve stylu mean() a otestuj ji.",
+        "title": "Add median() to calc",
+        "goal": "Add median() to calc/stats.py in the style of mean() and test it.",
         "allowed_paths": ["calc/*.py", "tests/*.py"],
-        "acceptance_criteria": ["median() vrací prostřední hodnotu, u sudého počtu průměr"],
+        "acceptance_criteria": [
+            "median() returns the middle value, the mean of two for an even count"
+        ],
         "acceptance_commands": [COMMAND],
         "questions": [],
-        "notes": "Testovací běh (fake gateway).",
+        "notes": "Test run (fake gateway).",
     },
     "plan": {
-        "summary": "Doplnit median() a jeden testovací soubor.",
-        "steps": ["Přidat median() do calc/stats.py", "Přidat tests/test_median.py"],
+        "summary": "Add median() and one test file.",
+        "steps": ["Add median() to calc/stats.py", "Add tests/test_median.py"],
         "files_to_touch": ["calc/stats.py", "tests/test_median.py"],
         "risks": [],
         "complexity": "trivial",
@@ -69,18 +71,18 @@ ANSWERS: dict[str, dict[str, Any]] = {
     },
     "review": {
         "verdict": "accept",
-        "summary": "median() odpovídá zadání a testy procházejí.",
+        "summary": "median() matches the brief and the tests pass.",
         "findings": [],
         "criteria": [
             {
-                "criterion": "median() vrací prostřední hodnotu, u sudého počtu průměr",
+                "criterion": "median() returns the middle value, the mean of two for an even count",
                 "met": True,
                 "evidence": "unittest output",
             }
         ],
     },
     "memory": {
-        "project_update": "- Přidána median() s testy (testovací běh).",
+        "project_update": "- Added median() with tests (test run).",
         "handoff_needed": False,
         "handoff_to": "claude",
         "handoff_topic": "",
@@ -89,7 +91,7 @@ ANSWERS: dict[str, dict[str, Any]] = {
         "handoff_files": [],
         "handoff_avoid": [],
     },
-    "implement": {"summary": "Přidána median().", "files_changed": [], "concerns": []},
+    "implement": {"summary": "Added median().", "files_changed": [], "concerns": []},
 }
 
 
@@ -147,7 +149,7 @@ class ScriptedGateway:
             elif turn == 1:
                 calls = [_call("run_command", {"command": COMMAND})]
             else:
-                calls = [_call("finish", {"summary": "Přidána median() s testem."})]
+                calls = [_call("finish", {"summary": "Added median() with a test."})]
         return ChatResult(
             message={"role": "assistant", "content": "", "tool_calls": calls},
             finish_reason="tool_calls",

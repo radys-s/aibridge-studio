@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from studio.messages import CS, tr
 from studio.review import model_identity
 from studio.sandbox import safe_text, safe_value
 
@@ -23,7 +24,7 @@ SCHEMA_VERSION = 2
 
 # Message of the decision event the runner writes for an automatic draft approval; the
 # overview does not count it as the user's decision.
-AUTO_APPROVED = "Zadání schváleno automaticky"
+AUTO_APPROVED = "Brief approved automatically"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS task (
@@ -183,7 +184,7 @@ class Database:
                 "VALUES (?,?,'queued',?,?)",
                 (run_id, task_id, now, now),
             )
-        self.event(run_id, "created", "Úkol přijat a zařazen do fronty")
+        self.event(run_id, "created", self.msg("Task received and queued"))
         return run_id
 
     def run(self, run_id: str) -> dict[str, Any] | None:
@@ -482,8 +483,8 @@ class Database:
             decisions = c.execute(
                 "SELECT COUNT(*) AS n FROM event JOIN run ON run.id = event.run_id "
                 "WHERE run.created_at >= ? AND event.kind = 'decision' "
-                "AND event.message != ?",
-                (since, AUTO_APPROVED),
+                "AND event.message NOT IN (?, ?)",
+                (since, AUTO_APPROVED, CS[AUTO_APPROVED]),
             ).fetchone()
             # Work an external agent did by hand: Studio does not know what it used.
             external = c.execute(
@@ -611,6 +612,14 @@ class Database:
 
     # --- settings ---------------------------------------------------------------------
 
+    def language(self) -> str | None:
+        """The user's language for new event and message text (messages.py)."""
+        value = self.setting("language")
+        return str(value) if value else None
+
+    def msg(self, text: str, **params: object) -> str:
+        return tr(self.language(), text, **params)
+
     def setting(self, key: str) -> Any:
         with self.connect() as c:
             row = c.execute("SELECT value_json FROM setting WHERE key = ?", (key,)).fetchone()
@@ -676,5 +685,7 @@ class Database:
                     "UPDATE run SET state = 'interrupted', updated_at = ? WHERE id = ?", (now, rid)
                 )
         for rid in ids:
-            self.event(rid, "interrupted", "Běh přerušen restartem; čeká na pokračování")
+            self.event(
+                rid, "interrupted", self.msg("Run interrupted by a restart; waiting to continue")
+            )
         return ids

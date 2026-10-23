@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Step } from "../api";
+import { t } from "../i18n";
 
 export function List({ items, mono }: { items: string[] | undefined | null; mono?: boolean }) {
   if (!items || items.length === 0) return <p className="muted">–</p>;
@@ -15,11 +16,11 @@ export function List({ items, mono }: { items: string[] | undefined | null; mono
 export function ExitBadge({ code, timedOut }: { code: number | null; timedOut: boolean }) {
   if (timedOut) return <span className="badge bad">timeout</span>;
   if (code === 0) return <span className="badge good">exit 0</span>;
-  if (code == null) return <span className="badge neutral">bez exit kódu</span>;
+  if (code == null) return <span className="badge neutral">{t("no exit code")}</span>;
   return <span className="badge bad">exit {code}</span>;
 }
 
-export function CopyButton({ text, label = "Kopírovat" }: { text: string; label?: string }) {
+export function CopyButton({ text, label = t("Copy") }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -32,7 +33,7 @@ export function CopyButton({ text, label = "Kopírovat" }: { text: string; label
   }
   return (
     <button type="button" className="small" onClick={() => void copy()} disabled={!text}>
-      {copied ? "Zkopírováno" : label}
+      {copied ? t("Copied") : label}
     </button>
   );
 }

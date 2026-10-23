@@ -155,7 +155,7 @@ class ApiLead:
                     if name == "submit":
                         errors = schema_errors(args, schema)
                         if not errors:
-                            ctx.on_event(AgentEvent("status", "výsledek odevzdán"))
+                            ctx.on_event(AgentEvent("status", "result submitted"))
                             return args
                         repairs += 1
                         if repairs > MAX_REPAIRS:
@@ -278,7 +278,7 @@ class ApiLead:
             return f"denied: {exc}"
         except OSError as exc:
             return f"error: {exc}"
-        ctx.on_event(AgentEvent("status", f"čte poznámku {note.path}", {"vault": note.path}))
+        ctx.on_event(AgentEvent("status", f"reads note {note.path}", {"vault": note.path}))
         return clip(note.text)
 
 

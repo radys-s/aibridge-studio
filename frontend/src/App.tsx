@@ -7,6 +7,7 @@ import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { useRunNotifications } from "./notify";
+import { lang, t } from "./i18n";
 import { useRunDetail } from "./stream";
 
 // Routing via location.hash: "#/new" (default), "#/run/<id>", "#/settings", "#/overview".
@@ -94,10 +95,10 @@ function RunView({ runId, onChanged }: { runId: string; onChanged: () => void })
   if (!detail) {
     return error ? (
       <p className="alert error" role="alert">
-        Úkol nelze načíst: {error}
+        {t("Cannot load the task: {error}", { error })}
       </p>
     ) : (
-      <p className="muted pad">Načítám…</p>
+      <p className="muted pad">{t("Loading…")}</p>
     );
   }
   return (
@@ -163,7 +164,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    api.settings().then(setSettings, (e) => setSettingsError(e instanceof Error ? e.message : String(e)));
+    api.settings().then(
+      (s) => {
+        setSettings(s);
+        // The first browser seeds the language of event text; later only the Settings switch
+        // changes it, so browsers with different languages do not flip it back and forth.
+        if (s.language === null) void api.setLanguage(lang()).catch(() => undefined);
+      },
+      (e) => setSettingsError(e instanceof Error ? e.message : String(e)),
+    );
   }, []);
 
   usePolling(loadRuns, 3000);
@@ -180,7 +189,7 @@ export default function App() {
   } else if (route.view === "overview") {
     main = <OverviewView />;
   } else if (!settings) {
-    main = settingsError ? <p className="alert error pad">Nastavení nelze načíst: {settingsError}</p> : <p className="muted pad">Načítám…</p>;
+    main = settingsError ? <p className="alert error pad">{t("Cannot load settings: {error}", { error: settingsError })}</p> : <p className="muted pad">{t("Loading…")}</p>;
   } else if (route.view === "settings") {
     main = <SettingsView settings={settings} health={health} onSaved={setSettings} />;
   } else {

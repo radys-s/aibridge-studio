@@ -40,6 +40,20 @@ the owner's explicit word).
   seconds into the first runs. The same code passes from `python -m studio.cli serve`, and
   passes through `studio.exe` from a folder outside OneDrive; v0.6 outside OneDrive also
   passes. Not a Studio bug; keep dev checkouts and e2e runs outside OneDrive.
+- **M4 (i18n).** UI in English and Czech: English source text is the message id
+  (`frontend/src/i18n/`, `t()` / `tn()` with Czech plural forms), language from the browser
+  or the Settings switch (stored per browser). Backend event, message and memory-note text
+  goes through `messages.py` in the language stored on the server (`PUT /api/language`;
+  the first browser seeds it, later only the Settings switch changes it); old events keep
+  their text. Vitest and pytest check that every message id has Czech text with the same
+  placeholders. Playwright runs in cs-CZ plus one en-US spec.
+- **M4 review (independent subagent): 0 critical, 6 risks.** Fixed: browsers with different
+  languages no longer flip the server language, failed language save no longer an unhandled
+  rejection, Composer radio is "New brief" again (not a second "New task"), stricter
+  no-Czech-in-source guard. Known gap: decision reasons and agent / exception details stay
+  English only (also inside Czech templates).
+- **Gates (M4).** Backend pytest, ruff, format, mypy clean; Vitest 30/30; Playwright 12/12
+  outside OneDrive (one earlier run had a single hung `apply` request; rerun passed).
 - Open: M7 must scrub `CLAUDE.md` and `docs/*` of personal names and paths before publish.
 
 ## v0.6 — more free no-train providers (2026-10-10, branch `v0.6`, Claude Code)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type AgentInfo, type AgentRole, type ProviderInfo, type VaultOverview } from "../api";
+import { t } from "../i18n";
 import { LEAD_LABELS, PRIVACY_LABELS, ROLE_LABELS } from "../options";
 
 function message(e: unknown): string {
@@ -27,12 +28,13 @@ export function ProvidersCard({ onChanged }: { onChanged?: () => void }) {
     }
   }
 
-  if (!providers) return error ? <p className="alert error">{error}</p> : <p className="muted">Načítám…</p>;
+  if (!providers) return error ? <p className="alert error">{error}</p> : <p className="muted">{t("Loading…")}</p>;
   return (
     <>
       <p className="hint">
-        Studio volá tyto poskytovatele přímo, i bez OmniRoute. Klíč se uloží do trezoru systému (Windows Credential
-        Manager, macOS Keychain, Secret Service), ne do Studia. Stačí i proměnná prostředí.
+        {t(
+          "Studio calls these providers directly, without OmniRoute. A key is stored in the system keyring (Windows Credential Manager, macOS Keychain, Secret Service), not in Studio. An environment variable works too.",
+        )}
       </p>
       <table className="models providers">
         <tbody>
@@ -42,19 +44,19 @@ export function ProvidersCard({ onChanged }: { onChanged?: () => void }) {
                 <strong>{p.label}</strong>
                 <div className="muted small">
                   {PRIVACY_LABELS[p.privacy] ?? p.privacy}
-                  {p.local ? " · na tvém počítači" : ""}
+                  {p.local ? ` · ${t("on your computer")}` : ""}
                 </div>
               </td>
               <td>
                 {p.local && p.active && !p.running ? (
-                  <span className="badge warn">neběží</span>
+                  <span className="badge warn">{t("not running")}</span>
                 ) : p.active ? (
-                  <span className="badge good">aktivní</span>
+                  <span className="badge good">{t("active")}</span>
                 ) : (
-                  <span className="badge">vypnuto</span>
+                  <span className="badge">{t("off")}</span>
                 )}
                 {p.missing_env.length > 0 && (
-                  <div className="small warn">chybí {p.missing_env.join(", ")}</div>
+                  <div className="small warn">{t("missing {names}", { names: p.missing_env.join(", ") })}</div>
                 )}
               </td>
               <td className="provider-actions">
@@ -66,7 +68,7 @@ export function ProvidersCard({ onChanged }: { onChanged?: () => void }) {
                       checked={p.active}
                       onChange={(e) => void update(p.name, { enabled: e.target.checked })}
                     />
-                    bez klíče
+                    {t("no key")}
                   </label>
                 )}
                 {p.key_env && (
@@ -80,24 +82,24 @@ export function ProvidersCard({ onChanged }: { onChanged?: () => void }) {
                     <input
                       type="password"
                       autoComplete="off"
-                      placeholder={p.has_key ? "klíč uložen" : p.key_env}
-                      aria-label={`Klíč pro ${p.label}`}
+                      placeholder={p.has_key ? t("key saved") : p.key_env}
+                      aria-label={t("Key for {name}", { name: p.label })}
                       value={keys[p.name] ?? ""}
                       onChange={(e) => setKeys((k) => ({ ...k, [p.name]: e.target.value }))}
                     />
                     <button type="submit" className="small" disabled={!keys[p.name]?.trim()}>
-                      Uložit
+                      {t("Save")}
                     </button>
                     {p.has_key && (
                       <button type="button" className="small" onClick={() => void update(p.name, { key: "" })}>
-                        Smazat
+                        {t("Delete")}
                       </button>
                     )}
                   </form>
                 )}
                 {p.signup && (
                   <a className="small" href={p.signup} target="_blank" rel="noreferrer">
-                    {p.local ? "stáhnout" : "získat klíč"}
+                    {p.local ? t("download") : t("get a key")}
                   </a>
                 )}
               </td>
@@ -132,23 +134,22 @@ export function AgentsCard({ onChanged }: { onChanged?: (agents: AgentInfo[]) =>
     }
   }
 
-  if (!agents) return error ? <p className="alert error">{error}</p> : <p className="muted">Načítám…</p>;
+  if (!agents) return error ? <p className="alert error">{error}</p> : <p className="muted">{t("Loading…")}</p>;
   return (
     <>
       <p className="hint">
-        Volitelné. Claude Code a Codex běží jako příkazy v terminálu na tvém předplatném. Čtou kód projektu, ten tedy
-        odchází k Anthropic / OpenAI, a podle pravidel svého CLI mohou číst i jiné soubory na počítači. Claude nedostane
-        shell; Codex spouští příkazy jen ve svém sandboxu bez sítě. Změny mimo rozsah úkolu Studio zastaví, review
-        vždy dělá jiný agent než ten, kdo kód napsal, a když agentovi dojde limit, běh se zastaví a zeptá se.
+        {t(
+          "Optional. Claude Code and Codex run as terminal commands on your subscription. They read the project's code, so it goes to Anthropic / OpenAI, and within their CLI's own rules they can read other files on the computer too. Claude gets no shell; Codex runs commands only in its own sandbox without network. Studio stops changes outside the task scope, the review is always done by a different agent than the one that wrote the code, and when an agent hits its limit the run stops and asks.",
+        )}
       </p>
       <ul className="plain agents">
         {agents.map((a) => (
           <li key={a.name}>
             <strong>{LEAD_LABELS[a.name]}</strong>{" "}
             {a.installed ? (
-              <span className="badge good">{a.version ?? "nainstalováno"}</span>
+              <span className="badge good">{a.version ?? t("installed")}</span>
             ) : (
-              <span className="badge">nenainstalováno</span>
+              <span className="badge">{t("not installed")}</span>
             )}
             <div className="agent-roles">
               {ROLES.map((role) => (
@@ -199,16 +200,16 @@ export function MemoryFolder({ vault, onChanged }: { vault: VaultOverview | null
       <input
         value={path}
         onChange={(e) => setPath(e.target.value)}
-        placeholder="C:\Users\ty\Notes nebo ~/notes"
-        aria-label="Paměťová složka"
+        placeholder={t("C:\\Users\\you\\Notes or ~/notes")}
+        aria-label={t("Memory folder")}
         spellCheck={false}
       />
       <button type="submit" className="small">
-        Uložit
+        {t("Save")}
       </button>
       {vault?.path && (
         <button type="button" className="small" onClick={() => void save(null)}>
-          Odpojit
+          {t("Disconnect")}
         </button>
       )}
       {error && <span className="alert error small">{error}</span>}

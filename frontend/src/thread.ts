@@ -1,5 +1,6 @@
 // Builds the chronological thread of a run: chat messages and steps with their agent output.
 import type { AgentEvent, Message, ReviewOutput, RunDetail, Step } from "./api";
+import { t } from "./i18n";
 
 /** Display acceptance is conservative, including older runs without server metadata. */
 export function reviewAccepted(review: ReviewOutput | null, expected: string[]): boolean {
@@ -58,12 +59,12 @@ export interface Stage {
 }
 
 const STAGES: { id: string; label: string; kinds: string[] }[] = [
-  { id: "spec", label: "Zadání", kinds: ["draft"] },
-  { id: "plan", label: "Plán", kinds: ["plan"] },
-  { id: "work", label: "Práce", kinds: ["work", "handoff"] },
-  { id: "verify", label: "Ověření", kinds: ["verify"] },
-  { id: "review", label: "Recenze", kinds: ["review"] },
-  { id: "memory", label: "Paměť", kinds: ["memory"] },
+  { id: "spec", label: t("Brief"), kinds: ["draft"] },
+  { id: "plan", label: t("Plan"), kinds: ["plan"] },
+  { id: "work", label: t("Work"), kinds: ["work", "handoff"] },
+  { id: "verify", label: t("Verification"), kinds: ["verify"] },
+  { id: "review", label: t("Review"), kinds: ["review"] },
+  { id: "memory", label: t("Memory"), kinds: ["memory"] },
 ];
 // Work, verification and review repeat on rework; only the newest iteration counts.
 const REPEATED = ["work", "handoff", "verify", "review"];
