@@ -100,6 +100,7 @@ test("self-review waits for a decision and sensitive verification or review cann
   await page.goto("/#/run/review-fixture");
   await expect(page.getByRole("button", { name: "Přijmout změnu", exact: true })).toBeVisible();
   await expect(page.locator('.stage.waiting')).toContainText("Recenze");
+  await page.emulateMedia({ reducedMotion: "reduce" });
   for (const width of [1440, 390]) {
     for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width, height: 1000 });
