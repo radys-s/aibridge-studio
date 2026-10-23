@@ -4,6 +4,7 @@ import { activeProviders, gatewayState } from "../options";
 import { relativeTime, STATE_LABELS } from "../format";
 import { t } from "../i18n";
 import { NEEDS_YOU } from "../notify";
+import { Icon } from "./Icon";
 
 interface Props {
   health: Health | null;
@@ -53,19 +54,35 @@ export function Sidebar(p: Props) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="logo" aria-hidden="true">◆</span> AI Bridge Studio
+        <span className="app-icon" aria-hidden="true">◆</span>
+        <span className="brand-name">AI Bridge Studio</span>
+        {h && <span className="brand-version">v{h.version}</span>}
       </div>
       <button type="button" className={`new-task${p.view === "new" ? " on" : ""}`} onClick={p.onNew}>
+        <Icon name="compose" />
         {t("New task")}
       </button>
-      <input
-        className="search"
-        type="search"
-        placeholder={t("Search tasks…")}
-        aria-label={t("Search tasks")}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <div className="search-wrap">
+        <Icon name="search" />
+        <input
+          className="search"
+          type="search"
+          placeholder={t("Search tasks…")}
+          aria-label={t("Search tasks")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className="nav-rows">
+        <button type="button" className={`nav-row${p.view === "overview" ? " on" : ""}`} onClick={p.onOverview}>
+          <Icon name="chart" />
+          {t("Overview")}
+        </button>
+        <button type="button" className={`nav-row${p.view === "settings" ? " on" : ""}`} onClick={p.onSettings}>
+          <Icon name="gear" />
+          {t("Settings")}
+        </button>
+      </div>
       {waiting > 0 && <p className="small waiting">{t("{n} waiting for you", { n: waiting })}</p>}
 
       <nav aria-label={t("Tasks")} className="run-list">
@@ -74,7 +91,8 @@ export function Sidebar(p: Props) {
         {groups.map((g) => (
           <div key={g.repo} className="repo-group">
             <div className="repo-name" title={g.repo}>
-              {repoName(g.repo)}
+              <Icon name="folder" />
+              <span>{repoName(g.repo)}</span>
             </div>
             <ul>
               {g.runs.map((r) => (
@@ -87,6 +105,7 @@ export function Sidebar(p: Props) {
                     title={STATE_LABELS[r.state] ?? r.state}
                   >
                     <span
+                      role="img"
                       className={`sdot s-${r.state}${isActive(r.state) ? " busy" : ""}`}
                       aria-label={STATE_LABELS[r.state] ?? r.state}
                     />
@@ -117,18 +136,15 @@ export function Sidebar(p: Props) {
             </>
           )}
         </div>
-        <div className="foot-buttons">
-          <button type="button" className={`small${p.view === "overview" ? " on" : ""}`} onClick={p.onOverview}>
-            {t("Overview")}
-          </button>
-          <button type="button" className={`small${p.view === "settings" ? " on" : ""}`} onClick={p.onSettings}>
-            {t("Settings")}
-          </button>
-          <button type="button" className="small" onClick={p.onTheme} aria-label={t("Switch theme")} title={t("Theme")}>
-            {p.theme === "dark" ? "☾" : p.theme === "light" ? "☀" : "◐"}
-          </button>
-          {h && <span className="muted small">v{h.version}</span>}
-        </div>
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={p.onTheme}
+          aria-label={t("Switch theme")}
+          title={t("Theme")}
+        >
+          <Icon name={p.theme === "dark" ? "moon" : p.theme === "light" ? "sun" : "auto"} />
+        </button>
       </div>
     </aside>
   );

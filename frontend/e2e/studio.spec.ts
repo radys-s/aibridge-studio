@@ -98,6 +98,17 @@ test("project run: accepted, memory written only after click, applied to a branc
   const current = execFileSync("git", ["branch", "--show-current"], { cwd: REPO, encoding: "utf8" });
   expect(current.trim()).toBe("main");
 
+  // Visual record of a finished thread (agent timeline, decisions) in both themes.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const width of [1440, 390]) {
+    for (const theme of ["light", "dark"]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: join(TMP, "screenshots", `visual-thread-${width}-${theme}.png`), fullPage: true });
+    }
+  }
+
   // Přehled counts the accepted run and the applied branch.
   await page.getByRole("button", { name: "Přehled", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Výsledky" })).toBeVisible();

@@ -54,6 +54,15 @@ the owner's explicit word).
   English only (also inside Czech templates).
 - **Gates (M4).** Backend pytest, ruff, format, mypy clean; Vitest 30/30; Playwright 12/12
   outside OneDrive (one earlier run had a single hung `apply` request; rerun passed).
+- **macOS redesign (2026-10-23, after M4).** New look requested by the owner: translucent
+  source-list sidebar with line icons (`Icon.tsx`), blurred toolbar header, macOS buttons,
+  segmented controls and switches, System Settings style grouped cards, agent steps on a
+  timeline rail with an activity bar on the running step, decision panel with a warning edge.
+  Separate tuned light and dark palettes; motion tokens (`--dur-*`, `--ease`), reduced motion
+  shows content at once. All class names kept. Review subagent: 0 critical, 8 risks (contrast
+  of accent fills and faint text, focus ring strength, cursor, forced-colors focus, run state
+  for screen readers); all fixed. Gates: tsc, Vitest 30/30, Playwright 12/12 with new thread
+  screenshots at 1440/390 px in both themes, checked by eye.
 - Open: M7 must scrub `CLAUDE.md` and `docs/*` of personal names and paths before publish.
 
 ## v0.6 — more free no-train providers (2026-10-10, branch `v0.6`, Claude Code)
