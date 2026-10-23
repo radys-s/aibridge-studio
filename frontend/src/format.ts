@@ -1,42 +1,43 @@
-// Small formatting helpers (Czech locale).
+// Small formatting helpers in the UI language.
+import { locale, t } from "./i18n";
 
 export const STATE_LABELS: Record<string, string> = {
-  queued: "Ve frontě",
-  planning: "Plánuje",
-  working: "Pracuje",
-  verifying: "Ověřuje",
-  reviewing: "Recenze",
-  accepted: "Přijato",
-  needs_decision: "Čeká na rozhodnutí",
-  interrupted: "Přerušeno",
-  abandoned: "Opuštěno",
-  awaiting_external: "Čeká na externího agenta",
-  awaiting_approval: "Čeká na schválení",
+  queued: t("Queued"),
+  planning: t("Planning"),
+  working: t("Working"),
+  verifying: t("Verifying"),
+  reviewing: t("Review"),
+  accepted: t("Accepted"),
+  needs_decision: t("Needs a decision"),
+  interrupted: t("Interrupted"),
+  abandoned: t("Abandoned"),
+  awaiting_external: t("Waiting for the external agent"),
+  awaiting_approval: t("Waiting for approval"),
 };
 
 export const STEP_LABELS: Record<string, string> = {
-  setup: "Příprava",
-  draft: "Návrh zadání",
-  approve: "Schválení",
-  plan: "Plán",
-  handoff: "Předání",
-  work: "Práce",
-  verify: "Ověření",
-  review: "Recenze",
-  memory: "Paměť",
+  setup: t("Setup"),
+  draft: t("Draft brief"),
+  approve: t("Approval"),
+  plan: t("Plan"),
+  handoff: t("Handoff"),
+  work: t("Work"),
+  verify: t("Verification"),
+  review: t("Review"),
+  memory: t("Memory"),
 };
 
 export const STEP_STATUS_LABELS: Record<string, string> = {
-  running: "běží",
-  done: "hotovo",
-  failed: "selhalo",
-  interrupted: "přerušeno",
+  running: t("running"),
+  done: t("done"),
+  failed: t("failed"),
+  interrupted: t("interrupted"),
 };
 
 export const VERDICT_LABELS: Record<string, string> = {
-  accept: "Přijmout",
-  request_changes: "Požaduje změny",
-  reject: "Zamítnout",
+  accept: t("Accept"),
+  request_changes: t("Requests changes"),
+  reject: t("Reject"),
 };
 
 export function nowSec(): number {
@@ -57,21 +58,21 @@ export function formatDuration(seconds: number | null | undefined): string {
 export function relativeTime(ts: number | null | undefined, now = nowSec()): string {
   if (!ts) return "–";
   const diff = Math.max(0, now - ts);
-  if (diff < 45) return "právě teď";
-  if (diff < 3600) return `před ${Math.round(diff / 60)} min`;
-  if (diff < 86400) return `před ${Math.round(diff / 3600)} h`;
+  if (diff < 45) return t("just now");
+  if (diff < 3600) return t("{n} min ago", { n: Math.round(diff / 60) });
+  if (diff < 86400) return t("{n} h ago", { n: Math.round(diff / 3600) });
   const days = Math.round(diff / 86400);
-  return days === 1 ? "včera" : `před ${days} dny`;
+  return days === 1 ? t("yesterday") : t("{n} days ago", { n: days });
 }
 
 export function absoluteTime(ts: number | null | undefined): string {
   if (!ts) return "–";
-  return new Date(ts * 1000).toLocaleString("cs-CZ");
+  return new Date(ts * 1000).toLocaleString(locale());
 }
 
 export function formatTokens(n: number | null | undefined): string {
   if (n == null) return "–";
-  return n.toLocaleString("cs-CZ");
+  return n.toLocaleString(locale());
 }
 
 export function formatCost(usd: number | null | undefined): string {

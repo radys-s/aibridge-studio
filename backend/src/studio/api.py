@@ -28,6 +28,7 @@ from studio.domain import AUTOPILOT, CLI_LEADS, AnyLead, TaskSpec
 from studio.gateway import ChatGateway, DirectGateway, OmniRouteGateway, RoutedGateway
 from studio.launcher import LaunchError, OmniRouteLauncher
 from studio.memory import project_memory
+from studio.messages import Language
 from studio.preferences import Defaults, Preferences
 from studio.probe import UnknownModel, probe_model
 from studio.providers import KeyStoreError, load_providers, local_specs, save_key
@@ -80,6 +81,10 @@ class ProviderBody(BaseModel):
 
 class MemoryPathBody(BaseModel):
     path: str | None = None
+
+
+class LanguageBody(BaseModel):
+    language: Language
 
 
 class SettingsBody(BaseModel):
@@ -378,6 +383,12 @@ def create_app(
         else:
             prefs.remember_memory_path(None)
         return vault_overview()
+
+    @app.put("/api/language")
+    def set_language(body: LanguageBody) -> dict[str, str]:
+        """Language for the UI and for new event text (old events keep theirs)."""
+        prefs.remember_language(body.language)
+        return {"language": body.language}
 
     @app.get("/api/vault/project")
     def vault_project(note: str) -> dict[str, Any]:

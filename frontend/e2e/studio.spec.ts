@@ -80,7 +80,7 @@ test("project run: accepted, memory written only after click, applied to a branc
   const write = page.getByRole("button", { name: "Zapsat" }).first();
   await expect(write).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Přijato").first()).toBeVisible();
-  expect(readFileSync(NOTE, "utf8")).not.toContain("Přidána median()");
+  expect(readFileSync(NOTE, "utf8")).not.toContain("Added median()");
   // A new proposal supersedes the old one: only the latest offers Zapsat.
   const writesBefore = await page.getByRole("button", { name: "Zapsat" }).count();
   await page.getByRole("button", { name: "Navrhnout znovu" }).click();
@@ -89,7 +89,7 @@ test("project run: accepted, memory written only after click, applied to a branc
   await expect(page.getByRole("button", { name: "Navrhnout znovu" })).toHaveCount(1);
   await page.getByRole("button", { name: "Zapsat" }).first().click();
   await expect(page.getByText("zapsáno").first()).toBeVisible();
-  expect(readFileSync(NOTE, "utf8")).toContain("Přidána median() s testy (testovací běh).");
+  expect(readFileSync(NOTE, "utf8")).toContain("Added median() with tests (test run).");
 
   await page.getByRole("button", { name: "Použít do repozitáře" }).click();
   await expect(page.getByText(/Ve větvi studio\//)).toBeVisible({ timeout: 30_000 });

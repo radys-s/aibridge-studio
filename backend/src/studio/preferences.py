@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from studio.db import Database
 from studio.domain import AGENT_ROLES, CLI_LEADS, Escalation, Implementer, Orchestration
+from studio.messages import Language
 
 
 class Defaults(BaseModel):
@@ -57,6 +58,14 @@ class Preferences:
     def remember_memory_path(self, path: str | None) -> None:
         self.db.set_setting("memory_path", path)
 
+    def language(self) -> Language | None:
+        """Language for new event text; None until the user or the first browser picks one."""
+        value = self.db.setting("language")
+        return "cs" if value == "cs" else "en" if value == "en" else None
+
+    def remember_language(self, language: Language) -> None:
+        self.db.set_setting("language", language)
+
     def enabled_providers(self) -> list[str]:
         return [str(n) for n in self.db.setting("enabled_providers") or []]
 
@@ -83,4 +92,5 @@ class Preferences:
             "recent_repos": self.recent_repos(),
             "last_project": self.last_project(),
             "memory_path": self.memory_path(),
+            "language": self.language(),
         }

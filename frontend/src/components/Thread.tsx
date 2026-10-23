@@ -20,6 +20,7 @@ import {
   type WorkOutput,
 } from "../api";
 import { absoluteTime, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
+import { locale, t, tn } from "../i18n";
 import { actorLabel, describe, LEAD_LABELS, lines } from "../options";
 import { actorLead, buildThread, latestDraftId, progress, type StageState } from "../thread";
 import { CopyButton, ExitBadge, latestOutput, List } from "./bits";
@@ -28,13 +29,13 @@ import { StateBadge } from "./StateBadge";
 type Act = (action: RunAction, body?: ActionBody) => Promise<boolean>;
 
 const AUTHOR_LABELS: Record<string, string> = {
-  user: "Ty",
+  user: t("You"),
   claude: "Claude",
   codex: "Codex",
   autopilot: "Autopilot",
   studio: "Studio",
 };
-const AVATAR_LETTERS: Record<string, string> = { user: "T", studio: "S", claude: "C", codex: "X", autopilot: "A" };
+const AVATAR_LETTERS: Record<string, string> = { user: t("You").charAt(0), studio: "S", claude: "C", codex: "X", autopilot: "A" };
 
 function Avatar({ who }: { who: string }) {
   const letter = AVATAR_LETTERS[who] ?? "?";
@@ -47,17 +48,17 @@ function Avatar({ who }: { who: string }) {
 
 /** Codex answers in the output schema even mid-turn; show its summary, not raw JSON. */
 export function readable(text: string): string {
-  const t = text.trim();
-  if (!t.startsWith("{")) return text;
+  const s = text.trim();
+  if (!s.startsWith("{")) return text;
   try {
-    const obj = JSON.parse(t) as Record<string, unknown>;
+    const obj = JSON.parse(s) as Record<string, unknown>;
     for (const key of ["summary", "notes", "goal", "title"]) {
       if (typeof obj[key] === "string" && obj[key]) return obj[key] as string;
     }
   } catch {
     /* not JSON after all */
   }
-  return `strukturovaná odpověď (${t.length} znaků)`;
+  return t("structured answer ({n} characters)", { n: s.length });
 }
 
 function AgentStream({ events, running }: { events: AgentEvent[]; running: boolean }) {
@@ -69,17 +70,18 @@ function AgentStream({ events, running }: { events: AgentEvent[]; running: boole
   useEffect(() => {
     if (open && running) end.current?.scrollIntoView({ block: "nearest" });
   }, [events.length, open, running]);
-  if (events.length === 0) return running ? <p className="muted small thinking">Agent přemýšlí…</p> : null;
+  if (events.length === 0) return running ? <p className="muted small thinking">{t("The agent is thinking…")}</p> : null;
   const shown = events.slice(-300);
   const tools = events.filter((e) => e.kind === "tool").length;
   return (
     <details className="agent-stream" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="small muted">
-        Průběh agenta · {events.length} záznamů{tools ? ` · ${tools} nástrojů` : ""}
-        {running && <span className="pulse" aria-label="běží" />}
+        {t("Agent activity · {n} entries", { n: events.length })}
+        {tools ? ` · ${t("{n} tools", { n: tools })}` : ""}
+        {running && <span className="pulse" aria-label={t("running")} />}
       </summary>
       <div className="agent-log">
-        {events.length > shown.length && <div className="muted small">… starší záznamy skryty</div>}
+        {events.length > shown.length && <div className="muted small">{t("… older entries hidden")}</div>}
         {shown.map((ev) => (
           <div key={ev.id} className={`ae ae-${ev.kind}`}>
             {ev.kind === "tool" ? (
@@ -115,17 +117,17 @@ function PlanBody({ plan }: { plan: Plan }) {
         </ol>
       )}
       <p className="small muted">
-        Složitost: {plan.complexity || "–"} · doporučený implementátor: {plan.recommended_implementer || "–"}
+        {t("Complexity: {c} · recommended implementer: {i}", { c: plan.complexity || "–", i: plan.recommended_implementer || "–" })}
       </p>
       {plan.files_to_touch?.length > 0 && (
         <details>
-          <summary className="small">Soubory ({plan.files_to_touch.length})</summary>
+          <summary className="small">{t("Files ({n})", { n: plan.files_to_touch.length })}</summary>
           <List items={plan.files_to_touch} mono />
         </details>
       )}
       {plan.risks?.length > 0 && (
         <details>
-          <summary className="small">Rizika ({plan.risks.length})</summary>
+          <summary className="small">{t("Risks ({n})", { n: plan.risks.length })}</summary>
           <List items={plan.risks} />
         </details>
       )}
@@ -145,7 +147,7 @@ export function ReviewBody({ review }: { review: ReviewOutput }) {
           {review.findings.map((f, i) => (
             <li key={i}>
               <span className={`badge sev-${f.severity}`}>{f.severity}</span> <code>{f.file}</code> {f.problem}
-              {f.fix && <div className="muted small">Oprava: {f.fix}</div>}
+              {f.fix && <div className="muted small">{t("Fix: {fix}", { fix: f.fix })}</div>}
             </li>
           ))}
         </ul>
@@ -154,7 +156,7 @@ export function ReviewBody({ review }: { review: ReviewOutput }) {
         <ul className="criteria">
           {review.criteria.map((c, i) => (
             <li key={i} className={c.met ? "met" : "unmet"}>
-              <span className="mark" aria-label={c.met ? "splněno" : "nesplněno"}>
+              <span className="mark" aria-label={c.met ? t("met") : t("not met")}>
                 {c.met ? "✓" : "✗"}
               </span>
               <div>
@@ -181,13 +183,13 @@ function MemoryBody({ out, act, latest }: { out: MemoryOutput; act: Act; latest:
 
   const again = (
     <button type="button" className="small" disabled={busy !== null} onClick={() => void run("memory-retry", -1)}>
-      Navrhnout znovu
+      {t("Propose again")}
     </button>
   );
   if (proposals.length === 0)
     return (
       <div className="actions">
-        <span className="muted small">Autopilot nenavrhl nic k zápisu.</span>
+        <span className="muted small">{t("Autopilot proposed nothing to write.")}</span>
         {latest && again}
       </div>
     );
@@ -196,36 +198,35 @@ function MemoryBody({ out, act, latest }: { out: MemoryOutput; act: Act; latest:
     <>
       <p className="small muted">
         {out.author === "studio"
-          ? "Model návrh nedodal, Studio ho sestavilo z ověřených faktů běhu. "
-          : "Návrh od Autopilota. "}
-        Zapíše se do paměťové složky až po kliknutí, jen připojením na konec poznámky nebo jako nová předávka. Nic se
-        nepřepisuje.
+          ? t("The model gave no proposal; Studio built it from the run's verified facts.")
+          : t("Proposal from Autopilot.")}{" "}
+        {t("It is written to the memory folder only after your click, appended to the end of a note or as a new handoff. Nothing is overwritten.")}
       </p>
       {proposals.map((p, i) => (
         <div key={i} className={`proposal status-${p.status}`}>
           <div className="small">
-            <strong>{p.kind === "append" ? "Doplnit poznámku projektu" : "Nová předávka"}</strong>{" "}
+            <strong>{p.kind === "append" ? t("Add to the project note") : t("New handoff")}</strong>{" "}
             <code>{p.path}</code>
           </div>
           <details open={p.status === "proposed" && latest}>
-            <summary className="small">Text</summary>
+            <summary className="small">{t("Text")}</summary>
             <pre className="output">{p.content}</pre>
           </details>
           {p.status === "proposed" && !latest ? (
             // The server acts on the latest memory step only; an older proposal is superseded.
-            <span className="badge">nahrazeno novějším návrhem</span>
+            <span className="badge">{t("replaced by a newer proposal")}</span>
           ) : p.status === "proposed" ? (
             <div className="actions">
               <button type="button" className="primary small" disabled={busy !== null} onClick={() => void run("vault-write", i)}>
-                Zapsat
+                {t("Write")}
               </button>
               <button type="button" className="small" disabled={busy !== null} onClick={() => void run("vault-discard", i)}>
-                Zahodit
+                {t("Discard")}
               </button>
             </div>
           ) : (
             <span className={`badge ${p.status === "written" ? "good" : "warn"}`}>
-              {p.status === "written" ? "zapsáno" : "zahozeno"}
+              {p.status === "written" ? t("written") : t("discarded")}
             </span>
           )}
         </div>
@@ -250,13 +251,13 @@ function StepBody({ step, act, latest }: { step: Step; act: Act; latest: boolean
       return (
         <>
           <p>
-            {v.passed ? <span className="badge good">prošlo</span> : <span className="badge bad">neprošlo</span>}
-            {v.empty_diff && <span className="badge warn">prázdný diff</span>}
-            <span className="muted small">{v.changed_files?.length ?? 0} změněných souborů</span>
+            {v.passed ? <span className="badge good">{t("passed")}</span> : <span className="badge bad">{t("did not pass")}</span>}
+            {v.empty_diff && <span className="badge warn">{t("empty diff")}</span>}
+            <span className="muted small">{tn(v.changed_files?.length ?? 0, "{n} changed file", "{n} changed files")}</span>
           </p>
           {v.out_of_scope?.length > 0 && (
             <div className="alert warn">
-              Mimo povolený rozsah: <List items={v.out_of_scope} mono />
+              {t("Outside the allowed scope:")} <List items={v.out_of_scope} mono />
             </div>
           )}
           <ul className="claims">
@@ -275,17 +276,17 @@ function StepBody({ step, act, latest }: { step: Step; act: Act; latest: boolean
       const files = w.files_changed ?? w.files_written ?? [];
       return (
         <>
-          {w.claim && <p className="small"><span className="badge warn">neověřené tvrzení</span> {w.claim}</p>}
+          {w.claim && <p className="small"><span className="badge warn">{t("unverified claim")}</span> {w.claim}</p>}
           {w.summary && <p className="prewrap">{w.summary}</p>}
           {files.length > 0 && (
             <details>
-              <summary className="small">Soubory podle implementátora ({files.length})</summary>
+              <summary className="small">{t("Files according to the implementer ({n})", { n: files.length })}</summary>
               <List items={files} mono />
             </details>
           )}
           {w.concerns && w.concerns.length > 0 && (
             <div className="alert warn small">
-              Obavy implementátora: <List items={w.concerns} />
+              {t("Implementer's concerns:")} <List items={w.concerns} />
             </div>
           )}
           {w.detail && <p className="muted small prewrap">{w.detail}</p>}
@@ -293,12 +294,12 @@ function StepBody({ step, act, latest }: { step: Step; act: Act; latest: boolean
       );
     }
     case "setup":
-      return <p className="small muted">Pracovní kopie: <code>{String(out.workspace ?? "")}</code></p>;
+      return <p className="small muted">{t("Working copy:")} <code>{String(out.workspace ?? "")}</code></p>;
     case "handoff": {
       const h = out as unknown as HandoffOutput;
       return h.text ? (
         <details>
-          <summary className="small">Zadání pro {h.agent}</summary>
+          <summary className="small">{t("Brief for {agent}", { agent: h.agent })}</summary>
           <pre className="output">{h.text}</pre>
         </details>
       ) : null;
@@ -311,15 +312,15 @@ function StepBody({ step, act, latest }: { step: Step; act: Act; latest: boolean
 function stepTitle(step: Step): string {
   const label = STEP_LABELS[step.kind] ?? step.kind;
   const actor = step.actor ?? "";
-  if (actor.endsWith(":merge")) return "Sloučený plán";
-  if (actor.startsWith("lead:")) return `${label} · implementuje ${actorLabel(actor.slice(5))}`;
-  if (actor.startsWith("external:")) return `${label} · ${actor.slice(9)} (ručně)`;
+  if (actor.endsWith(":merge")) return t("Merged plan");
+  if (actor.startsWith("lead:")) return `${label} · ${t("implemented by {who}", { who: actorLabel(actor.slice(5)) ?? "" })}`;
+  if (actor.startsWith("external:")) return `${label} · ${actor.slice(9)} (${t("by hand")})`;
   const lead = actorLead(actor);
   if (lead) return `${label} · ${actorLabel(lead)}`;
   return actor && actor !== "studio" ? `${label} · ${actor}` : label;
 }
 
-/** `latest`: the newest step of its kind; only that one offers "Navrhnout znovu". */
+/** `latest`: the newest step of its kind; only that one offers "Propose again". */
 function StepCard({ step, agent, act, latest }: { step: Step; agent: AgentEvent[]; act: Act; latest: boolean }) {
   const lead = actorLead(step.actor);
   const running = step.status === "running";
@@ -329,7 +330,7 @@ function StepCard({ step, agent, act, latest }: { step: Step; agent: AgentEvent[
       <div className="step-head">
         <span className={`step-dot ${step.status}`} aria-hidden="true" />
         <strong>{stepTitle(step)}</strong>
-        {step.iteration > 1 && <span className="muted small">{step.iteration}. pokus</span>}
+        {step.iteration > 1 && <span className="muted small">{t("attempt {n}", { n: step.iteration })}</span>}
         <span className={`badge step-status-${step.status}`}>{STEP_STATUS_LABELS[step.status] ?? step.status}</span>
         <span className="muted small" title={absoluteTime(step.started_at)}>
           {dur}
@@ -339,7 +340,7 @@ function StepCard({ step, agent, act, latest }: { step: Step; agent: AgentEvent[
       {latest && step.kind === "memory" && step.status === "failed" && (
         <div className="actions">
           <button type="button" className="small" onClick={() => void act("memory-retry")}>
-            Navrhnout znovu
+            {t("Propose again")}
           </button>
         </div>
       )}
@@ -377,11 +378,11 @@ function DraftCard({ message, editable, act }: { message: Message; editable: boo
       <div className="draft-card readonly">
         <strong>{draft.title}</strong>
         <dl className="spec">
-          <dt>Rozsah</dt>
+          <dt>{t("Scope")}</dt>
           <dd><List items={draft.allowed_paths} mono /></dd>
-          <dt>Kritéria</dt>
+          <dt>{t("Criteria")}</dt>
           <dd><List items={draft.acceptance_criteria} /></dd>
-          <dt>Ověření</dt>
+          <dt>{t("Verification")}</dt>
           <dd><List items={draft.acceptance_commands} mono /></dd>
         </dl>
       </div>
@@ -390,41 +391,41 @@ function DraftCard({ message, editable, act }: { message: Message; editable: boo
   return (
     <div className="draft-card">
       <div className="draft-head">
-        <strong>Návrh zadání</strong>
-        <span className="muted small">Uprav, co nesedí, a schval. Na otázky odpověz zprávou dole.</span>
+        <strong>{t("Brief")}</strong>
+        <span className="muted small">{t("Fix what does not fit and approve. Answer questions with a message below.")}</span>
       </div>
       {hasQuestions && (
         <div className="alert warn">
-          <strong>Autopilot se ptá:</strong>
+          <strong>{t("Autopilot asks:")}</strong>
           <List items={draft.questions} />
         </div>
       )}
       <label className="field">
-        <span>Název</span>
+        <span>{t("Title")}</span>
         <input value={title} onChange={(e) => setTitle(e.target.value)} />
       </label>
       <div className="field-row">
         <label className="field">
-          <span>Povolené cesty</span>
+          <span>{t("Allowed paths")}</span>
           <textarea rows={4} value={paths} spellCheck={false} onChange={(e) => setPaths(e.target.value)} />
         </label>
         <label className="field">
-          <span>Akceptační kritéria</span>
+          <span>{t("Acceptance criteria")}</span>
           <textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} />
         </label>
         <label className="field">
-          <span>Příkazy k ověření</span>
+          <span>{t("Verification commands")}</span>
           <textarea rows={4} value={commands} spellCheck={false} onChange={(e) => setCommands(e.target.value)} />
         </label>
       </div>
       {invalid.length > 0 && (
         <div className="alert error">
-          Tyto příkazy Studio nespustí, uprav je: <List items={invalid} mono />
+          {t("Studio will not run these commands; change them:")} <List items={invalid} mono />
         </div>
       )}
       <div className="actions">
         <button type="button" className="primary" disabled={busy} onClick={() => void approve()}>
-          {hasQuestions ? "Schválit i bez odpovědí" : "Schválit a plánovat"}
+          {hasQuestions ? t("Approve without answers") : t("Approve and plan")}
         </button>
       </div>
     </div>
@@ -440,7 +441,7 @@ function MessageBubble({ message, draftEditable, act }: { message: Message; draf
         <div className="msg-meta">
           <strong>{AUTHOR_LABELS[who] ?? who}</strong>{" "}
           <span className="muted small" title={absoluteTime(message.at)}>
-            {new Date(message.at * 1000).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+            {new Date(message.at * 1000).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
         {message.data?.draft ? (
@@ -454,7 +455,7 @@ function MessageBubble({ message, draftEditable, act }: { message: Message; draf
 }
 
 function files(n: number): string {
-  return `${n} ${n === 1 ? "soubor" : n >= 2 && n <= 4 ? "soubory" : "souborů"}`;
+  return tn(n, "{n} file", "{n} files");
 }
 
 /** Takeover: the run's takeover agent writes the code itself (Autopilot by default; Claude Code
@@ -463,7 +464,7 @@ function TakeoverButton({ run, act, note }: { run: RunDetail["run"]; act: Act; n
   const lead = run.spec.orchestration.takeover ?? AUTOPILOT;
   return (
     <button type="button" onClick={() => void act("takeover", { lead, note })}>
-      {lead === AUTOPILOT ? "Předat silnějšímu modelu" : `Předat: ${LEAD_LABELS[lead]}`}
+      {lead === AUTOPILOT ? t("Hand over to a stronger model") : t("Hand over: {lead}", { lead: LEAD_LABELS[lead] })}
     </button>
   );
 }
@@ -476,10 +477,10 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
       type="button"
       className="danger"
       onClick={() => {
-        if (window.confirm("Opravdu opustit tento úkol? Nelze vrátit.")) void act("abandon");
+        if (window.confirm(t("Really abandon this task? This cannot be undone."))) void act("abandon");
       }}
     >
-      Opustit
+      {t("Abandon")}
     </button>
   );
 
@@ -488,10 +489,10 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
       <div className="decision-bar working">
         <span className="pulse" aria-hidden="true" />
         <span>
-          {run.cancel_requested ? "Zastavuji…" : `Pracuje · ${STEP_LABELS[run.phase ?? ""] ?? run.phase ?? ""}`}
+          {run.cancel_requested ? t("Stopping…") : t("Working · {phase}", { phase: STEP_LABELS[run.phase ?? ""] ?? run.phase ?? "" })}
         </span>
         <button type="button" className="danger" disabled={!!run.cancel_requested} onClick={() => void act("cancel")}>
-          Přerušit
+          {t("Interrupt")}
         </button>
       </div>
     );
@@ -503,14 +504,14 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
     const applied = [...detail.events].reverse().find((e) => e.kind === "applied")?.data as Applied | undefined;
     return (
       <div className="decision-bar done">
-        <span className="badge good">Přijato</span>
+        <span className="badge good">{t("Accepted")}</span>
         {applied ? (
           <>
             <span className="small">
-              Ve větvi <code>{applied.branch}</code> ({files(applied.files.length)})
+              {t("In branch")} <code>{applied.branch}</code> ({files(applied.files.length)})
             </span>
-            <CopyButton text={`git merge ${applied.branch}`} label="Kopírovat merge" />
-            <span className="muted small">Merge a push děláš sám.</span>
+            <CopyButton text={`git merge ${applied.branch}`} label={t("Copy merge")} />
+            <span className="muted small">{t("You do the merge and push yourself.")}</span>
           </>
         ) : (
           <>
@@ -519,30 +520,31 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
               className="primary"
               onClick={() => {
                 const msg =
-                  `Vytvořit v ${run.spec.repo_path} novou větev studio/${run.id} s touto změnou?\n\n` +
-                  "Aktuální větev, rozpracované soubory ani remote se nezmění. Merge a push zůstávají na tobě.";
+                  t("Create a new branch studio/{id} with this change in {repo}?", { id: run.id, repo: run.spec.repo_path }) +
+                  "\n\n" +
+                  t("The current branch, uncommitted files and the remote do not change. Merge and push stay with you.");
                 if (window.confirm(msg)) void act("apply");
               }}
             >
-              Použít do repozitáře
+              {t("Apply to the repository")}
             </button>
             <span className="small">
               Patch: <code>{patch || "–"}</code>
             </span>
-            {patch && <CopyButton text={patch} label="Kopírovat cestu" />}
+            {patch && <CopyButton text={patch} label={t("Copy path")} />}
           </>
         )}
       </div>
     );
   }
 
-  if (run.state === "abandoned") return <div className="decision-bar"><span className="muted">Úkol opuštěn.</span></div>;
+  if (run.state === "abandoned") return <div className="decision-bar"><span className="muted">{t("Task abandoned.")}</span></div>;
 
   if (run.state === "awaiting_approval") {
     return (
       <div className="decision-bar ask">
-        <span>{run.pending === "draft" ? "Autopilot se ptá – odpověz zprávou dole, nebo návrh rovnou schval." : "Návrh zadání čeká na schválení."}</span>
-        <button type="button" onClick={() => void act("cancel")}>Přerušit</button>
+        <span>{run.pending === "draft" ? t("Autopilot asks: answer with a message below, or approve the brief right away.") : t("The brief waits for approval.")}</span>
+        <button type="button" onClick={() => void act("cancel")}>{t("Interrupt")}</button>
         {abandon}
       </div>
     );
@@ -553,24 +555,24 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
     const command = `cd "${run.workspace ?? ""}"; freebuff`;
     return (
       <div className="decision-bar ask column">
-        <strong>Čeká na Freebuff</strong>
+        <strong>{t("Waiting for Freebuff")}</strong>
         <ol className="small">
           <li>
             <button type="button" className="small" onClick={() => void act("open-terminal")}>
-              Otevřít terminál s Freebuffem
+              {t("Open a terminal with Freebuff")}
             </button>{" "}
-            nebo ručně <code>{command}</code> <CopyButton text={command} />
+            {t("or by hand")} <code>{command}</code> <CopyButton text={command} />
           </li>
           <li>
-            Vlož mu zadání <CopyButton text={handoff?.out.text ?? ""} label="Kopírovat zadání" />. Necommituj.
+            {t("Give it the brief")} <CopyButton text={handoff?.out.text ?? ""} label={t("Copy brief")} />. {t("Do not commit.")}
           </li>
-          <li>Až skončí, napiš dole, co tvrdí, a klikni Hotovo. Studio vše ověří samo.</li>
+          <li>{t("When it finishes, write below what it claims and click Done. Studio verifies everything itself.")}</li>
         </ol>
         <div className="actions">
           <button type="button" className="primary" onClick={() => void act("external-done", { note })}>
-            Hotovo, ověř
+            {t("Done, verify")}
           </button>
-          <button type="button" onClick={() => void act("cancel")}>Přerušit</button>
+          <button type="button" onClick={() => void act("cancel")}>{t("Interrupt")}</button>
           {abandon}
         </div>
       </div>
@@ -580,9 +582,9 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   if (run.state === "interrupted") {
     return (
       <div className="decision-bar ask">
-        <span>Přerušeno ve fázi {STEP_LABELS[run.phase ?? ""] ?? run.phase}.</span>
+        <span>{t("Interrupted in phase {phase}.", { phase: STEP_LABELS[run.phase ?? ""] ?? run.phase ?? "" })}</span>
         <button type="button" className="primary" onClick={() => void act("resume")}>
-          Pokračovat
+          {t("Continue")}
         </button>
         {implementable && <TakeoverButton run={run} act={act} note={note} />}
         {abandon}
@@ -591,7 +593,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   }
 
   // needs_decision
-  const reason = run.decision_reason || "Důvod nebyl uveden.";
+  const reason = run.decision_reason || t("No reason was given.");
   const sensitiveOverrideAllowed = ["draft", "setup"].includes(run.phase ?? "")
     || (run.phase === "work" && (run.implementer || run.spec.implementer) === "freebuff");
   const sensitiveWork = detail.steps.some((s) => s.kind === "work" && s.error === "sensitive");
@@ -600,8 +602,10 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
     case "sensitive":
       buttons = !sensitiveOverrideAllowed || sensitiveWork ? (
         <>
-        <span className="muted small">Odstraň citlivé údaje v pracovní kopii a zkus kontrolu znovu. Ochranu ověření ani recenze nelze obejít.</span>
-        <button type="button" className="primary" onClick={() => void act("retry")}>Zkontrolovat znovu</button>
+        <span className="muted small">
+          {t("Remove the sensitive data in the working copy and run the check again. Verification and review protection cannot be bypassed.")}
+        </span>
+        <button type="button" className="primary" onClick={() => void act("retry")}>{t("Check again")}</button>
         </>
       ) : (
         <>
@@ -609,14 +613,14 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
             type="button"
             className="primary"
             onClick={() => {
-              if (window.confirm("Potvrzuješ, že tyto soubory neobsahují tajné údaje? Uvidí je modely.")) {
+              if (window.confirm(t("Do you confirm these files hold no secrets? Models will see them."))) {
                 void act("allow-sensitive");
               }
             }}
           >
-            Nejsou tajné, pokračovat
+            {t("Not secret, continue")}
           </button>
-          <button type="button" onClick={() => void act("retry")}>Zkontrolovat znovu</button>
+          <button type="button" onClick={() => void act("retry")}>{t("Check again")}</button>
         </>
       );
       break;
@@ -624,7 +628,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
       buttons = (
         <>
           <TakeoverButton run={run} act={act} note={note} />
-          {run.phase === "work" && <button type="button" onClick={() => void act("keep-worker")}>Ponechat levný model</button>}
+          {run.phase === "work" && <button type="button" onClick={() => void act("keep-worker")}>{t("Keep the cheap model")}</button>}
         </>
       );
       break;
@@ -635,25 +639,25 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
             type="button"
             className="primary"
             onClick={() => {
-              if (window.confirm("Změnu schválil jen model, který ji napsal. Přijmout?")) void act("accept");
+              if (window.confirm(t("Only the model that wrote the change approved it. Accept?"))) void act("accept");
             }}
           >
-            Přijmout změnu
+            {t("Accept the change")}
           </button>
           <button
             type="button"
-            title="Jiný model byl v pauze po limitu. Recenze se zkusí znovu s modelem, který změnu nepsal."
+            title={t("The other model was paused after a limit. The review is retried with a model that did not write the change.")}
             onClick={() => void act("retry")}
           >
-            Zkusit nezávislou recenzi znovu
+            {t("Retry the independent review")}
           </button>
-          <button type="button" onClick={() => void act("rework", { note })}>Vrátit k opravě</button>
+          <button type="button" onClick={() => void act("rework", { note })}>{t("Send back for a fix")}</button>
         </>
       );
       break;
     case "draft":
     case "plan":
-      buttons = <span className="muted small">Odpověz zprávou dole, Autopilot pak pokračuje.</span>;
+      buttons = <span className="muted small">{t("Answer with a message below; Autopilot then continues.")}</span>;
       break;
     default:
       buttons = (
@@ -661,7 +665,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
           {/* Re-running verification on unchanged code cannot help; rework can. */}
           {run.phase !== "verify" && (
             <button type="button" className="primary" onClick={() => void act("retry")}>
-              Zkusit fázi znovu
+              {t("Retry the phase")}
             </button>
           )}
           {implementable && (
@@ -670,7 +674,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
               className={run.phase === "verify" ? "primary" : undefined}
               onClick={() => void act("rework", { note })}
             >
-              Vrátit k opravě
+              {t("Send back for a fix")}
             </button>
           )}
           {implementable && <TakeoverButton run={run} act={act} note={note} />}
@@ -679,7 +683,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   }
   return (
     <div className="decision-bar ask column">
-      <strong>Čeká na tvoje rozhodnutí</strong>
+      <strong>{t("Waiting for your decision")}</strong>
       <p className="decision-reason">{reason}</p>
       <div className="actions">
         {buttons}
@@ -690,12 +694,12 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
 }
 
 const STAGE_HINTS: Record<StageState, string> = {
-  todo: "čeká",
-  running: "právě běží",
-  done: "hotovo",
-  failed: "neprošlo",
-  waiting: "čeká na tebe",
-  skipped: "přeskočeno",
+  todo: t("pending"),
+  running: t("running now"),
+  done: t("done"),
+  failed: t("did not pass"),
+  waiting: t("waiting for you"),
+  skipped: t("skipped"),
 };
 const STAGE_MARKS: Record<StageState, string> = { todo: "○", running: "▶", done: "✓", failed: "!", waiting: "…", skipped: "–" };
 
@@ -736,7 +740,7 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, 
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setError(e instanceof ApiError && e.status === 409 ? `Teď nelze: ${msg}` : msg);
+      setError(e instanceof ApiError && e.status === 409 ? t("Not possible now: {msg}", { msg }) : msg);
       return false;
     } finally {
       actionPending.current.delete(action);
@@ -764,16 +768,16 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, 
   const spec = run.spec;
 
   return (
-    <section className="thread" aria-label="Průběh úkolu">
+    <section className="thread" aria-label={t("Task progress")}>
       <header className="thread-head">
         <div className="thread-title">
           <div>
-            <h1>{spec.title || "Nový úkol"}</h1>
+            <h1>{spec.title || t("New task")}</h1>
             <div className="thread-meta small">
               <StateBadge state={run.state} />
               <span className="muted">{describe(spec.orchestration)}</span>
-              {run.escalations > 0 && <span className="badge warn">převzal silnější model</span>}
-              <span className={`live-dot${live ? " on" : ""}`} title={live ? "Živé spojení" : "Bez živého spojení"} />
+              {run.escalations > 0 && <span className="badge warn">{t("taken over by a stronger model")}</span>}
+              <span className={`live-dot${live ? " on" : ""}`} title={live ? t("Live connection") : t("No live connection")} />
             </div>
           </div>
           <div className="actions">
@@ -781,19 +785,19 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, 
             <button
               type="button"
               className="small"
-              title="Otevře nový úkol se stejným zadáním, repozitářem a kritérii; nic se nespustí samo."
+              title={t("Opens a new task with the same brief, repository and criteria; nothing starts by itself.")}
               onClick={() => (window.location.hash = `#/new/from/${encodeURIComponent(run.id)}`)}
             >
-              Podobný úkol
+              {t("Similar task")}
             </button>
           )}
           <button type="button" className="small" onClick={onShowDiff}>Diff</button>
           <button type="button" className="small" aria-expanded={detailsOpen} onClick={onToggleDetails}>
-            {detailsOpen ? "Skrýt podrobnosti" : "Podrobnosti"}
+            {detailsOpen ? t("Hide details") : t("Details")}
           </button>
           </div>
         </div>
-        <ol className="progress" aria-label="Průběh">
+        <ol className="progress" aria-label={t("Progress")}>
           {stages.map((s) => (
             <li key={s.id} className={`stage ${s.state}`} title={STAGE_HINTS[s.state]} aria-current={s.state === "running" || s.state === "waiting" ? "step" : undefined}>
               <span>
@@ -839,14 +843,14 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, 
           <div className="reply">
             <textarea
               rows={2}
-              aria-label="Zpráva pro Autopilota"
-              placeholder="Napiš Autopilotovi – odpověď, poznámku k opravě nebo instrukci. (Ctrl+Enter odešle)"
+              aria-label={t("Message for Autopilot")}
+              placeholder={t("Write to Autopilot: an answer, a note for the fix or an instruction. (Ctrl+Enter sends)")}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKey}
             />
             <button type="button" className="primary" disabled={sending || !text.trim()} onClick={() => void send()}>
-              Odeslat
+              {t("Send")}
             </button>
           </div>
         )}

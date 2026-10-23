@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 import { api, type Overview } from "../api";
 import { formatCost, formatDuration, formatTokens, STATE_LABELS } from "../format";
+import { lang, locale, t } from "../i18n";
 import { StateBadge } from "./StateBadge";
 import { modelName } from "./SettingsView";
 
 const WINDOWS = [7, 30, 90] as const;
 
-/** "67 %" or "–" when there is nothing to divide. */
+/** "67 %" (Czech) or "67%", "–" when there is nothing to divide. */
 export function percent(share: number | null | undefined): string {
-  return share == null ? "–" : `${Math.round(share * 100)} %`;
+  return share == null ? "–" : `${Math.round(share * 100)}${lang() === "cs" ? " %" : "%"}`;
 }
 
-/** "1,5" with one decimal in Czech, "–" without data. */
+/** One decimal in the UI locale ("1,5" / "1.5"), "–" without data. */
 export function oneDecimal(n: number | null | undefined): string {
-  return n == null ? "–" : n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 });
+  return n == null ? "–" : n.toLocaleString(locale(), { maximumFractionDigits: 1 });
 }
 
 function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -46,8 +47,8 @@ export function OverviewView() {
   const o = data && data.days === days ? data : null;
   return (
     <div className="settings overview">
-      <h1>Přehled</h1>
-      <div className="segmented" role="group" aria-label="Období">
+      <h1>{t("Overview")}</h1>
+      <div className="segmented" role="group" aria-label={t("Period")}>
         {WINDOWS.map((d) => (
           <button
             key={d}
@@ -56,37 +57,37 @@ export function OverviewView() {
             className={days === d ? "on" : undefined}
             onClick={() => setDays(d)}
           >
-            {d} dní
+            {t("{n} days", { n: d })}
           </button>
         ))}
       </div>
-      {error && <p className="alert error">Přehled nelze načíst: {error}</p>}
-      {!o && !error && <p className="muted">Načítám…</p>}
-      {o && o.runs === 0 && <p className="muted">Za posledních {o.days} dní žádné úkoly.</p>}
+      {error && <p className="alert error">{t("Cannot load the overview: {error}", { error })}</p>}
+      {!o && !error && <p className="muted">{t("Loading…")}</p>}
+      {o && o.runs === 0 && <p className="muted">{t("No tasks in the last {n} days.", { n: o.days })}</p>}
       {o && o.runs > 0 && (
         <>
           <section className="card">
-            <h2>Výsledky</h2>
+            <h2>{t("Results")}</h2>
             <div className="tiles">
-              <Tile label="úkolů" value={String(o.runs)} />
+              <Tile label={t("tasks")} value={String(o.runs)} />
               <Tile
-                label="přijato"
+                label={t("accepted")}
                 value={percent(o.accept_rate)}
                 note={[
-                  o.finished ? `${o.accepted} z ${o.finished} dokončených` : "zatím nic nedokončeno",
-                  o.runs > o.finished ? `${o.runs - o.finished} rozpracovaných` : "",
+                  o.finished ? t("{a} of {b} finished", { a: o.accepted, b: o.finished }) : t("nothing finished yet"),
+                  o.runs > o.finished ? t("{n} in progress", { n: o.runs - o.finished }) : "",
                 ]
                   .filter(Boolean)
                   .join(" · ")}
               />
-              <Tile label="medián do přijetí" value={formatDuration(o.median_seconds_to_accepted)} note="od zadání po přijetí" />
+              <Tile label={t("median to accepted")} value={formatDuration(o.median_seconds_to_accepted)} note={t("from task to acceptance")} />
               <Tile
-                label="opravných kol"
+                label={t("fix rounds")}
                 value={oneDecimal(o.fix_rounds_avg)}
-                note={o.accepted ? `${o.first_try}× napoprvé` : undefined}
+                note={o.accepted ? t("{n}× first try", { n: o.first_try }) : undefined}
               />
-              <Tile label="tvých rozhodnutí" value={String(o.decisions)} note={`${oneDecimal(o.decisions / o.runs)} na úkol`} />
-              <Tile label="použito do repozitáře" value={String(o.applied)} />
+              <Tile label={t("your decisions")} value={String(o.decisions)} note={t("{n} per task", { n: oneDecimal(o.decisions / o.runs) })} />
+              <Tile label={t("applied to the repository")} value={String(o.applied)} />
             </div>
             <div className="state-counts">
               {Object.entries(o.by_state)
@@ -99,43 +100,45 @@ export function OverviewView() {
             </div>
           </section>
           <section className="card">
-            <h2>Spotřeba</h2>
+            <h2>{t("Usage")}</h2>
             <div className="tiles">
               <Tile
-                label="volání modelů"
+                label={t("model calls")}
                 value={formatTokens(o.api.calls)}
-                note={o.api.failed ? `${o.api.failed} neúspěšných` : undefined}
+                note={o.api.failed ? t("{n} failed", { n: o.api.failed }) : undefined}
               />
-              <Tile label="tokenů" value={formatTokens(o.api.tokens)} />
+              <Tile label={t("tokens")} value={formatTokens(o.api.tokens)} />
               <Tile
-                label="tokenů na přijatý úkol"
+                label={t("tokens per accepted task")}
                 value={formatTokens(o.api_tokens_per_accepted == null ? null : Math.round(o.api_tokens_per_accepted))}
-                note="jen volání přes OmniRoute"
+                note={t("model API calls only")}
               />
-              <Tile label="cena podle OmniRoute" value={formatCost(o.api.cost)} note="free modely hlásí 0" />
+              <Tile label={t("reported cost")} value={formatCost(o.api.cost)} note={t("free models report 0")} />
             </div>
             {o.subscription.calls > 0 && (
               <p className="muted small">
-                Předplatné (Claude / Codex přes vlastní přihlášení): {o.subscription.calls} volání,{" "}
-                {formatTokens(o.subscription.tokens)} tokenů, API ekvivalent {formatCost(o.subscription.cost)}.
+                {t("Subscription (Claude Code / Codex with your own login): {calls} calls, {tokens} tokens.", {
+                  calls: o.subscription.calls,
+                  tokens: formatTokens(o.subscription.tokens),
+                })}
               </p>
             )}
             {o.external_runs > 0 && (
               <p className="muted small">
-                {o.external_runs}× pracoval externí agent (Freebuff) — jeho spotřebu Studio nezná a v číslech není.
+                {t("An external agent (Freebuff) worked {n}×; Studio does not know its usage and it is not counted.", { n: o.external_runs })}
               </p>
             )}
-            <p className="muted small">Úspory se neuvádějí, dokud nejsou změřené proti přímé práci v Claude Code nebo Codexu.</p>
+            <p className="muted small">{t("Savings are not shown until they are measured against working directly in Claude Code or Codex.")}</p>
           </section>
           {o.top_models.length > 0 && (
             <section className="card">
-              <h2>Nejpoužívanější modely</h2>
+              <h2>{t("Most used models")}</h2>
               <table className="models">
                 <thead>
                   <tr>
-                    <th>Model</th>
-                    <th>Volání</th>
-                    <th>Úspěšných</th>
+                    <th>{t("Model")}</th>
+                    <th>{t("Calls")}</th>
+                    <th>{t("Succeeded")}</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { isActive, type Health, type RunSummary } from "../api";
 import { activeProviders, gatewayState } from "../options";
 import { relativeTime, STATE_LABELS } from "../format";
+import { t } from "../i18n";
 import { NEEDS_YOU } from "../notify";
 
 interface Props {
@@ -55,21 +56,21 @@ export function Sidebar(p: Props) {
         <span className="logo" aria-hidden="true">◆</span> AI Bridge Studio
       </div>
       <button type="button" className={`new-task${p.view === "new" ? " on" : ""}`} onClick={p.onNew}>
-        Nový úkol
+        {t("New task")}
       </button>
       <input
         className="search"
         type="search"
-        placeholder="Hledat úkoly…"
-        aria-label="Hledat úkoly"
+        placeholder={t("Search tasks…")}
+        aria-label={t("Search tasks")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      {waiting > 0 && <p className="small waiting">{waiting} čeká na tebe</p>}
+      {waiting > 0 && <p className="small waiting">{t("{n} waiting for you", { n: waiting })}</p>}
 
-      <nav aria-label="Úkoly" className="run-list">
+      <nav aria-label={t("Tasks")} className="run-list">
         {p.runsError && <p className="error small">{p.runsError}</p>}
-        {p.runs.length === 0 && !p.runsError && <p className="muted small">Zatím žádné úkoly.</p>}
+        {p.runs.length === 0 && !p.runsError && <p className="muted small">{t("No tasks yet.")}</p>}
         {groups.map((g) => (
           <div key={g.repo} className="repo-group">
             <div className="repo-name" title={g.repo}>
@@ -89,7 +90,7 @@ export function Sidebar(p: Props) {
                       className={`sdot s-${r.state}${isActive(r.state) ? " busy" : ""}`}
                       aria-label={STATE_LABELS[r.state] ?? r.state}
                     />
-                    <span className="run-title">{r.title || "(bez názvu)"}</span>
+                    <span className="run-title">{r.title || t("(untitled)")}</span>
                     <span className="run-when muted small">{relativeTime(r.updated_at || r.created_at)}</span>
                   </button>
                 </li>
@@ -102,28 +103,28 @@ export function Sidebar(p: Props) {
       <div className="sidebar-foot">
         <div className="health small" title={p.healthError ?? h?.gateway.error ?? ""}>
           {p.healthError ? (
-            <span className="error">Backend nedostupný</span>
+            <span className="error">{t("Backend unreachable")}</span>
           ) : (
             <>
               {h?.gateway.fake ? (
-                <span className="badge warn">testovací gateway</span>
+                <span className="badge warn">{t("test gateway")}</span>
               ) : (
                 <>
-                  <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> {h ? gatewayState(h).text : "Modely"}
+                  <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> {h ? gatewayState(h).text : t("Models")}
                 </>
               )}
-              <span className={`hdot ${h && activeProviders(h.models ?? []).length ? "ok" : "bad"}`} /> soukromé modely
+              <span className={`hdot ${h && activeProviders(h.models ?? []).length ? "ok" : "bad"}`} /> {t("private models")}
             </>
           )}
         </div>
         <div className="foot-buttons">
           <button type="button" className={`small${p.view === "overview" ? " on" : ""}`} onClick={p.onOverview}>
-            Přehled
+            {t("Overview")}
           </button>
           <button type="button" className={`small${p.view === "settings" ? " on" : ""}`} onClick={p.onSettings}>
-            Nastavení
+            {t("Settings")}
           </button>
-          <button type="button" className="small" onClick={p.onTheme} aria-label="Přepnout motiv" title="Motiv">
+          <button type="button" className="small" onClick={p.onTheme} aria-label={t("Switch theme")} title={t("Theme")}>
             {p.theme === "dark" ? "☾" : p.theme === "light" ? "☀" : "◐"}
           </button>
           {h && <span className="muted small">v{h.version}</span>}

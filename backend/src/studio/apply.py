@@ -55,7 +55,7 @@ def apply_run(source: Path, work: Path, source_commit: str, run_id: str, title: 
         if not name or not email:
             raise ApplyError("git user.name / user.email is not set for the repository")
         tree = _git(work, "rev-parse", "HEAD^{tree}").strip()
-        message = f"{title}\n\nZměna z AI Bridge Studio, běh {run_id} (ověřeno a zrevidováno)."
+        message = f"{title}\n\nChange from AI Bridge Studio, run {run_id} (verified and reviewed)."
         commit = _git(
             work,
             "-c",

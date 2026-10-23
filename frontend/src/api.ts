@@ -1,5 +1,6 @@
 // Typed client for the AI Bridge Studio backend (FastAPI).
 // All requests use relative /api/... paths; every mutating request carries X-Studio: 1 (CSRF).
+import { t } from "./i18n";
 
 /** Autopilot: Studio's own orchestrator on free, private models (the default for every role).
  * Claude Code and Codex: optional leads on the user's own login, per role (ADR 0007). */
@@ -164,6 +165,8 @@ export interface SettingsSnapshot {
   last_project: string | null;
   /** Memory folder chosen in Settings (null: config.toml / STUDIO_VAULT or none). */
   memory_path?: string | null;
+  /** Language for new event text; null until a browser or the Settings switch sets it. */
+  language?: "en" | "cs" | null;
 }
 
 export type RunState =
@@ -483,7 +486,7 @@ export function formatDetail(body: unknown, fallback: string): string {
       return detail
         .map((item: ValidationItem) => {
           const loc = (item.loc ?? []).filter((p) => p !== "body").join(".");
-          return loc ? `${loc}: ${item.msg ?? "neplatná hodnota"}` : (item.msg ?? "neplatná hodnota");
+          return loc ? `${loc}: ${item.msg ?? t("invalid value")}` : (item.msg ?? t("invalid value"));
         })
         .join("\n");
     }
@@ -508,7 +511,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(path, init);
   } catch {
-    throw new ApiError(0, "Server je nedostupný.");
+    throw new ApiError(0, t("The server is unreachable."));
   }
   const text = await res.text();
   let body: unknown = null;
@@ -577,6 +580,7 @@ export const api = {
   probeModel: (model: string) => send<ProbeResult>("POST", "/api/models/probe", { model }),
   vault: () => request<VaultOverview>("/api/vault"),
   setMemoryPath: (path: string | null) => send<VaultOverview>("PUT", "/api/vault/path", { path }),
+  setLanguage: (language: "en" | "cs") => send<{ language: string }>("PUT", "/api/language", { language }),
   agents: () => request<AgentInfo[]>("/api/agents"),
   setAgent: (name: CliLead, roles: Partial<Record<AgentRole, boolean>>) =>
     send<AgentInfo[]>("PUT", `/api/agents/${name}`, roles),

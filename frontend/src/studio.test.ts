@@ -49,7 +49,7 @@ group("orchestration", () => {
   it("falls back to Autopilot unless the agent role is enabled", () => {
     const old = { mode: "cross", primary: "claude", plan: false, second_opinion: ["codex"] } as unknown as Orchestration;
     expect(normalizeOrch(old, [])).toEqual({ ...ORCH, plan: false });
-    expect(describe(ORCH)).toBe("Autopilot · free modely");
+    expect(describe(ORCH)).toBe("Autopilot · free models");
     expect(IMPLEMENTERS.map((i) => i.id)).toEqual(["auto", "worker", "autopilot", "claude", "codex", "freebuff"]);
   });
 
@@ -62,7 +62,7 @@ group("orchestration", () => {
     expect(leadsFor("review", agents)).toEqual(["autopilot", "claude"]);
     const orch = normalizeOrch({ ...ORCH, reviewer: "claude", takeover: "claude", primary: "codex" }, agents);
     expect(orch).toEqual({ ...ORCH, takeover: "claude" });
-    expect(describe({ ...ORCH, reviewer: "claude" })).toBe("plán Autopilot · review Claude Code");
+    expect(describe({ ...ORCH, reviewer: "claude" })).toBe("plan Autopilot · review Claude Code");
     expect(actorLabel("codex")).toBe("Codex"); // history from before ADR 0004
   });
 
@@ -86,8 +86,8 @@ group("orchestration", () => {
 
   it("continues a project by its note title", () => {
     expect(noteTitle("02 Projekty/AI Bridge Studio.md")).toBe("AI Bridge Studio");
-    expect(continueGoal("Calc", "  ")).toBe("Pokračuj v projektu Calc.");
-    expect(continueGoal("Calc", "variance")).toBe("Pokračuj v projektu Calc. Zaměř se na: variance");
+    expect(continueGoal("Calc", "  ")).toBe("Continue the project Calc.");
+    expect(continueGoal("Calc", "variance")).toBe("Continue the project Calc. Focus on: variance");
   });
 
   it("splits textarea lines", () => {
@@ -158,19 +158,19 @@ group("agent text", () => {
   it("shows the summary of a structured answer instead of raw JSON", () => {
     expect(readable('{"summary":"Upravuji stats.py","files_changed":[]}')).toBe("Upravuji stats.py");
     expect(readable("plain words")).toBe("plain words");
-    expect(readable('{"x":1}')).toMatch(/strukturovaná/);
+    expect(readable('{"x":1}')).toMatch(/structured answer/);
   });
 });
 
 group("model probe", () => {
   it("says whether the model can drive Studio", () => {
     const base = { model: "cerebras/gpt-oss-120b", blocked: null };
-    expect(probeText({ ...base, ok: true, tools: true, latency_ms: 300 })).toBe("funguje, volá nástroje · 300 ms");
-    expect(probeText({ ...base, ok: true, tools: false })).toContain("nevolá nástroje");
+    expect(probeText({ ...base, ok: true, tools: true, latency_ms: 300 })).toBe("works, calls tools · 300 ms");
+    expect(probeText({ ...base, ok: true, tools: false })).toContain("does not call tools");
     expect(probeText({ ...base, ok: false, kind: "provider_error", status: 401, detail: "invalid key" })).toBe(
-      "chyba 401: invalid key",
+      "error 401: invalid key",
     );
-    expect(probeText({ ...base, blocked: "privacy", ok: false, kind: "privacy" })).toContain("neodesláno");
+    expect(probeText({ ...base, blocked: "privacy", ok: false, kind: "privacy" })).toContain("not sent");
   });
 });
 
@@ -198,7 +198,7 @@ group("run progress", () => {
 
   it("waits on the draft before anything else runs", () => {
     const d = detail({ run: { ...detail().run, state: "awaiting_approval" }, steps: [step(1, "draft", "done")] });
-    expect(states(d)).toEqual(["Zadání:waiting", "Plán:todo", "Práce:todo", "Ověření:todo", "Recenze:todo", "Paměť:todo"]);
+    expect(states(d)).toEqual(["Brief:waiting", "Plan:todo", "Work:todo", "Verification:todo", "Review:todo", "Memory:todo"]);
   });
 
   it("marks a manual spec done and a skipped plan, and a review asking for changes as failed", () => {
@@ -206,7 +206,7 @@ group("run progress", () => {
       run: { ...detail().run, state: "needs_decision" },
       steps: [step(1, "work", "done"), step(2, "verify", "done", 1, { passed: true }), step(3, "review", "done", 1, { verdict: "request_changes" })],
     });
-    expect(states(d)).toEqual(["Zadání:done", "Plán:skipped", "Práce:done", "Ověření:done", "Recenze:failed", "Paměť:todo"]);
+    expect(states(d)).toEqual(["Brief:done", "Plan:skipped", "Work:done", "Verification:done", "Review:failed", "Memory:todo"]);
   });
 
   it("counts only the newest iteration after a rework", () => {
@@ -220,7 +220,7 @@ group("run progress", () => {
         step(5, "work", "running", 2),
       ],
     });
-    expect(states(d)).toEqual(["Zadání:done", "Plán:done", "Práce:running", "Ověření:todo", "Recenze:todo", "Paměť:todo"]);
+    expect(states(d)).toEqual(["Brief:done", "Plan:done", "Work:running", "Verification:todo", "Review:todo", "Memory:todo"]);
   });
 });
 
@@ -228,8 +228,8 @@ group("model reliability", () => {
   it("shows the share of good calls and accepted work", () => {
     expect(reliabilityText(undefined)).toBe("");
     expect(reliabilityText({ calls: 0, failed: 0, reviewed: 0, accepted: 0 })).toBe("");
-    expect(reliabilityText({ calls: 25, failed: 2, reviewed: 0, accepted: 0 })).toBe("spolehlivost 92 %");
-    expect(reliabilityText({ calls: 10, failed: 0, reviewed: 4, accepted: 3 })).toBe("spolehlivost 100 % · 3/4 přijato");
+    expect(reliabilityText({ calls: 25, failed: 2, reviewed: 0, accepted: 0 })).toBe("reliability 92%");
+    expect(reliabilityText({ calls: 10, failed: 0, reviewed: 4, accepted: 3 })).toBe("reliability 100% · 3/4 accepted");
   });
 
   it("drops the provider prefix from model names", () => {
@@ -239,9 +239,9 @@ group("model reliability", () => {
   });
 
   it("shows overview rates without inventing them", () => {
-    expect(percent(2 / 3)).toBe("67 %");
+    expect(percent(2 / 3)).toBe("67%");
     expect(percent(null)).toBe("–");
-    expect(oneDecimal(1.25)).toMatch(/^1,[23]$/);
+    expect(oneDecimal(1.25)).toMatch(/^1.[23]$/);
     expect(oneDecimal(null)).toBe("–");
   });
 

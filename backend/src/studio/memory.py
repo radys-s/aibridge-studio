@@ -13,6 +13,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from studio.domain import MemoryProposal
+from studio.messages import tr
 from studio.sandbox import Denied
 from studio.vault import Vault
 
@@ -57,6 +58,7 @@ def build_proposals(
     title: str,
     today: date | None = None,
     author: str = "Autopilot",
+    lang: str | None = None,
 ) -> list[dict[str, Any]]:
     day = (today or date.today()).isoformat()
     stem = PurePosixPath(note_rel).stem
@@ -68,7 +70,9 @@ def build_proposals(
                 "kind": "append",
                 "path": note_rel,
                 "content": f"## {day} — AI Bridge Studio ({author})\n"
-                f"Běh `{run_id}`: {title}\n\n" + proposal.project_update.strip()[:MAX_UPDATE_CHARS],
+                + tr(lang, "Run `{run_id}`: {title}", run_id=run_id, title=title)
+                + "\n\n"
+                + proposal.project_update.strip()[:MAX_UPDATE_CHARS],
                 "status": "proposed",
             }
         )
@@ -85,18 +89,18 @@ def build_proposals(
             "---",
             f"# {topic}",
             "",
-            f"Souvisí: {link} · běh Studia `{run_id}`",
+            tr(lang, "Related: {link} · Studio run `{run_id}`", link=link, run_id=run_id),
             "",
-            "**Co je hotové (ověřeno):**",
+            tr(lang, "**What is done (verified):**"),
             *_bullets(proposal.handoff_done),
-            "**Co zbývá / otevřené body:**",
+            tr(lang, "**What remains / open points:**"),
             *_bullets(proposal.handoff_open),
-            "**Soubory a místa (cesty, větve):**",
+            tr(lang, "**Files and places (paths, branches):**"),
             *_bullets(proposal.handoff_files),
-            "**Co nedělat:**",
+            tr(lang, "**What not to do:**"),
             *_bullets(proposal.handoff_avoid),
             "",
-            "## Odpověď",
+            tr(lang, "## Answer"),
         ]
         out.append(
             {
@@ -124,6 +128,7 @@ def fallback_proposal(
     commands: list[str],
     review_summary: str,
     title: str = "",
+    lang: str | None = None,
 ) -> MemoryProposal:
     """Studio's own proposal from run facts, used when the model does not deliver one.
 
@@ -132,25 +137,35 @@ def fallback_proposal(
     """
     files = changed[:MAX_ITEMS]
     review = clip(review_summary, 400)
-    done = [f"Přijato po nezávislém ověření: {c}" for c in commands[:5]] or [
-        "Přijato po nezávislém ověření (bez akceptačních příkazů)"
-    ]
-    lines = [f"- Cíl: {clip(goal, 300)}"]
+    done = [
+        tr(lang, "Accepted after independent verification: {command}", command=c)
+        for c in commands[:5]
+    ] or [tr(lang, "Accepted after independent verification (no acceptance commands)")]
+    review_line = tr(lang, "Review: {summary}", summary=review)
+    lines = ["- " + tr(lang, "Goal: {goal}", goal=clip(goal, 300))]
     if files:
-        lines.append("- Změněné soubory: " + ", ".join(f"`{f}`" for f in files))
+        changed_files = ", ".join(f"`{f}`" for f in files)
+        lines.append("- " + tr(lang, "Changed files: {files}", files=changed_files))
     lines += [f"- {d}" for d in done]
     if review:
-        lines.append(f"- Recenze: {review}")
-    lines.append("- Další krok: zkontrolovat změnu (vznikla na free modelech) a sloučit.")
+        lines.append(f"- {review_line}")
+    lines.append("- " + tr(lang, "Next step: check the change (made on free models) and merge it."))
     return MemoryProposal(
         project_update="\n".join(lines),
         handoff_needed=True,
         handoff_to="claude",
         handoff_topic=clip(title or goal, 80),
-        handoff_done=done + [f"Recenze: {review}"] * bool(review),
-        handoff_open=["Zkontrolovat změnu z AI Bridge Studia a rozhodnout o sloučení větve."],
+        handoff_done=done + [review_line] * bool(review),
+        handoff_open=[
+            tr(lang, "Check the change from AI Bridge Studio and decide about merging the branch.")
+        ],
         handoff_files=files,
-        handoff_avoid=["Nepřepisovat změnu bez přečtení recenze a výsledků testů."],
+        handoff_avoid=[
+            tr(
+                lang,
+                "Do not overwrite the change without reading the review and the test results.",
+            )
+        ],
     )
 
 

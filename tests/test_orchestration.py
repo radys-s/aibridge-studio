@@ -97,7 +97,7 @@ def test_approval_refuses_commands_outside_policy(studio, repo: Path) -> None:
     runner, db, _ = studio(FakeGateway([]), [], lead)
     run_id = start(db, TaskSpec(goal="přidej median", repo_path=str(repo)))
     runner.execute(run_id)
-    assert "nespustí" in db.messages(run_id)[-1]["text"]
+    assert "will not run" in db.messages(run_id)[-1]["text"]
     try:
         runner.approve(run_id)
         raise AssertionError("approve must refuse")

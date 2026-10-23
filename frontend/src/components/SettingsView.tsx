@@ -12,6 +12,7 @@ import {
   PRIVACY_LABELS,
   providerLabel,
 } from "../options";
+import { lang, LANGS, locale, setLang, t, type Lang } from "../i18n";
 import { notificationsSupported } from "../notify";
 import { AgentsCard, MemoryFolder, ProvidersCard } from "./SettingsCards";
 
@@ -28,17 +29,17 @@ export function budgetLevel(p: ProviderToday): "ok" | "warn" | "out" | null {
   return share >= 1 ? "out" : share >= 0.8 ? "warn" : "ok";
 }
 
-/** "spolehlivost 92 % · 3/4 přijato" from the router's stats (ADR 0006); empty without data. */
-/** The model without the OmniRoute provider prefix (the Poskytovatel column shows it):
+/** The model without the provider prefix (the Provider column shows it):
  * "groq/openai/gpt-oss-120b" → "openai/gpt-oss-120b", "cf/@cf/zai-org/glm" → "zai-org/glm". */
 export function modelName(id: string): string {
   return id.replace(/^[^/]+\//, "").replace(/^@cf\//, "");
 }
 
+/** "reliability 92% · 3/4 accepted" from the router's stats (ADR 0006); empty without data. */
 export function reliabilityText(st: ModelStats | undefined): string {
   if (!st || st.calls === 0) return "";
-  const parts = [`spolehlivost ${Math.round(((st.calls - st.failed) / st.calls) * 100)} %`];
-  if (st.reviewed) parts.push(`${st.accepted}/${st.reviewed} přijato`);
+  const parts = [t("reliability {pct}%", { pct: Math.round(((st.calls - st.failed) / st.calls) * 100) })];
+  if (st.reviewed) parts.push(t("{a}/{b} accepted", { a: st.accepted, b: st.reviewed }));
   return parts.join(" · ");
 }
 
@@ -46,23 +47,23 @@ export function reliabilityText(st: ModelStats | undefined): string {
 export function probeText(r: ProbeResult): string {
   if (r.ok) {
     const ms = r.latency_ms ? ` · ${r.latency_ms} ms` : "";
-    return r.tools ? `funguje, volá nástroje${ms}` : `odpovídá, ale nevolá nástroje (pro Studio nepoužitelný)${ms}`;
+    return (r.tools ? t("works, calls tools") : t("answers but does not call tools (unusable for Studio)")) + ms;
   }
-  if (r.kind === "privacy" || r.kind === "paid") return "neodesláno: blokuje to pravidlo soukromí / placení";
-  return `chyba${r.status ? ` ${r.status}` : ""}: ${r.detail ?? r.kind ?? "neznámá"}`;
+  if (r.kind === "privacy" || r.kind === "paid") return t("not sent: blocked by the privacy / paid rule");
+  return `${t("error")}${r.status ? ` ${r.status}` : ""}: ${r.detail ?? r.kind ?? t("unknown")}`;
 }
 
 /** Grant browser notifications; the request must come from a click. */
 function NotificationSetting() {
   const [perm, setPerm] = useState(() => (notificationsSupported() ? Notification.permission : "unsupported"));
-  if (perm === "unsupported") return <p className="hint">Tento prohlížeč upozornění neumí. Počet čekajících úkolů ukazuje název karty.</p>;
-  if (perm === "granted") return <p>Zapnuto: ozvu se, když úkol čeká na tebe nebo skončí a Studio zrovna nemáš na očích.</p>;
-  if (perm === "denied") return <p className="hint">Upozornění jsou v prohlížeči zakázaná; povol je v nastavení webu. Počet čekajících úkolů ukazuje název karty.</p>;
+  if (perm === "unsupported") return <p className="hint">{t("This browser cannot show notifications. The tab title shows how many tasks are waiting.")}</p>;
+  if (perm === "granted") return <p>{t("On: Studio notifies you when a task waits for you or ends while Studio is not in view.")}</p>;
+  if (perm === "denied") return <p className="hint">{t("Notifications are blocked in the browser; allow them in the site settings. The tab title shows how many tasks are waiting.")}</p>;
   return (
     <>
-      <p>Ozvu se, když úkol čeká na tebe nebo skončí a Studio zrovna nemáš na očích.</p>
+      <p>{t("Studio notifies you when a task waits for you or ends while Studio is not in view.")}</p>
       <button type="button" className="primary small" onClick={() => void Notification.requestPermission().then(setPerm)}>
-        Povolit upozornění
+        {t("Allow notifications")}
       </button>
     </>
   );
@@ -84,7 +85,7 @@ function ProbeCell({ model, disabled }: { model: string; disabled: boolean }) {
   return (
     <td className="small probe">
       <button type="button" className="small" disabled={disabled || state === "busy"} onClick={() => void run()}>
-        {state === "busy" ? "Testuji…" : "Otestovat"}
+        {state === "busy" ? t("Testing…") : t("Test")}
       </button>
       {typeof state === "object" && (
         <span className={`badge ${state.ok && state.tools ? "good" : "bad"}`}>{probeText(state)}</span>
@@ -105,23 +106,23 @@ export function keyStatus(provider: string, health: Health | null): "connected" 
 
 const KEY_BADGES = {
   connected: (
-    <span className="badge good" title="OmniRoute nabízí jeho modely; jestli klíč funguje, ukáže „Otestovat“.">
-      v OmniRoute
+    <span className="badge good" title={t("OmniRoute offers its models; \"Test\" shows whether the key works.")}>
+      {t("in OmniRoute")}
     </span>
   ),
-  setup: <span className="badge warn">chybí nastavení</span>,
-  missing: <span className="badge">nepřipojeno</span>,
+  setup: <span className="badge warn">{t("setup missing")}</span>,
+  missing: <span className="badge">{t("not connected")}</span>,
 };
 
 function KeySources({ health }: { health: Health | null }) {
   return (
     <div className="key-sources">
       <p className="small">
-        <strong>Kde vzít klíče a kam je vložit.</strong> Klíč si založ u poskytovatele a vlož ho v{" "}
+        <strong>{t("Where to get keys and where to put them.")}</strong> {t("Create a key with the provider and add it in")}{" "}
         <a href={OMNIROUTE_PROVIDERS_URL} target="_blank" rel="noreferrer">
           OmniRoute → Providers
         </a>
-        . Studio klíče nikdy nevidí. Potom u modelu klikni na „Otestovat“.
+        . {t("Studio never sees these keys. Then click \"Test\" next to a model.")}
       </p>
       <ul className="small">
         {KEY_SOURCES.map((k) => (
@@ -132,9 +133,9 @@ function KeySources({ health }: { health: Health | null }) {
             })()}
             <strong>{k.label}</strong>:{" "}
             <a href={k.signup} target="_blank" rel="noreferrer">
-              {k.signupLabel ?? "založit klíč"}
+              {k.signupLabel ?? t("create a key")}
             </a>{" "}
-            → v OmniRoute „{k.omniroute}“. {k.note}
+            → {t("in OmniRoute: \"{name}\".", { name: k.omniroute })} {k.note}
           </li>
         ))}
       </ul>
@@ -146,30 +147,30 @@ function ModelState({ health, m }: { health: Health; m: ModelInfo }) {
   const reliability = reliabilityText(m.stats);
   let state;
   if (m.blocked) state = BLOCKED_LABELS[m.blocked];
-  else if (!health.gateway.reachable) state = "OmniRoute nedostupný";
+  else if (!health.gateway.reachable) state = t("no provider reachable");
   else if (m.cooldown_until && m.cooldown_kind === "setup") {
     // A missing key or provider setting does not fix itself (Cloudflare needs the Account ID).
     const note = KEY_SOURCES.find((k) => k.provider === m.provider)?.note;
     state = (
       <>
-        <span className="badge warn">Chybí nastavení v OmniRoute</span>
+        <span className="badge warn">{t("Setup missing in OmniRoute")}</span>
         <div>
           {note}{" "}
           <a href={OMNIROUTE_PROVIDERS_URL} target="_blank" rel="noreferrer">
-            Otevřít OmniRoute
+            {t("Open OmniRoute")}
           </a>
         </div>
       </>
     );
-  } else if (m.cooldown_until) state = `pauza do ${new Date(m.cooldown_until * 1000).toLocaleTimeString("cs-CZ")}`;
-  else state = "připraven";
+  } else if (m.cooldown_until) state = t("paused until {time}", { time: new Date(m.cooldown_until * 1000).toLocaleTimeString(locale()) });
+  else state = t("ready");
   return (
     <>
       {state}
       {(m.demoted || (m.demotion_reasons?.length ?? 0) > 0) && (
         <div>
-          <span className="badge warn" title={m.demotion_reasons?.join("; ") || "Router ho zkouší až po spolehlivějších modelech."}>
-            často selhává
+          <span className="badge warn" title={m.demotion_reasons?.join("; ") || t("The router tries it only after more reliable models.")}>
+            {t("fails often")}
           </span>
         </div>
       )}
@@ -184,11 +185,11 @@ function ModelTable({ health, models }: { health: Health; models: ModelInfo[] })
       <table className="models">
         <thead>
           <tr>
-            <th>Model</th>
-            <th>Poskytovatel</th>
-            <th>Soukromí</th>
-            <th>Stav</th>
-            <th>Test</th>
+            <th>{t("Model")}</th>
+            <th>{t("Provider")}</th>
+            <th>{t("Privacy")}</th>
+            <th>{t("State")}</th>
+            <th>{t("Test")}</th>
           </tr>
         </thead>
         <tbody>
@@ -207,7 +208,7 @@ function ModelTable({ health, models }: { health: Health; models: ModelInfo[] })
               </td>
               <td>
                 {providerLabel(m.provider)}
-                <div className="muted small nowrap">{[m.lead && "Autopilot", m.coding && "kód"].filter(Boolean).join(" · ")}</div>
+                <div className="muted small nowrap">{[m.lead && "Autopilot", m.coding && t("code")].filter(Boolean).join(" · ")}</div>
               </td>
               <td>
                 <span className={`badge ${m.privacy === "no_train" ? "good" : "warn"}`}>{PRIVACY_LABELS[m.privacy]}</span>
@@ -232,29 +233,29 @@ function Models({ health }: { health: Health }) {
   return (
     <>
       <p className="small">
-        Kód a poznámky dostanou jen:{" "}
-        {providers.length ? <strong>{providers.join(", ")}</strong> : <span className="badge bad">nikdo</span>}
-        <span className="muted"> (hranice soukromí: {PRIVACY_LABELS[health.privacy_floor]})</span>
+        {t("Code and notes go only to:")}{" "}
+        {providers.length ? <strong>{providers.join(", ")}</strong> : <span className="badge bad">{t("nobody")}</span>}
+        <span className="muted"> ({t("privacy floor: {floor}", { floor: PRIVACY_LABELS[health.privacy_floor] })})</span>
       </p>
       {!providers.length && (
         <p className="alert warn">
-          Žádný povolený model. Připoj v OmniRoute Groq, Cloudflare Workers AI nebo Cerebras
-          (netrénují na tvých datech).
+          {t("No allowed model. Turn on a provider below (Groq, OVHcloud, local Ollama…); they do not train on your data.")}
         </p>
       )}
       <ModelTable health={health} models={used} />
       {unused.length > 0 && (
         <details className="advanced">
-          <summary>Nepoužívané modely ({unused.length}) – mohou trénovat nebo jsou placené</summary>
+          <summary>{t("Unused models ({n}): they may train or are paid", { n: unused.length })}</summary>
           <ModelTable health={health} models={unused} />
         </details>
       )}
       <details className="advanced">
-        <summary>Pro pokročilé: pořadí a placený model</summary>
+        <summary>{t("Advanced: order and a paid model")}</summary>
         <p className="hint">
-        Pořadí a výběr: <code>STUDIO_LEAD_MODELS</code>, <code>STUDIO_WORKER_MODELS</code>. OpenRouter :free povolíš
-        až po vypnutí tréninku v jeho nastavení soukromí a <code>STUDIO_OPENROUTER_NO_TRAIN=1</code>. Placený hlavní
-        model: <code>STUDIO_PAID_MODELS</code> + <code>STUDIO_ALLOW_PAID=1</code>.
+        {t("Order and choice:")} <code>STUDIO_LEAD_MODELS</code>, <code>STUDIO_WORKER_MODELS</code>.{" "}
+        {t("Allow OpenRouter :free only after turning off training in its privacy settings, with")}{" "}
+        <code>STUDIO_OPENROUTER_NO_TRAIN=1</code>. {t("Paid main model:")} <code>STUDIO_PAID_MODELS</code> +{" "}
+        <code>STUDIO_ALLOW_PAID=1</code>.
         </p>
       </details>
     </>
@@ -263,23 +264,23 @@ function Models({ health }: { health: Health }) {
 
 function Budget({ health }: { health: Health }) {
   const rows = health.providers_today ?? [];
-  if (!rows.length) return <li>Dnes zatím žádné dotazy na modely.</li>;
+  if (!rows.length) return <li>{t("No model requests today yet.")}</li>;
   return (
     <>
       {rows.map((p) => {
         const level = budgetLevel(p);
         return (
           <li key={p.provider}>
-            {providerLabel(p.provider)}: {p.calls} dotazů dnes
+            {providerLabel(p.provider)}: {t("{n} requests today", { n: p.calls })}
             {p.cap ? (
               <>
                 {" "}
                 · <span className={`badge ${level === "ok" ? "good" : level === "warn" ? "warn" : "bad"}`}>
-                  {Math.round((p.used / p.cap) * 100)} % denního limitu
+                  {t("{pct}% of the daily limit", { pct: Math.round((p.used / p.cap) * 100) })}
                 </span>
               </>
             ) : null}
-            {level === "warn" && <span className="small"> blíží se limit; po vyčerpání (429) router přejde na další model</span>}
+            {level === "warn" && <span className="small"> {t("close to the limit; once it is used up (429) the router moves to the next model")}</span>}
           </li>
         );
       })}
@@ -303,10 +304,16 @@ export function SettingsView({ settings, health, onSaved }: Props) {
   const setLead = (key: "primary" | "reviewer" | "takeover", lead: AnyLead) =>
     setDefaults({ ...defaults, orchestration: normalizeOrch({ ...orch, [key]: lead }, agents ?? []) });
 
+  async function switchLang(next: Lang) {
+    // The UI language is per browser; a failed save only leaves event text as it was.
+    await api.setLanguage(next).catch(() => undefined);
+    setLang(next);
+  }
+
   async function save() {
     try {
       onSaved(await api.saveSettings({ defaults: { ...defaults, orchestration: orch } }));
-      setStatus("Uloženo.");
+      setStatus(t("Saved."));
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
     }
@@ -316,15 +323,14 @@ export function SettingsView({ settings, health, onSaved }: Props) {
 
   return (
     <div className="settings">
-      <h1>Nastavení</h1>
+      <h1>{t("Settings")}</h1>
 
       <section className="card">
-        <h2>Modely</h2>
+        <h2>{t("Models")}</h2>
         <p className="hint">
-          Výchozí je Autopilot na free modelech, které netrénují na tvých datech. Claude Code a Codex zapneš níže v
-          kartě Agenti.
+          {t("The default is Autopilot on free models that do not train on your data. Turn on Claude Code and Codex in the Agents card below.")}
         </p>
-        {health ? <Models health={health} /> : <p className="muted">Načítám…</p>}
+        {health ? <Models health={health} /> : <p className="muted">{t("Loading…")}</p>}
         <label className="check">
           <input
             type="checkbox"
@@ -334,15 +340,15 @@ export function SettingsView({ settings, health, onSaved }: Props) {
               setDefaults({ ...defaults, orchestration: { ...defaults.orchestration, plan: e.target.checked } })
             }
           />
-          Před prací nechat naplánovat postup
+          {t("Plan the approach before the work")}
         </label>
         {agents?.some((a) => a.installed && Object.values(a.roles).some(Boolean)) && (
           <div className="composer-options">
             {(
               [
-                ["primary", "plan", "Návrh a plán"],
-                ["reviewer", "review", "Review"],
-                ["takeover", "takeover", "Převzetí"],
+                ["primary", "plan", t("Brief and plan")],
+                ["reviewer", "review", t("Review")],
+                ["takeover", "takeover", t("Takeover")],
               ] as const
             ).map(([key, role, label]) => (
               <DefaultLead key={key} label={label} role={role} agents={agents ?? []} value={orch[key]}
@@ -352,85 +358,101 @@ export function SettingsView({ settings, health, onSaved }: Props) {
         )}
         <div className="actions">
           <button type="button" className="primary" disabled={!agents} onClick={() => void save()}>
-            Uložit
+            {t("Save")}
           </button>
           {status && <span className="small">{status}</span>}
         </div>
       </section>
 
       <section className="card">
-        <h2>Poskytovatelé</h2>
+        <h2>{t("Providers")}</h2>
         <ProvidersCard />
         <details className="advanced">
-          <summary>Přes OmniRoute (volitelné)</summary>
+          <summary>{t("Through OmniRoute (optional)")}</summary>
           <KeySources health={health} />
         </details>
       </section>
 
       <section className="card">
-        <h2>Agenti</h2>
+        <h2>{t("Agents")}</h2>
         <AgentsCard onChanged={setAgents} />
       </section>
 
       <section className="card">
-        <h2>Dnes</h2>
+        <h2>{t("Today")}</h2>
         <ul className="plain">
           <li>
             {health ? (
               <span className={`badge ${gatewayState(health).ok ? "good" : "bad"}`}>{gatewayState(health).text}</span>
             ) : (
-              "Načítám…"
+              t("Loading…")
             )}
           </li>
           {health && <Budget health={health} />}
           {cooling.map(([model, until]) => (
             <li key={model} className="small muted">
-              {model}: pauza po chybě do {new Date(until * 1000).toLocaleTimeString("cs-CZ")}
+              {model}: {t("paused after an error until {time}", { time: new Date(until * 1000).toLocaleTimeString(locale()) })}
             </li>
           ))}
         </ul>
-        <p className="hint">Limity se nulují o půlnoci UTC.</p>
+        <p className="hint">{t("Limits reset at midnight UTC.")}</p>
       </section>
 
       <section className="card">
-        <h2>Upozornění</h2>
+        <h2>{t("Notifications")}</h2>
         <NotificationSetting />
       </section>
 
       <section className="card">
-        <h2>Paměť</h2>
+        <h2>{t("Language")}</h2>
+        <label className="chip-field">
+          <span>{t("Interface language")}</span>
+          <select value={lang()} onChange={(e) => switchLang(e.target.value as Lang)}>
+            {LANGS.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="card">
+        <h2>{t("Memory")}</h2>
         <p className="hint">
-          Volitelná složka s poznámkami v Markdownu (třeba Obsidian vault). Studio z ní bere kontext projektu a po tvém
-          kliknutí do ní zapisuje. Bez složky se nic nesdílí.
+          {t(
+            "An optional folder of Markdown notes (an Obsidian vault, for example). Studio takes project context from it and writes to it after your click. Without a folder nothing is shared.",
+          )}
         </p>
         <MemoryFolder vault={vault} onChanged={setVault} />
         {!vault ? (
-          <p className="muted">Načítám…</p>
+          <p className="muted">{t("Loading…")}</p>
         ) : !vault.available ? (
           vault.path ? (
             <p className="alert warn">
-              Složka <code>{vault.path}</code> neexistuje.
+              {t("The folder does not exist:")} <code>{vault.path}</code>
             </p>
           ) : null
         ) : (
           <>
             <p className="small">
-              {vault.projects?.length ?? 0} projektů · {vault.handoffs?.length ?? 0} otevřených předávek
+              {t("{p} projects · {h} open handoffs", { p: vault.projects?.length ?? 0, h: vault.handoffs?.length ?? 0 })}
             </p>
             <ul className="plain small">
               {(vault.folders ?? []).map((f) => (
                 <li key={f.name}>
-                  {f.shared ? <span className="badge good">sdílí se</span> : <span className="badge">soukromé</span>}{" "}
+                  {f.shared ? <span className="badge good">{t("shared")}</span> : <span className="badge">{t("private")}</span>}{" "}
                   {f.name} <span className="muted">({f.notes})</span>
                 </li>
               ))}
             </ul>
             <details className="advanced">
-              <summary>Co se posílá modelům</summary>
+              <summary>{t("What is sent to models")}</summary>
               <p className="hint">
-                Jen obsah ze sdílených složek, bez poznámek označených <code>private: true</code> nebo{" "}
-                <code>#osobni</code> a bez poznámek s tajnými údaji. E-maily a telefony se skrývají. Do paměti se
-                zapisuje jen po tvém kliknutí. Složka: <code>{vault.path}</code>
+                {t("Only content from shared folders, without notes marked")} <code>private: true</code> {t("or")}{" "}
+                <code>#osobni</code>{" "}
+                {t("and without notes holding secrets. E-mails and phone numbers are hidden. Memory is written only after your click. Folder:")}{" "}
+                <code>{vault.path}</code>
               </p>
             </details>
           </>

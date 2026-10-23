@@ -52,6 +52,7 @@ from studio.domain import (
 )
 from studio.gateway import ChatGateway
 from studio.memory import build_proposals, fallback_proposal, project_memory
+from studio.messages import tr
 from studio.review import model_identity, review_passed, review_reason
 from studio.routing import ModelRouter
 from studio.sandbox import (
@@ -142,7 +143,7 @@ class Runner:
 
     def cancel(self, run_id: str) -> None:
         self.db.update_run(run_id, cancel_requested=1)
-        self.db.event(run_id, "decision", "Uživatel požádal o přerušení")
+        self.db.event(run_id, "decision", self.db.msg("The user asked to interrupt"))
         run = self.db.run(run_id)
         if run and run["state"] in (
             RunState.QUEUED,
@@ -160,7 +161,9 @@ class Runner:
             # The interrupted implementer may have left half-written files: start clean.
             self._reset_attempt(run)
         self.db.update_run(run_id, state=RunState.QUEUED, cancel_requested=0)
-        self.db.event(run_id, "decision", f"Pokračování od fáze {run['phase']}")
+        self.db.event(
+            run_id, "decision", self.db.msg("Continuing from phase {phase}", phase=run["phase"])
+        )
         self.wake()
 
     def rework(self, run_id: str, note: str = "") -> None:
@@ -179,7 +182,9 @@ class Runner:
             iteration=run["iteration"] + 1,
             feedback_json=json.dumps(feedback),
         )
-        self.db.event(run_id, "decision", "Uživatel vrátil úkol k další opravě")
+        self.db.event(
+            run_id, "decision", self.db.msg("The user sent the task back for another fix")
+        )
 
     def retry(self, run_id: str) -> None:
         """Run the phase that failed again (e.g. a lead CLI error or a lost login)."""
@@ -189,7 +194,7 @@ class Runner:
         if run["phase"] == "work":
             self._reset_attempt(run)
         self._requeue(run_id)
-        self.db.event(run_id, "decision", f"Opakuji fázi {run['phase']}")
+        self.db.event(run_id, "decision", self.db.msg("Retrying phase {phase}", phase=run["phase"]))
 
     def reply(self, run_id: str, text: str) -> None:
         """A chat message from the user. Answers pending questions by redoing that phase."""
@@ -203,7 +208,7 @@ class Runner:
             self._requeue(run_id, phase=run["pending"])
         else:
             return
-        self.db.event(run_id, "decision", "Odpověď uživatele; lead pokračuje")
+        self.db.event(run_id, "decision", self.db.msg("The user answered; the lead continues"))
 
     def approve(self, run_id: str, edits: dict[str, Any] | None = None) -> None:
         run = self._require(run_id)
@@ -229,7 +234,7 @@ class Runner:
             raise ValueError("commands not allowed: " + "; ".join(bad))
         self.db.update_spec(run_id, spec.model_dump_json())
         self._requeue(run_id, phase="plan")
-        self.db.event(run_id, "decision", "Uživatel schválil zadání")
+        self.db.event(run_id, "decision", self.db.msg("The user approved the brief"))
 
     def takeover(self, run_id: str, lead: str | None = None, note: str = "") -> None:
         """A strong lead implements from the next iteration on (manual escalation)."""
@@ -257,8 +262,14 @@ class Runner:
             escalations=run["escalations"] + 1,
             feedback_json=json.dumps(feedback),
         )
-        self.db.event(run_id, "escalation", f"Implementaci přebírá {name} (ručně)")
-        self.db.message(run_id, "studio", f"Implementaci přebírá {name}.")
+        self.db.event(
+            run_id,
+            "escalation",
+            self.db.msg("{name} takes over the implementation (by hand)", name=name),
+        )
+        self.db.message(
+            run_id, "studio", self.db.msg("{name} takes over the implementation.", name=name)
+        )
 
     def keep_worker(self, run_id: str) -> None:
         run = self._require(run_id)
@@ -270,7 +281,7 @@ class Runner:
             raise ValueError("no takeover decision is pending")
         self._reset_attempt(run)
         self._requeue(run_id, implementer="worker")
-        self.db.event(run_id, "decision", "Uživatel ponechal levného workera")
+        self.db.event(run_id, "decision", self.db.msg("The user kept the cheap worker"))
 
     def accept(self, run_id: str) -> None:
         """The user confirms a change that only a self-review approved (solo mode)."""
@@ -285,7 +296,9 @@ class Runner:
             or not review_passed(json.loads(review["output_json"]), spec.acceptance_criteria)
         ):
             raise ValueError("complete passing criterion assessments are required for acceptance")
-        if not self._accept(run, "Uživatel potvrdil změnu schválenou jen sebe-review"):
+        if not self._accept(
+            run, self.db.msg("The user confirmed a change approved only by self-review")
+        ):
             return
         threading.Thread(
             target=self._propose_memory, args=(run_id,), name="studio-memory", daemon=True
@@ -310,7 +323,12 @@ class Runner:
             raise ValueError(str(exc)) from exc
         item["status"] = "written"
         self._save_proposals(step, proposals)
-        self.db.event(run_id, "vault", f"Zapsáno do paměti: {rel}", {"vault_written": rel})
+        self.db.event(
+            run_id,
+            "vault",
+            self.db.msg("Written to memory: {path}", path=rel),
+            {"vault_written": rel},
+        )
         return rel
 
     def apply_to_repo(self, run_id: str) -> dict[str, Any]:
@@ -333,12 +351,21 @@ class Runner:
         except ApplyError as exc:
             raise ValueError(str(exc)) from exc
         data = {"branch": applied.branch, "commit": applied.commit, "files": applied.files}
-        self.db.event(run_id, "applied", f"Změna je ve větvi {applied.branch}", data)
+        self.db.event(
+            run_id,
+            "applied",
+            self.db.msg("The change is in branch {branch}", branch=applied.branch),
+            data,
+        )
         self.db.message(
             run_id,
             "studio",
-            f"Změna je v repozitáři jako větev `{applied.branch}` (commit {applied.commit[:10]}). "
-            "Tvoje aktuální větev zůstala beze změny; sloučení je na tobě.",
+            self.db.msg(
+                "The change is in the repository as branch `{branch}` (commit {commit}). "
+                "Your current branch is unchanged; merging is up to you.",
+                branch=applied.branch,
+                commit=applied.commit[:10],
+            ),
         )
         return data
 
@@ -352,7 +379,11 @@ class Runner:
             raise ValueError("no such open proposal")
         proposals[index]["status"] = "discarded"
         self._save_proposals(step, proposals)
-        self.db.event(run_id, "vault", f"Návrh zahozen: {proposals[index]['path']}")
+        self.db.event(
+            run_id,
+            "vault",
+            self.db.msg("Proposal discarded: {path}", path=proposals[index]["path"]),
+        )
 
     def _proposals(self, run_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         self._require(run_id)
@@ -379,7 +410,9 @@ class Runner:
         work = self.db.last_step(run_id, "work")
         if work and work["error"] == "sensitive":
             raise ValueError("sensitive model output cannot be overridden")
-        self.db.event(run_id, "decision", "Uživatel potvrdil, že nalezené soubory nejsou tajné")
+        self.db.event(
+            run_id, "decision", self.db.msg("The user confirmed the files found are not secret")
+        )
         self._requeue(run_id, sensitive_ok=1)
 
     def abandon(self, run_id: str) -> None:
@@ -395,7 +428,7 @@ class Runner:
         ):
             raise ValueError("stop the run before abandoning it")
         self.db.update_run(run_id, state=RunState.ABANDONED, finished_at=time.time())
-        self.db.event(run_id, "decision", "Uživatel úkol opustil")
+        self.db.event(run_id, "decision", self.db.msg("The user abandoned the task"))
 
     def external_done(self, run_id: str, note: str = "") -> None:
         """The user says the external agent finished. Its work is a claim until verified."""
@@ -430,7 +463,11 @@ class Runner:
             latency_ms=int((time.time() - started) * 1000) if started else None,
         )
         self.db.update_run(run_id, state=RunState.QUEUED, phase="verify")
-        self.db.event(run_id, "work", f"Uživatel ohlásil konec práce {EXTERNAL_AGENT}; ověřuji")
+        self.db.event(
+            run_id,
+            "work",
+            self.db.msg("The user reported that {agent} finished; verifying", agent=EXTERNAL_AGENT),
+        )
         self.wake()
 
     def open_external_terminal(self, run_id: str) -> None:
@@ -442,7 +479,9 @@ class Runner:
             external.open_terminal(Path(run["workspace"]), EXTERNAL_AGENT)
         except external.TerminalError as exc:
             raise ValueError(str(exc)) from exc
-        self.db.event(run_id, "handoff", f"Otevřen terminál pro {EXTERNAL_AGENT}")
+        self.db.event(
+            run_id, "handoff", self.db.msg("Terminal opened for {agent}", agent=EXTERNAL_AGENT)
+        )
 
     def _requeue(self, run_id: str, **fields: Any) -> None:
         self.db.update_run(
@@ -486,10 +525,17 @@ class Runner:
                     return
         except Stopped:
             self.db.update_run(run_id, state=RunState.INTERRUPTED)
-            self.db.event(run_id, "interrupted", "Běh přerušen; lze pokračovat nebo opustit")
+            self.db.event(
+                run_id,
+                "interrupted",
+                self.db.msg("Run interrupted; it can continue or be abandoned"),
+            )
         except Exception as exc:  # last resort: never leave a run looking active
             self.db.event(
-                run_id, "crash", f"Neočekávaná chyba: {exc}", {"tb": traceback.format_exc()[-3000:]}
+                run_id,
+                "crash",
+                self.db.msg("Unexpected error: {error}", error=exc),
+                {"tb": traceback.format_exc()[-3000:]},
             )
             self._needs_decision(run_id, f"internal error: {exc}")
 
@@ -689,7 +735,11 @@ class Runner:
         self.db.update_run(
             run_id, workspace=str(dest), source_commit=head, iteration_base=head, phase="draft"
         )
-        self.db.event(run_id, "setup", f"Izolovaná pracovní kopie z commitu {head[:10]}")
+        self.db.event(
+            run_id,
+            "setup",
+            self.db.msg("Isolated working copy from commit {commit}", commit=head[:10]),
+        )
         return "next"
 
     def _phase_draft(self, run: dict[str, Any], spec: TaskSpec) -> str:
@@ -724,10 +774,10 @@ class Runner:
             self.db.event(
                 run_id,
                 "vault",
-                "Poznámky z paměti poslané modelu: " + ", ".join(sent),
+                self.db.msg("Memory notes sent to the model: {notes}", notes=", ".join(sent)),
                 {"vault": sent, "refused": refused},
             )
-        self.db.event(run_id, "draft", f"{name} navrhuje zadání")
+        self.db.event(run_id, "draft", self.db.msg("{name} drafts the brief", name=name))
         _step, result = self._ask_lead(
             run,
             spec,
@@ -750,10 +800,12 @@ class Runner:
             }
         )
         self.db.update_spec(run_id, updated.model_dump_json())
-        text = draft_message(result)
+        text = draft_message(result, self.db.language())
         bad = invalid_commands(updated, Path(run["workspace"]))
         if bad:
-            text += "\n\nStudio tyto příkazy nespustí: " + "; ".join(bad)
+            text += "\n\n" + self.db.msg(
+                "Studio will not run these commands: {commands}", commands="; ".join(bad)
+            )
         self.db.message(run_id, name, text, {"draft": result.model_dump(), "invalid": bad})
         self.db.update_run(run_id, phase="approve")
         return "next"
@@ -769,7 +821,7 @@ class Runner:
             questions = json.loads(draft["output_json"]).get("questions") or []
         bad = invalid_commands(spec, Path(run["workspace"])) if spec.complete else []
         if spec.auto_approve and spec.complete and not questions and not bad:
-            self.db.event(run_id, "decision", AUTO_APPROVED)
+            self.db.event(run_id, "decision", self.db.msg(AUTO_APPROVED))
             self.db.update_run(run_id, phase="plan")
             return "next"
         self.db.update_run(
@@ -780,7 +832,9 @@ class Runner:
         self.db.event(
             run_id,
             "approval",
-            "Lead má otázky k zadání" if questions else "Zadání čeká na schválení",
+            self.db.msg("The lead has questions about the brief")
+            if questions
+            else self.db.msg("The brief waits for approval"),
         )
         return "pause"
 
@@ -792,7 +846,8 @@ class Runner:
             self.db.update_run(run_id, phase="work")
             return "next"
         messages = self._messages(run_id)
-        self.db.event(run_id, "plan", " a ".join(planners) + " připravuje plán")
+        names = f" {self.db.msg('and')} ".join(planners)
+        self.db.event(run_id, "plan", self.db.msg("{names} prepare the plan", names=names))
         results = self._ask_leads(
             run,
             spec,
@@ -814,7 +869,8 @@ class Runner:
             self.db.message(
                 run_id,
                 orch.primary,
-                "Před implementací potřebuji odpovědět:\n"
+                self.db.msg("Before the implementation I need answers to:")
+                + "\n"
                 + "\n".join(f"- {q}" for q in plan.questions),
             )
             self.db.update_run(run_id, phase="plan")
@@ -830,7 +886,11 @@ class Runner:
             lead = spec.orchestration.takeover
             if spec.escalation == "auto":
                 self.db.update_run(run["id"], implementer=lead)
-                self.db.event(run["id"], "escalation", f"Plán doporučuje silného agenta: {lead}")
+                self.db.event(
+                    run["id"],
+                    "escalation",
+                    self.db.msg("The plan recommends a strong agent: {lead}", lead=lead),
+                )
                 return lead
             if spec.escalation == "ask":
                 return "ask"
@@ -848,7 +908,11 @@ class Runner:
             return
         recorded = run["base_iteration"]
         if recorded is not None and recorded != run["iteration"]:
-            self.db.event(run["id"], "warning", "Checkpoint iterace nebyl zapsán; práce zůstává")
+            self.db.event(
+                run["id"],
+                "warning",
+                self.db.msg("The iteration checkpoint was not written; the work stays"),
+            )
             return
         workspace.reset_to(Path(run["workspace"]), run["iteration_base"])
 
@@ -918,7 +982,9 @@ class Runner:
         run_id = run["id"]
         root = Path(run["workspace"])
         step = self.db.start_step(run_id, "work", run["iteration"], "worker")
-        self.db.event(run_id, "work", f"Worker začíná iteraci {run['iteration']}")
+        self.db.event(
+            run_id, "work", self.db.msg("The worker starts iteration {n}", n=run["iteration"])
+        )
         worker = Worker(
             self.db,
             self.gateway,
@@ -944,7 +1010,13 @@ class Runner:
                 )
             if outcome.status in ("turn_limit", "time_limit", "error") and outcome.files_written:
                 # Partial work is still worth an independent check rather than a guess.
-                self.db.event(run_id, "warning", f"Worker skončil stavem {outcome.status}; ověřuji")
+                self.db.event(
+                    run_id,
+                    "warning",
+                    self.db.msg(
+                        "The worker ended with status {status}; verifying", status=outcome.status
+                    ),
+                )
                 self.db.update_run(run_id, phase="verify")
                 return "next"
             why = f"worker stopped: {outcome.status} {outcome.detail}".strip()
@@ -991,8 +1063,18 @@ class Runner:
             iteration=fresh["iteration"] + (0 if same_iteration else 1),
             feedback_json=json.dumps(feedback),
         )
-        self.db.event(run_id, "escalation", f"{why}; implementaci přebírá {lead}")
-        self.db.message(run_id, "studio", f"Levný worker nestačil ({why}). Přebírá {lead}.")
+        self.db.event(
+            run_id,
+            "escalation",
+            self.db.msg("{why}; {lead} takes over the implementation", why=why, lead=lead),
+        )
+        self.db.message(
+            run_id,
+            "studio",
+            self.db.msg(
+                "The cheap worker was not enough ({why}). {lead} takes over.", why=why, lead=lead
+            ),
+        )
         return "next"
 
     def _handoff(
@@ -1021,7 +1103,10 @@ class Runner:
         self.db.event(
             run_id,
             "handoff",
-            f"Čeká na {EXTERNAL_AGENT}: spusť ho v pracovní kopii a pak klikni Hotovo",
+            self.db.msg(
+                "Waiting for {agent}: start it in the working copy, then click Done",
+                agent=EXTERNAL_AGENT,
+            ),
             {"workspace": str(root), "brief": str(brief_path)},
         )
         return "pause"
@@ -1043,11 +1128,13 @@ class Runner:
             )
         self.db.finish_step(step, "done" if result["passed"] else "failed", result)
         if result["passed"]:
-            self.db.event(run_id, "verify", "Nezávislé ověření prošlo")
+            self.db.event(run_id, "verify", self.db.msg("Independent verification passed"))
             self.db.update_run(run_id, phase="review")
             return "next"
         feedback = failure_feedback(result)
-        self.db.event(run_id, "verify", "Nezávislé ověření selhalo", {"feedback": feedback})
+        self.db.event(
+            run_id, "verify", self.db.msg("Independent verification failed"), {"feedback": feedback}
+        )
         return self._next_iteration_or_decide(
             run, spec, feedback, "independent verification failed"
         )
@@ -1079,7 +1166,10 @@ class Runner:
                 self._step_actual_models(run_id, work["id"]) if work else ()
             )
             exclude = exclude | {m.id for m in self.router.models if model_identity(m.id) in same}
-        self.db.event(run_id, "review", f"{' a '.join(reviewers)} nezávisle reviduje diff")
+        names = f" {self.db.msg('and')} ".join(reviewers)
+        self.db.event(
+            run_id, "review", self.db.msg("{names} review the diff independently", names=names)
+        )
         prompt = review_prompt(spec, verification["diff"], verification, summary, implementer)
         results = self._ask_leads(
             run,
@@ -1095,7 +1185,11 @@ class Runner:
         first = results.get(AUTOPILOT)
         if isinstance(first, LeadError) and first.kind == "no_model" and exclude:
             # No other free model is available: review on the same one, the user confirms.
-            self.db.event(run_id, "warning", "Jiný free model není volný; review stejným modelem")
+            self.db.event(
+                run_id,
+                "warning",
+                self.db.msg("No other free model is free; review with the same model"),
+            )
             step, results[AUTOPILOT] = self._ask_lead(
                 run, spec, AUTOPILOT, "review", prompt, REVIEW_SCHEMA, Review
             )
@@ -1191,7 +1285,11 @@ class Runner:
 
         for name, r in reviews.items():
             if r.verdict == "accept" and not passes(r):
-                self.db.event(run_id, "warning", f"{name} napsal accept, ale má blokující nálezy")
+                self.db.event(
+                    run_id,
+                    "warning",
+                    self.db.msg("{name} answered accept but has blocking findings", name=name),
+                )
         if all(passes(r) for r in reviews.values()):
             independent = [n for n in reviews if n not in dependent]
             if not independent:
@@ -1200,7 +1298,10 @@ class Runner:
                     f"no independent reviewer for {implementer}'s change; confirm acceptance",
                     "self_review",
                 )
-            if not self._accept(run, "Review přijalo změnu (" + ", ".join(reviews) + ")"):
+            if not self._accept(
+                run,
+                self.db.msg("The review accepted the change ({names})", names=", ".join(reviews)),
+            ):
                 return "pause"
             self._propose_memory(run_id)
             return "pause"
@@ -1290,8 +1391,11 @@ class Runner:
                 self.db.event(
                     run_id,
                     "warning",
-                    f"Autopilot návrh do paměti nedodal ({result}); "
-                    "Studio ho sestavilo z ověřených faktů",
+                    self.db.msg(
+                        "Autopilot gave no memory proposal ({error}); "
+                        "Studio built it from verified facts",
+                        error=result,
+                    ),
                 )
                 verify_step = self.db.last_step(run_id, "verify")
                 commands = (
@@ -1303,11 +1407,15 @@ class Runner:
                     if verify_step and verify_step["output_json"]
                     else []
                 )
-                result = fallback_proposal(spec.goal, changed, commands, summary, spec.title)
+                result = fallback_proposal(
+                    spec.goal, changed, commands, summary, spec.title, lang=self.db.language()
+                )
                 author = "studio"
                 step = self.db.start_step(run_id, "memory", run["iteration"], "studio")
             assert step is not None  # the Autopilot step, or the fallback step above
-            proposals = build_proposals(vault, result, note.path, run_id, spec.title, author=author)
+            proposals = build_proposals(
+                vault, result, note.path, run_id, spec.title, author=author, lang=self.db.language()
+            )
             self.db.finish_step(
                 step,
                 "done",
@@ -1316,11 +1424,13 @@ class Runner:
             self.db.event(
                 run_id,
                 "vault",
-                "Návrh zápisu do paměti je připravený; zapíše se až po schválení",
+                self.db.msg("The memory proposal is ready; it is written only after approval"),
                 {"proposals": len(proposals), "author": author},
             )
         except Exception as exc:  # the run is already accepted; this is a convenience
-            self.db.event(run_id, "warning", f"Návrh zápisu do paměti selhal: {exc}")
+            self.db.event(
+                run_id, "warning", self.db.msg("The memory proposal failed: {error}", error=exc)
+            )
 
     def _next_iteration_or_decide(
         self, run: dict[str, Any], spec: TaskSpec, feedback: list[str], why: str
@@ -1335,7 +1445,9 @@ class Runner:
                 fresh, spec, f"{why}; iteration limit {limit} reached", feedback
             )
         self.db.update_run(run_id, phase="work", iteration=iteration + 1)
-        self.db.event(run_id, "rework", f"{why}; další iterace {iteration + 1}")
+        self.db.event(
+            run_id, "rework", self.db.msg("{why}; next iteration {n}", why=why, n=iteration + 1)
+        )
         return "next"
 
 
@@ -1351,15 +1463,16 @@ def invalid_commands(spec: TaskSpec, root: Path) -> list[str]:
     return bad
 
 
-def draft_message(draft: Draft) -> str:
-    lines = [f"Návrh zadání: **{draft.title}**", "", draft.goal, "", "Smí měnit:"]
-    lines += [f"- `{p}`" for p in draft.allowed_paths]
-    lines += ["", "Kritéria:"] + [f"- {c}" for c in draft.acceptance_criteria]
-    lines += ["", "Ověřovací příkazy:"] + [f"- `{c}`" for c in draft.acceptance_commands]
+def draft_message(draft: Draft, lang: str | None = None) -> str:
+    lines = [tr(lang, "Brief: **{title}**", title=draft.title), "", draft.goal, ""]
+    lines += [tr(lang, "May change:")] + [f"- `{p}`" for p in draft.allowed_paths]
+    lines += ["", tr(lang, "Criteria:")] + [f"- {c}" for c in draft.acceptance_criteria]
+    lines += ["", tr(lang, "Verification commands:")]
+    lines += [f"- `{c}`" for c in draft.acceptance_commands]
     if draft.notes:
         lines += ["", draft.notes]
     if draft.questions:
-        lines += ["", "Otázky:"] + [f"- {q}" for q in draft.questions]
+        lines += ["", tr(lang, "Questions:")] + [f"- {q}" for q in draft.questions]
     return "\n".join(lines)
 
 

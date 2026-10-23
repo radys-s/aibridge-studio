@@ -27,6 +27,7 @@ import {
   lines,
   normalizeOrch,
 } from "../options";
+import { t, tn } from "../i18n";
 import { List } from "./bits";
 
 interface Props {
@@ -35,7 +36,7 @@ interface Props {
   onCreated: (runId: string) => void;
   onSettingsSaved: (s: SettingsSnapshot) => void;
   onHealthChanged?: () => void;
-  /** Prefill from this run's spec ("Podobný úkol"); nothing starts until Spustit. */
+  /** Prefill from this run's spec ("Similar task"); nothing starts until Start. */
   fromRun?: string;
 }
 
@@ -49,7 +50,7 @@ export function noteTitle(path: string): string {
 /** Goal sent to Autopilot when continuing a project; the focus is optional. */
 export function continueGoal(title: string, focus: string): string {
   const f = focus.trim();
-  return f ? `Pokračuj v projektu ${title}. Zaměř se na: ${f}` : `Pokračuj v projektu ${title}.`;
+  return f ? t("Continue the project {title}. Focus on: {focus}", { title, focus: f }) : t("Continue the project {title}.", { title });
 }
 
 /** One quiet line: gateway, who receives the code (only providers that do not train on it)
@@ -62,7 +63,7 @@ export function StatusLine({ health, onHealthChanged }: { health: Health | null;
   return (
     <p
       className="status-line privacy-line"
-      title="Posílá se kód z repozitáře a sdílené poznámky bez osobního obsahu. Limity free modelů se nulují o půlnoci UTC."
+      title={t("Code from the repository and shared notes without personal content are sent. Free model limits reset at midnight UTC.")}
     >
       <span className={`hdot ${gw.ok ? "ok" : "bad"}`} aria-hidden="true" />
       <span>{gw.text}</span>
@@ -71,15 +72,15 @@ export function StatusLine({ health, onHealthChanged }: { health: Health | null;
       {providers.length ? (
         <span>
           {health.privacy_floor === "no_train"
-            ? "Data jdou jen k poskytovatelům bez tréninku: "
-            : "Data jdou i k poskytovatelům s neověřeným soukromím: "}
+            ? t("Data goes only to providers that do not train: ")
+            : t("Data also goes to providers with unverified privacy: ")}
           <strong>{providers.join(", ")}</strong>
         </span>
       ) : (
-        <span className="error">Žádný poskytovatel bez tréninku není připojený, běh se zastaví.</span>
+        <span className="error">{t("No provider without training is connected; a run will stop.")}</span>
       )}
       <span aria-hidden="true">·</span>
-      <span>dnes {calls} {calls === 1 ? "dotaz" : calls >= 2 && calls <= 4 ? "dotazy" : "dotazů"}</span>
+      <span>{tn(calls, "today {n} request", "today {n} requests")}</span>
     </p>
   );
 }
@@ -93,7 +94,7 @@ function StartGateway({ onDone }: { onDone?: () => void }) {
     setError(null);
     try {
       const r = await api.startOmniRoute();
-      if (!r.reachable) setError("OmniRoute se nespustil do minuty.");
+      if (!r.reachable) setError(t("OmniRoute did not start within a minute."));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -104,7 +105,7 @@ function StartGateway({ onDone }: { onDone?: () => void }) {
   return (
     <>
       <button type="button" className="small primary" disabled={busy} onClick={() => void start()}>
-        {busy ? "Spouštím OmniRoute…" : "Spustit OmniRoute"}
+        {busy ? t("Starting OmniRoute…") : t("Start OmniRoute")}
       </button>
       {error && <span className="error" role="alert">{error}</span>}
     </>
@@ -184,7 +185,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
       (e) => {
         if (!alive) return;
         setStart("free"); // still a fresh free task, just without the prefill
-        setError(`Původní úkol nelze načíst: ${e instanceof Error ? e.message : String(e)}`);
+        setError(t("Cannot load the original task: {error}", { error: e instanceof Error ? e.message : String(e) }));
       },
     );
     return () => {
@@ -196,7 +197,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     api.vault().then(
       (v) => {
         setVault(v);
-        if (templateRequested.current) return; // "Podobný úkol" is a free task; keep its fields
+        if (templateRequested.current) return; // "Similar task" is a free task; keep its fields
         if (!v.available || !v.projects?.length) setStart("free");
         // One-click resume: preselect the project of the last task.
         else if (settings.last_project && v.projects.includes(settings.last_project)) selectProject(settings.last_project);
@@ -256,12 +257,16 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
   async function submit() {
     if (submitting.current) return;
     if (start === "project" && (!projectReady || selectedNote.current !== note)) {
-      setError(projectError ? "Oprav načtení projektu nebo přepni na Nové zadání." : "Vyber projekt a počkej na načtení jeho poznámky.");
+      setError(
+        projectError
+          ? t("Fix the project loading or switch to New brief.")
+          : t("Choose a project and wait until its note loads."),
+      );
       return;
     }
     const text = start === "project" ? continueGoal(project?.title ?? noteTitle(note), focus) : goal.trim();
     if (text.length < 3 || !repo.trim()) {
-      setError(start === "project" ? "Vyber repozitář projektu." : "Napiš, co se má udělat, a vyber repozitář.");
+      setError(start === "project" ? t("Choose the project's repository.") : t("Write what should be done and choose a repository."));
       return;
     }
     const task: NewTask = {
@@ -316,11 +321,11 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
 
   return (
     <div className="composer-page">
-      <h1 className="composer-title">{start === "project" ? "Kde pokračujeme?" : "Co postavíme?"}</h1>
-      <p className="composer-sub">Autopilot navrhne zadání, udělá práci a nechá ji nezávisle zkontrolovat.</p>
+      <h1 className="composer-title">{start === "project" ? t("Where do we continue?") : t("What shall we build?")}</h1>
+      <p className="composer-sub">{t("Autopilot drafts the brief, does the work and has it reviewed independently.")}</p>
       {template && (
         <p className="alert info small">
-          Podle úkolu „{template.title}“. Uprav, co je potřeba, a spusť.
+          {t("Based on the task \"{title}\". Change what you need and start.", { title: template.title })}
         </p>
       )}
       <form
@@ -330,17 +335,21 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
           void submit();
         }}
       >
-        <div className="segmented" role="radiogroup" aria-label="Začátek">
+        <div className="segmented" role="radiogroup" aria-label={t("Start from")}>
           <button
             type="button"
             role="radio"
             aria-checked={start === "project"}
             className={start === "project" ? "on" : undefined}
             disabled={!vault?.available || projects.length === 0}
-            title={vault?.available ? "Autopilot naváže na poznámku projektu a otevřené předávky." : "Paměťová složka není nastavená (Nastavení → Paměť)."}
+            title={
+              vault?.available
+                ? t("Autopilot continues from the project note and open handoffs.")
+                : t("No memory folder is set (Settings → Memory).")
+            }
             onClick={() => setStart("project")}
           >
-            Pokračovat projekt
+            {t("Continue a project")}
           </button>
           <button
             type="button"
@@ -349,16 +358,16 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
             className={start === "free" ? "on" : undefined}
             onClick={() => setStart("free")}
           >
-            Nové zadání
+            {t("New brief")}
           </button>
         </div>
 
         {start === "project" ? (
           <div className="project-pick">
             <label className="field">
-              <span>Projekt ze sdílené paměti</span>
-              <select aria-label="Projekt" value={note} disabled={busy} onChange={(e) => selectProject(e.target.value)}>
-                <option value="">Vyber projekt…</option>
+              <span>{t("Project from the shared memory")}</span>
+              <select aria-label={t("Project")} value={note} disabled={busy} onChange={(e) => selectProject(e.target.value)}>
+                <option value="">{t("Choose a project…")}</option>
                 {projects.map((p) => (
                   <option key={p} value={p}>
                     {noteTitle(p)}
@@ -366,33 +375,33 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
                 ))}
               </select>
             </label>
-            {loadingProject && <p className="muted small" role="status">Načítám projekt…</p>}
-            {projectError && <p className="alert error small" role="alert">{projectError} Oprav výběr nebo přepni na Nové zadání.</p>}
+            {loadingProject && <p className="muted small" role="status">{t("Loading the project…")}</p>}
+            {projectError && <p className="alert error small" role="alert">{projectError} {t("Fix the choice or switch to New brief.")}</p>}
             {projectReady && project && (
               <div className="project-info small">
                 <div>
-                  Autopilot dostane poznámku <strong>{noteTitle(project.note)}</strong>
-                  {project.handoffs.length > 0 ? " a otevřené předávky:" : " (žádné otevřené předávky)."}
+                  {t("Autopilot gets the note")} <strong>{noteTitle(project.note)}</strong>
+                  {project.handoffs.length > 0 ? ` ${t("and the open handoffs:")}` : ` ${t("(no open handoffs).")}`}
                 </div>
                 {project.handoffs.length > 0 && <List items={project.handoffs.map(noteTitle)} />}
                 {project.refused.length > 0 && (
-                  <div className="muted">Nepošle se (osobní nebo tajné): {project.refused.map(noteTitle).join(", ")}</div>
+                  <div className="muted">{t("Not sent (personal or secret): {notes}", { notes: project.refused.map(noteTitle).join(", ") })}</div>
                 )}
                 <details>
-                  <summary className="muted">Náhled poznámky</summary>
-                  <p className="hint">E-maily a telefony jsou skryté.</p>
+                  <summary className="muted">{t("Note preview")}</summary>
+                  <p className="hint">{t("E-mails and phone numbers are hidden.")}</p>
                   <pre className="output">{project.preview}</pre>
                 </details>
               </div>
             )}
             <textarea
               className="composer-input"
-              aria-label="Na co se zaměřit"
+              aria-label={t("What to focus on")}
               rows={2}
               placeholder={
                 project?.handoffs.length
-                  ? `Na co se zaměřit? (nepovinné – jinak naváže na ${noteTitle(project.handoffs[0])})`
-                  : "Na co se zaměřit? (nepovinné – jinak Autopilot navrhne další krok sám)"
+                  ? t("What to focus on? (optional; otherwise it continues {handoff})", { handoff: noteTitle(project.handoffs[0]) })
+                  : t("What to focus on? (optional; otherwise Autopilot proposes the next step)")
               }
               value={focus}
               onChange={(e) => setFocus(e.target.value)}
@@ -402,10 +411,10 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
         ) : (
           <textarea
             className="composer-input"
-            aria-label="Zadání"
+            aria-label={t("Task")}
             rows={5}
             autoFocus
-            placeholder="Popiš, co se má udělat. Autopilot z toho navrhne rozsah a kontroly, ty to jen schválíš."
+            placeholder={t("Describe what should be done. Autopilot proposes the scope and checks; you only approve them.")}
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             onKeyDown={onKey}
@@ -414,12 +423,12 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
 
         <div className="composer-bar">
           <label className="chip-field repo-field">
-            <span>Repozitář</span>
+            <span>{t("Repository")}</span>
             <input
               list="recent-repos"
               value={repo}
               spellCheck={false}
-              placeholder="C:\cesta\k\repu"
+              placeholder={t("C:\\path\\to\\repo")}
               onChange={(e) => setRepo(e.target.value)}
             />
             <datalist id="recent-repos">
@@ -429,18 +438,18 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
             </datalist>
           </label>
           <button type="submit" className="primary send" disabled={busy || (start === "project" && !projectReady)} title="Ctrl+Enter">
-            {busy ? "Spouštím…" : "Spustit"}
+            {busy ? t("Starting…") : t("Start")}
           </button>
         </div>
 
-        <label className="check" title="Když Autopilot nemá otázky, návrh zadání se schválí sám.">
+        <label className="check" title={t("When Autopilot has no questions, the brief is approved by itself.")}>
           <input
             type="checkbox"
             role="switch"
             checked={autoApprove}
             onChange={(e) => setAutoApprove(e.target.checked)}
           />
-          Schválit návrh zadání automaticky
+          {t("Approve the brief automatically")}
         </label>
 
         {error && (
@@ -450,10 +459,10 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
         )}
 
         <details className="more">
-          <summary>Další možnosti</summary>
+          <summary>{t("More options")}</summary>
           <div className="composer-options">
             <label className="chip-field">
-              <span>Kdo píše kód</span>
+              <span>{t("Who writes the code")}</span>
               <select value={implementer} onChange={(e) => setImplementer(e.target.value as Implementer)}>
                 {implementers(agents).map((i) => (
                   <option key={i.id} value={i.id}>
@@ -463,7 +472,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
               </select>
             </label>
             <label className="chip-field">
-              <span>Když to nezvládne</span>
+              <span>{t("If it does not manage")}</span>
               <select value={escalation} onChange={(e) => setEscalation(e.target.value as Escalation)}>
                 {ESCALATIONS.map((x) => (
                   <option key={x.id} value={x.id}>
@@ -479,18 +488,19 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
           {agentsOn && (
             <>
               <div className="composer-options">
-                <LeadSelect label="Návrh a plán" role="plan" value={orchestration.primary} agents={agents}
+                <LeadSelect label={t("Brief and plan")} role="plan" value={orchestration.primary} agents={agents}
                   onChange={(primary) => setOrch({ ...orchestration, primary })} />
-                <LeadSelect label="Review" role="review" value={orchestration.reviewer} agents={agents}
+                <LeadSelect label={t("Review")} role="review" value={orchestration.reviewer} agents={agents}
                   exclude={[orchestration.takeover, implementer]}
                   onChange={(reviewer) => setOrch({ ...orchestration, reviewer })} />
-                <LeadSelect label="Převzetí" role="takeover" value={orchestration.takeover} agents={agents}
+                <LeadSelect label={t("Takeover")} role="takeover" value={orchestration.takeover} agents={agents}
                   exclude={[orchestration.reviewer]}
                   onChange={(takeover) => setOrch({ ...orchestration, takeover })} />
               </div>
               <p className="hint">
-                Claude Code a Codex běží na tvém předplatném a vidí kód projektu. Review dělá vždy jiný agent než ten,
-                kdo kód napsal.
+                {t(
+                  "Claude Code and Codex run on your subscription and see the project's code. The review is always done by a different agent than the one that wrote the code.",
+                )}
               </p>
             </>
           )}
@@ -500,18 +510,18 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
             open={advanced}
             onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}
           >
-            <summary>Rozsah a kontroly zadat ručně</summary>
+            <summary>{t("Set the scope and checks by hand")}</summary>
             <div className="field-row">
               <label className="field">
-                <span>Povolené cesty (glob, po řádcích)</span>
+                <span>{t("Allowed paths (glob, one per line)")}</span>
                 <textarea rows={3} value={paths} onChange={(e) => setPaths(e.target.value)} placeholder="src/**/*.py" />
               </label>
               <label className="field">
-                <span>Akceptační kritéria</span>
+                <span>{t("Acceptance criteria")}</span>
                 <textarea rows={3} value={criteria} onChange={(e) => setCriteria(e.target.value)} />
               </label>
               <label className="field">
-                <span>Příkazy k ověření</span>
+                <span>{t("Verification commands")}</span>
                 <textarea
                   rows={3}
                   value={commands}
@@ -521,18 +531,18 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
                 />
               </label>
             </div>
-            <p className="hint">Když vyplníš všechno, návrh se přeskočí a jde se rovnou na plán.</p>
+            <p className="hint">{t("When you fill in everything, the brief is skipped and the run goes straight to the plan.")}</p>
           </details>
 
           <div className="actions">
             <button type="button" className="small" onClick={() => void saveDefaults()}>
-              {saved ? "Uloženo" : "Uložit jako výchozí"}
+              {saved ? t("Saved") : t("Save as default")}
             </button>
             <span className="muted small">{describe(orchestration)}</span>
           </div>
         </details>
       </form>
-      <p className="hint execution-hint">Příkazy běží pod tvým uživatelským účtem. Používej pouze důvěryhodné projekty.</p>
+      <p className="hint execution-hint">{t("Commands run under your user account. Use only trusted projects.")}</p>
       <StatusLine health={health} onHealthChanged={onHealthChanged} />
     </div>
   );

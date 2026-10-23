@@ -160,7 +160,7 @@ def test_handoff_proposal_follows_the_template(vault: Vault) -> None:
     handoff = items[1]
     assert handoff["path"] == "handoffs/2026-10-07 studio → codex - Calc review median.md"
     text = handoff["content"]
-    assert "status: open" in text and "to: codex" in text and "## Odpověď" in text
+    assert "status: open" in text and "to: codex" in text and "## Answer" in text
     assert "[[memory/projects/Calc|Calc]]" in text
     vault.write(handoff["path"], text, "new")
     assert handoff["path"] in vault.open_handoffs()
@@ -223,7 +223,7 @@ def test_prose_instead_of_submit_falls_back_to_studio_facts(
     assert "AI Bridge Studio (studio)" in update and "calc/stats.py" in update
     assert "python -m unittest discover" in update  # the passed acceptance command
     assert "jan@example.com" not in update
-    assert any("Studio ho sestavilo" in e["message"] for e in db.events(run_id))
+    assert any("Studio built it" in e["message"] for e in db.events(run_id))
 
 
 def test_memory_retry_only_for_accepted_project_runs(

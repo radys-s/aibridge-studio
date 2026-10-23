@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import { parseUnifiedDiff } from "../diff";
+import { t, tn } from "../i18n";
 
-const STATUS_LABELS = { modified: "upraven", added: "nový", deleted: "smazán", renamed: "přejmenován" };
+const STATUS_LABELS = { modified: t("modified"), added: t("new"), deleted: t("deleted"), renamed: t("renamed") };
 const SIGN = { add: "+", del: "-", ctx: " ", meta: "" };
 
 export function DiffView({ diff }: { diff: string }) {
   const files = useMemo(() => parseUnifiedDiff(diff), [diff]);
-  if (!diff.trim()) return <p className="muted">Diff je prázdný.</p>;
+  if (!diff.trim()) return <p className="muted">{t("The diff is empty.")}</p>;
   if (files.length === 0) return <pre className="output">{diff}</pre>;
 
   const totalAdd = files.reduce((s, f) => s + f.additions, 0);
@@ -15,7 +16,7 @@ export function DiffView({ diff }: { diff: string }) {
   return (
     <div className="diff">
       <p className="small muted">
-        {files.length} {files.length === 1 ? "soubor" : files.length < 5 ? "soubory" : "souborů"},{" "}
+        {tn(files.length, "{n} file", "{n} files")},{" "}
         <span className="add-count">+{totalAdd}</span> <span className="del-count">−{totalDel}</span>
       </p>
       {files.map((f, i) => (
@@ -31,7 +32,7 @@ export function DiffView({ diff }: { diff: string }) {
             </span>
           </summary>
           <div className="diff-body">
-            {f.binary && <div className="dl meta">Binární soubor</div>}
+            {f.binary && <div className="dl meta">{t("Binary file")}</div>}
             {f.hunks.map((h, hi) => (
               <div key={hi} className="diff-hunk">
                 <div className="dl hunk">

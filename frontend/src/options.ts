@@ -1,4 +1,5 @@
-// Orchestration choices offered by the composer and settings, with Czech labels.
+// Orchestration choices offered by the composer and settings, with UI labels.
+import { t } from "./i18n";
 import { AUTOPILOT, type AgentInfo, type AgentRole, type AnyLead, type Escalation, type Health, type Implementer, type ModelInfo, type Orchestration, type Privacy } from "./api";
 
 /** Labels for authors and actors in run history. */
@@ -9,30 +10,30 @@ export function actorLabel(name: string | null): string | null {
 }
 
 export const IMPLEMENTERS: { id: Implementer; label: string; hint: string }[] = [
-  { id: "auto", label: "Auto", hint: "Levný worker; silnější model jen když plán nebo selhání řekne." },
-  { id: "worker", label: "Worker", hint: "Levný model přes OmniRoute." },
-  { id: "autopilot", label: "Autopilot", hint: "Silnější free model píše kód sám (pro těžší úkoly)." },
-  { id: "claude", label: "Claude Code", hint: "Claude Code píše kód (tvoje předplatné)." },
-  { id: "codex", label: "Codex", hint: "Codex píše kód (tvoje předplatné)." },
-  { id: "freebuff", label: "Freebuff", hint: "Spouštíš ho ručně v terminálu, Studio pak ověří." },
+  { id: "auto", label: "Auto", hint: t("Cheap worker; a stronger model only when the plan or a failure calls for it.") },
+  { id: "worker", label: "Worker", hint: t("Cheap free model.") },
+  { id: "autopilot", label: "Autopilot", hint: t("A stronger free model writes the code itself (for harder tasks).") },
+  { id: "claude", label: "Claude Code", hint: t("Claude Code writes the code (your subscription).") },
+  { id: "codex", label: "Codex", hint: t("Codex writes the code (your subscription).") },
+  { id: "freebuff", label: "Freebuff", hint: t("You run it by hand in a terminal; Studio verifies afterwards.") },
 ];
 
 export const ESCALATIONS: { id: Escalation; label: string; hint: string }[] = [
-  { id: "ask", label: "Zeptat se", hint: "Když worker nestačí, nabídne převzetí Autopilotem." },
-  { id: "auto", label: "Automaticky", hint: "Když worker nestačí, převezme to Autopilot sám." },
-  { id: "off", label: "Vypnuto", hint: "Nikdy nepředávat silnějšímu modelu." },
+  { id: "ask", label: t("Ask"), hint: t("When the worker is not enough, offer a takeover by Autopilot.") },
+  { id: "auto", label: t("Automatic"), hint: t("When the worker is not enough, Autopilot takes over on its own.") },
+  { id: "off", label: t("Off"), hint: t("Never hand over to a stronger model.") },
 ];
 
 export const PRIVACY_LABELS: Record<Privacy, string> = {
-  no_train: "bez tréninku",
-  unknown: "neověřeno",
-  may_train: "může trénovat",
+  no_train: t("no training"),
+  unknown: t("unverified"),
+  may_train: t("may train"),
 };
 
 export const BLOCKED_LABELS: Record<NonNullable<ModelInfo["blocked"]>, string> = {
-  privacy: "pod hranicí soukromí",
-  paid: "placený (vypnuto)",
-  not_connected: "poskytovatel nepřipojen v OmniRoute",
+  privacy: t("below the privacy floor"),
+  paid: t("paid (off)"),
+  not_connected: t("provider not connected"),
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -59,29 +60,29 @@ const PROVIDER_LABELS: Record<string, string> = {
 /** Where the user creates a free key and which provider to pick in the OmniRoute dashboard
  * (ADR 0005). Only providers that do not train on inputs are offered. */
 export const KEY_SOURCES: { provider: string; label: string; signup: string; signupLabel?: string; omniroute: string; note: string }[] = [
-  { provider: "groq", label: "Groq", signup: "https://console.groq.com/keys", omniroute: "Groq", note: "V Data Controls zapni Zero Data Retention." },
+  { provider: "groq", label: "Groq", signup: "https://console.groq.com/keys", omniroute: "Groq", note: t("Turn on Zero Data Retention in Data Controls.") },
   {
     provider: "ovh",
     label: "OVHcloud AI Endpoints",
     signup: "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog/",
-    signupLabel: "katalog modelů",
+    signupLabel: t("model catalog"),
     omniroute: "OVHcloud AI",
-    note: "Klíč není potřeba: v OmniRoute přidej OVHcloud AI s prázdným klíčem (2 dotazy/min na model, s klíčem 400). Podle OVHcloud běží v EU a na datech se netrénuje (ověřeno 10. 10. 2026, ne zvlášť pro režim bez klíče).",
+    note: t("No key needed: add OVHcloud AI in OmniRoute with an empty key (2 requests/min per model, 400 with a key). OVHcloud says it runs in the EU and does not train on data (checked 2026-10-10, not separately for the keyless mode)."),
   },
   {
     provider: "ollamacloud",
     label: "Ollama Cloud",
     signup: "https://ollama.com/settings/keys",
     omniroute: "Ollama Cloud",
-    note: "Free plán bez karty, jeden model naráz, omezená kvóta. Podle zásad Ollamy se na promptech z cloudu netrénuje (ověřeno 10. 10. 2026).",
+    note: t("Free plan without a card, one model at a time, limited quota. Ollama's policy says cloud prompts are not used for training (checked 2026-10-10)."),
   },
-  { provider: "cerebras", label: "Cerebras", signup: "https://cloud.cerebras.ai", omniroute: "Cerebras", note: "Free tier chce platební kartu – bez ní ho přeskoč." },
+  { provider: "cerebras", label: "Cerebras", signup: "https://cloud.cerebras.ai", omniroute: "Cerebras", note: t("The free tier asks for a payment card; skip it without one.") },
   {
     provider: "cf",
     label: "Cloudflare Workers AI",
     signup: "https://dash.cloudflare.com/profile/api-tokens",
     omniroute: "Cloudflare AI",
-    note: "Token ze šablony „Workers AI“. V OmniRoute vyplň i Account ID (pravý panel na dash.cloudflare.com), jinak vrací 502.",
+    note: t("Token from the \"Workers AI\" template. In OmniRoute also fill in the Account ID (right panel on dash.cloudflare.com), otherwise it returns 502."),
   },
 ];
 export const OMNIROUTE_PROVIDERS_URL = "http://localhost:20128/dashboard/providers";
@@ -104,9 +105,9 @@ export function activeProviders(models: ModelInfo[]): string[] {
 export const LEAD_LABELS: Record<AnyLead, string> = { autopilot: "Autopilot", claude: "Claude Code", codex: "Codex" };
 
 export const ROLE_LABELS: Record<AgentRole, string> = {
-  plan: "návrh a plán",
-  review: "review",
-  takeover: "převzetí implementace",
+  plan: t("brief and plan"),
+  review: t("review"),
+  takeover: t("implementation takeover"),
 };
 
 /** Leads allowed in a role: Autopilot always, a CLI lead only when the user enabled that role. */
@@ -136,10 +137,10 @@ export function normalizeOrch(orch: Partial<Orchestration> | undefined, agents: 
 export function describe(orch: Orchestration): string {
   const leads = [orch.primary, orch.reviewer, orch.takeover];
   if (leads.every((l) => l === AUTOPILOT)) {
-    return orch.plan === false ? "Autopilot · bez plánu" : "Autopilot · free modely";
+    return orch.plan === false ? t("Autopilot · no plan") : t("Autopilot · free models");
   }
-  const parts = [`plán ${LEAD_LABELS[orch.primary]}`, `review ${LEAD_LABELS[orch.reviewer]}`];
-  if (orch.takeover !== AUTOPILOT) parts.push(`převzetí ${LEAD_LABELS[orch.takeover]}`);
+  const parts = [t("plan {lead}", { lead: LEAD_LABELS[orch.primary] }), t("review {lead}", { lead: LEAD_LABELS[orch.reviewer] })];
+  if (orch.takeover !== AUTOPILOT) parts.push(t("takeover {lead}", { lead: LEAD_LABELS[orch.takeover] }));
   return parts.join(" · ");
 }
 
@@ -149,10 +150,10 @@ export function gatewayState(health: Health): { ok: boolean; omniroute: boolean;
   const direct = health.gateway.direct ?? [];
   const names = direct.map(providerLabel).join(", ");
   let text: string;
-  if (omniroute && direct.length) text = `OmniRoute + přímo: ${names}`;
-  else if (omniroute) text = "OmniRoute běží";
-  else if (direct.length) text = `Přímo: ${names}`;
-  else text = "Žádný poskytovatel není dostupný";
+  if (omniroute && direct.length) text = t("OmniRoute + direct: {names}", { names });
+  else if (omniroute) text = t("OmniRoute is running");
+  else if (direct.length) text = t("Direct: {names}", { names });
+  else text = t("No provider is reachable");
   return { ok: health.gateway.reachable, omniroute, text };
 }
 

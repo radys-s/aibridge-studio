@@ -1,6 +1,7 @@
 // Tab title and system notifications for runs that need the user or just ended.
 import { useEffect, useRef } from "react";
 import type { RunSummary } from "./api";
+import { t } from "./i18n";
 
 export const NEEDS_YOU = ["needs_decision", "awaiting_approval", "awaiting_external"];
 const ENDED = ["accepted", "abandoned"];
@@ -32,9 +33,9 @@ export function titleFor(runs: RunSummary[]): string {
 }
 
 export function changeText(c: Change): string {
-  if (c.kind === "accepted") return "Přijato — změna prošla ověřením i recenzí.";
-  if (c.kind === "abandoned") return "Úkol skončil bez přijetí.";
-  return "Čeká na tvoje rozhodnutí.";
+  if (c.kind === "accepted") return t("Accepted: the change passed verification and review.");
+  if (c.kind === "abandoned") return t("The task ended without being accepted.");
+  return t("Waiting for your decision.");
 }
 
 export function notificationsSupported(): boolean {
