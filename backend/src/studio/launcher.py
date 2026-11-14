@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -88,7 +89,7 @@ class OmniRouteLauncher:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         log = (self.log_dir / "omniroute.log").open("ab")
         flags = 0
-        if os.name == "nt":
+        if sys.platform == "win32":
             # Not DETACHED_PROCESS: npm installs `omniroute.cmd`, and cmd.exe without a
             # console exits at once without a word (seen live 2026-10-10).
             flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
