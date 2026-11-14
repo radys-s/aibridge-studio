@@ -1,6 +1,6 @@
 [project]
 name = "aibridge-studio"
-version = "0.1.0"
+version = "0.5.0"
 description = "Local AI development studio: cheap workers via OmniRoute, Claude/Codex as leads and reviewers."
 requires-python = ">=3.13"
 dependencies = [
