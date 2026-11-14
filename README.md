@@ -21,3 +21,19 @@ uv run studio serve      # http://127.0.0.1:8765
 
 Requires Python 3.13, uv, Node 22+, OmniRoute with at least one provider connection, and
 logged-in `claude` and/or `codex` CLIs for planning and review.
+
+## Works with Refrakt
+
+[Refrakt](https://github.com/radys-s/refrakt) is the layer below Studio: a chat app that holds
+your provider keys and routes across free LLM APIs. Studio can use those keys through
+Refrakt's OpenAI-compatible gateway, so they are stored once and Studio never holds one.
+
+```powershell
+$env:REFRAKT_GATEWAY_TOKEN = "<Refrakt's GATEWAY_TOKEN>"   # turns it on
+$env:STUDIO_REFRAKT_URL = "http://127.0.0.1:8000"         # default
+```
+
+Models reached this way are listed as `refrakt/<provider>/<model>` and follow the same
+privacy rules as the provider behind them. With OmniRoute and Refrakt both running, OmniRoute
+goes first; with only Refrakt running, Studio uses the models Refrakt serves. Details:
+`docs/adr/0007-refrakt-as-second-gateway.md`.
