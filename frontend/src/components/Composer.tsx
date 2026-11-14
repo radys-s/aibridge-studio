@@ -49,6 +49,13 @@ export function StatusLine({ health, onHealthChanged }: { health: Health | null;
       <span className={`hdot ${health.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" />
       <span>{health.gateway.reachable ? "OmniRoute běží" : "OmniRoute neběží"}</span>
       {!health.gateway.reachable && health.gateway.launchable && <StartGateway onDone={onHealthChanged} />}
+      {health.gateway.refrakt && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className={`hdot ${health.gateway.refrakt.reachable ? "ok" : "bad"}`} aria-hidden="true" />
+          <span>{health.gateway.refrakt.reachable ? "Refrakt běží" : "Refrakt neběží"}</span>
+        </>
+      )}
       <span aria-hidden="true">·</span>
       {providers.length ? (
         <span>

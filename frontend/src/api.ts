@@ -81,7 +81,15 @@ export interface ModelStats {
 export interface Health {
   version: string;
   /** `fake`: scripted test gateway (STUDIO_FAKE_GATEWAY=1), never a live model. */
-  gateway: { reachable: boolean; status?: number; error?: string; fake?: boolean; launchable?: boolean };
+  gateway: {
+    reachable: boolean;
+    status?: number;
+    error?: string;
+    fake?: boolean;
+    launchable?: boolean;
+    /** Present when Refrakt is set up (REFRAKT_GATEWAY_TOKEN, ADR 0007). */
+    refrakt?: { reachable: boolean };
+  };
   leads: Partial<Record<AnyLead, { installed: boolean; path?: string | null }>>;
   worker_models: string[];
   lead_models: string[];

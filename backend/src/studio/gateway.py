@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from studio.config import REFRAKT_PREFIX
 from studio.sandbox import safe_text
 
 
@@ -86,8 +87,18 @@ def _float(value: str | None) -> float:
 
 
 class OmniRouteGateway:
-    def __init__(self, base_url: str, api_key: str | None = None, timeout_s: float = 180) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        timeout_s: float = 180,
+        *,
+        name: str = "OmniRoute",
+        health_path: str = "/api/monitoring/health",
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.name = name
+        self.health_path = health_path
         self.timeout_s = timeout_s
         self._headers = {"Content-Type": "application/json"}
         if api_key:
@@ -97,7 +108,7 @@ class OmniRouteGateway:
 
     def health(self) -> dict[str, Any]:
         try:
-            r = httpx.get(f"{self.base_url}/api/monitoring/health", timeout=5)
+            r = httpx.get(f"{self.base_url}{self.health_path}", timeout=5)
             return {"reachable": True, "status": r.status_code}
         except httpx.HTTPError as exc:
             return {"reachable": False, "error": type(exc).__name__}
@@ -153,11 +164,11 @@ class OmniRouteGateway:
                 timeout=timeout_s or self.timeout_s,
             )
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-            raise GatewayUnavailable(f"OmniRoute not reachable at {self.base_url}") from exc
+            raise GatewayUnavailable(f"{self.name} not reachable at {self.base_url}") from exc
         except httpx.TimeoutException as exc:
             raise GatewayTimeout(f"no answer from {model} within the timeout") from exc
         except httpx.HTTPError as exc:
-            raise GatewayUnavailable(f"HTTP error talking to OmniRoute: {exc}") from exc
+            raise GatewayUnavailable(f"HTTP error talking to {self.name}: {exc}") from exc
         latency = int((time.monotonic() - started) * 1000)
         if r.status_code >= 400:
             detail = safe_text(r.text)[:400]
@@ -189,3 +200,68 @@ class OmniRouteGateway:
             latency_ms=latency,
             raw_headers={k: v for k, v in h.items() if k.startswith("x-omniroute-")},
         )
+
+
+class RefraktGateway(OmniRouteGateway):
+    """Refrakt's OpenAI-compatible /v1 (ADR 0007). Refrakt holds the provider keys.
+
+    Studio's ids carry `refrakt/`; Refrakt itself knows the bare LiteLLM slug. Its `auto`
+    model is never offered: Refrakt would pick and fall back on its own, a second owner.
+    """
+
+    def __init__(self, base_url: str, token: str, timeout_s: float = 180) -> None:
+        super().__init__(base_url, token, timeout_s, name="Refrakt", health_path="/api/health")
+
+    def models(self, fresh: bool = False) -> set[str] | None:
+        ids = super().models(fresh)
+        return None if ids is None else {REFRAKT_PREFIX + i for i in ids if i != "auto"}
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        timeout_s: float | None = None,
+    ) -> ChatResult:
+        result = super().chat(model.removeprefix(REFRAKT_PREFIX), messages, tools, timeout_s)
+        result.requested_model = model
+        return result
+
+
+class RoutedGateway:
+    """OmniRoute plus Refrakt: each model id goes to the gateway that serves it."""
+
+    def __init__(self, default: ChatGateway, refrakt: ChatGateway) -> None:
+        self.default = default
+        self.refrakt = refrakt
+
+    def _for(self, model: str) -> ChatGateway:
+        return self.refrakt if model.startswith(REFRAKT_PREFIX) else self.default
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        timeout_s: float | None = None,
+    ) -> ChatResult:
+        gateway = self._for(model)
+        try:
+            return gateway.chat(model, messages, tools, timeout_s)
+        except GatewayUnavailable as exc:
+            if gateway is self.default:
+                raise
+            # Refrakt is down: that model fails and the router moves on, the run goes on.
+            raise ProviderError(str(exc), status=503) from exc
+
+    def health(self) -> dict[str, Any]:
+        return {**self.default.health(), "refrakt": self.refrakt.health()}
+
+    def models(self, fresh: bool = False) -> set[str] | None:
+        """Union of what each gateway exposes. A gateway that never answered adds nothing,
+        so with OmniRoute not installed the router uses Refrakt's models instead of trying
+        OmniRoute ones that can only fail."""
+        found = [self.default.models(fresh), self.refrakt.models(fresh)]
+        if all(ids is None for ids in found):
+            return None
+        return set().union(*(ids for ids in found if ids is not None))

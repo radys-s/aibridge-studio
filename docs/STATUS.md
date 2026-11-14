@@ -1,5 +1,13 @@
 # Status
 
+## v0.6 — Refrakt as a second gateway (2026-11-14)
+
+- Models `refrakt/...` go to Refrakt's `/v1` and use the keys stored there (ADR 0007). Set
+  `REFRAKT_GATEWAY_TOKEN` (and `STUDIO_REFRAKT_URL` if Refrakt is not on :8000).
+- Privacy, daily caps and reviewer independence follow the upstream provider.
+- Without OmniRoute, Refrakt's twins are used instead of OmniRoute models that can only fail.
+- The status line shows whether Refrakt runs.
+
 ## v0.5 — daily comfort and reliability (2026-10-10, branch `v0.5`, Claude Code)
 
 v0.4 merged into `main` (fast-forward to `c4d77e8`) on Tomáš's word.
