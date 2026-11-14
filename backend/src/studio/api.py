@@ -22,10 +22,10 @@ from pydantic import BaseModel, Field
 from studio import __version__
 from studio.agents.api_lead import ApiLead
 from studio.agents.leads import Lead
-from studio.config import DAILY_REQUEST_CAPS, Settings
+from studio.config import DAILY_REQUEST_CAPS, Settings, upstream
 from studio.db import Database
 from studio.domain import AUTOPILOT, TaskSpec
-from studio.gateway import ChatGateway, OmniRouteGateway
+from studio.gateway import ChatGateway, OmniRouteGateway, RefraktGateway, RoutedGateway
 from studio.launcher import LaunchError, OmniRouteLauncher
 from studio.memory import project_memory
 from studio.preferences import Defaults, Preferences
@@ -100,7 +100,7 @@ def _providers_today(by_model: dict[str, int]) -> list[dict[str, Any]]:
     """
     out: dict[str, dict[str, Any]] = {}
     for model, n in by_model.items():
-        provider = model.split("/", 1)[0]
+        provider = upstream(model)
         row = out.setdefault(provider, {"provider": provider, "calls": 0, "used": 0, "cap": None})
         row["calls"] += n
         row["used"] = max(row["used"], n) if provider in PER_MODEL_CAPS else row["calls"]
@@ -129,6 +129,13 @@ def create_app(
     gw = gateway or OmniRouteGateway(
         settings.omniroute_url, settings.omniroute_api_key, settings.gateway_timeout_s
     )
+    if gateway is None and settings.refrakt_token:
+        gw = RoutedGateway(
+            gw,
+            RefraktGateway(
+                settings.refrakt_url, settings.refrakt_token, settings.gateway_timeout_s
+            ),
+        )
     router = ModelRouter(
         db,
         settings.worker_models,

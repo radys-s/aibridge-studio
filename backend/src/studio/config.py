@@ -37,7 +37,22 @@ class ModelSpec:
 
     @property
     def provider(self) -> str:
-        return self.id.split("/", 1)[0]
+        return upstream(self.id)
+
+
+REFRAKT_PREFIX = "refrakt/"
+# Refrakt sends through LiteLLM, whose provider names differ from OmniRoute's aliases.
+_LITELLM_ALIASES = {"nvidia_nim": "nvidia", "cohere_chat": "cohere", "huggingface": "hf"}
+
+
+def upstream(model_id: str) -> str:
+    """The provider that actually runs the model, whichever gateway reaches it.
+
+    `refrakt/groq/openai/gpt-oss-120b` is Groq: the same privacy class, the same daily cap,
+    and not an independent reviewer for work done by `groq/...` through OmniRoute.
+    """
+    provider = model_id.removeprefix(REFRAKT_PREFIX).split("/", 1)[0]
+    return _LITELLM_ALIASES.get(provider, provider)
 
 
 _LEAD = frozenset({"coding", "tools", "lead"})
@@ -53,7 +68,9 @@ _CODE = frozenset({"coding", "tools"})
 # Verified live through OmniRoute on 2026-10-08: groq/openai/gpt-oss-120b (tool calling).
 _CATALOG: tuple[ModelSpec, ...] = (
     ModelSpec("groq/openai/gpt-oss-120b", _LEAD, 6),
+    ModelSpec("refrakt/groq/openai/gpt-oss-120b", _LEAD, 6),
     ModelSpec("cerebras/gpt-oss-120b", _LEAD, 6),
+    ModelSpec("refrakt/cerebras/gpt-oss-120b", _LEAD, 6),
     ModelSpec("cf/@cf/moonshotai/kimi-k2.6", _LEAD, 5),
     ModelSpec("cerebras/zai-glm-4.7", _LEAD, 5),
     # OmniRoute's Cloudflare list has no gpt-oss-120b; glm-4.7-flash is the next lead there.
@@ -61,10 +78,14 @@ _CATALOG: tuple[ModelSpec, ...] = (
     # GitHub Models is gone: GitHub retired it on 2026-07-30 and models.github.ai now answers
     # every request with a plain "OK" (seen 2026-10-08), so it has no entry.
     ModelSpec("groq/openai/gpt-oss-20b", _LEAD, 3),
+    ModelSpec("refrakt/groq/openai/gpt-oss-20b", _LEAD, 3),
     # unknown: no clear public no-training commitment for free/trial keys.
     ModelSpec("zai/glm-4.7-flash", _LEAD, 3),
+    ModelSpec("refrakt/zai/glm-4.7-flash", _LEAD, 3),
     ModelSpec("cohere/command-a-03-2025", frozenset({"tools", "lead"}), 3),
+    ModelSpec("refrakt/cohere_chat/command-a-03-2025", frozenset({"tools", "lead"}), 3),
     ModelSpec("hf/deepseek-ai/DeepSeek-V3", _LEAD, 3),
+    ModelSpec("refrakt/huggingface/deepseek-ai/DeepSeek-V3.2", _LEAD, 3),
     ModelSpec("openrouter/poolside/laguna-s-2.1:free", _LEAD, 3),
     ModelSpec("openrouter/cohere/north-mini-code:free", _CODE, 2),
     ModelSpec("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", frozenset({"tools", "lead"}), 4),
@@ -72,10 +93,13 @@ _CATALOG: tuple[ModelSpec, ...] = (
     # may_train: free tiers whose terms allow training on inputs. Never routed unless Tomáš
     # opts out with the provider and lists it in STUDIO_NO_TRAIN_PROVIDERS.
     ModelSpec("nvidia/moonshotai/kimi-k2.6", _LEAD, 6),
+    ModelSpec("refrakt/nvidia_nim/moonshotai/kimi-k2.6", _LEAD, 6),
     ModelSpec("nvidia/deepseek-ai/deepseek-v4-pro", _LEAD, 6),
     ModelSpec("gemini/gemini-3.5-flash", _LEAD, 5),
+    ModelSpec("refrakt/gemini/gemini-3.5-flash", _LEAD, 5),
     ModelSpec("mistral/devstral-latest", _LEAD, 4),
     ModelSpec("mistral/codestral-latest", _CODE, 3),
+    ModelSpec("refrakt/mistral/codestral-latest", _CODE, 3),
 )
 
 # Training on inputs by provider alias, checked 2026-10-08 (sources in ADR 0004/0005):
@@ -103,7 +127,7 @@ DAILY_REQUEST_CAPS: dict[str, int] = {"groq": 1000, "openrouter": 50}
 
 
 def _privacy(model_id: str) -> Privacy:
-    provider = model_id.split("/", 1)[0]
+    provider = upstream(model_id)
     # Tomáš opted out of training with these providers (e.g. Mistral admin console).
     if provider in _ids("STUDIO_NO_TRAIN_PROVIDERS"):
         return "no_train"
@@ -156,6 +180,10 @@ class Settings:
     data_dir: Path = field(default_factory=_default_data_dir)
     omniroute_url: str = "http://127.0.0.1:20128"
     omniroute_api_key: str | None = None
+    # Refrakt's /v1 (ADR 0007): models `refrakt/...` use the keys stored in Refrakt.
+    # Off while no token is set.
+    refrakt_url: str = "http://127.0.0.1:8000"
+    refrakt_token: str | None = None
     worker_models: tuple[ModelSpec, ...] = DEFAULT_MODELS
     # Lowest privacy class a model may have to receive code or notes (ADR 0004).
     privacy_floor: Privacy = "no_train"
@@ -191,6 +219,8 @@ class Settings:
             data_dir=Path(data_dir).resolve() if data_dir else _default_data_dir(),
             omniroute_url=os.environ.get("STUDIO_OMNIROUTE_URL", "http://127.0.0.1:20128"),
             omniroute_api_key=os.environ.get("OMNIROUTE_API_KEY") or None,
+            refrakt_url=os.environ.get("STUDIO_REFRAKT_URL", "http://127.0.0.1:8000"),
+            refrakt_token=os.environ.get("REFRAKT_GATEWAY_TOKEN") or None,
             worker_models=_models_from_env(),
             privacy_floor=(
                 "unknown" if os.environ.get("STUDIO_PRIVACY") == "unknown" else "no_train"
