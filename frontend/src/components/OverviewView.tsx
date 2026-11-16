@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { api, type Overview } from "../api";
 import { formatCost, formatDuration, formatTokens, STATE_LABELS } from "../format";
 import { StateBadge } from "./StateBadge";
@@ -16,12 +16,24 @@ export function oneDecimal(n: number | null | undefined): string {
   return n == null ? "–" : n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 });
 }
 
-function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
+/** A share (0–1) drawn as a bar; nothing without data. */
+function Meter({ share }: { share: number | null | undefined }) {
+  if (share == null) return null;
+  const clamped = Math.min(1, Math.max(0, share));
+  return (
+    <span className="meter" aria-hidden="true" style={{ "--share": clamped } as CSSProperties}>
+      <i />
+    </span>
+  );
+}
+
+function Tile({ label, value, note, share }: { label: string; value: string; note?: string; share?: number | null }) {
   return (
     <div className="tile">
       <div className="tile-value">{value}</div>
       <div className="tile-label">{label}</div>
       {note && <div className="tile-note muted small">{note}</div>}
+      <Meter share={share} />
     </div>
   );
 }
@@ -72,6 +84,7 @@ export function OverviewView() {
               <Tile
                 label="přijato"
                 value={percent(o.accept_rate)}
+                share={o.accept_rate}
                 note={[
                   o.finished ? `${o.accepted} z ${o.finished} dokončených` : "zatím nic nedokončeno",
                   o.runs > o.finished ? `${o.runs - o.finished} rozpracovaných` : "",
@@ -145,7 +158,10 @@ export function OverviewView() {
                         {modelName(m.model)}
                       </td>
                       <td>{m.calls}</td>
-                      <td>{percent(m.calls ? m.ok / m.calls : null)}</td>
+                      <td>
+                        {percent(m.calls ? m.ok / m.calls : null)}
+                        <Meter share={m.calls ? m.ok / m.calls : null} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

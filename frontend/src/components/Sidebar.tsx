@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isActive, type Health, type RunSummary } from "../api";
 import { activeProviders } from "../options";
 import { relativeTime, STATE_LABELS } from "../format";
@@ -25,6 +25,20 @@ function repoName(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+/** Wall clock for the telemetry strip; ticks once a second. */
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  return (
+    <time className="clock" dateTime={now.toISOString()}>
+      {now.toLocaleTimeString("cs-CZ")}
+    </time>
+  );
+}
+
 /** Group runs by repository, newest group first. */
 export function groupByRepo(runs: RunSummary[]): { repo: string; runs: RunSummary[] }[] {
   const groups = new Map<string, RunSummary[]>();
@@ -47,12 +61,25 @@ export function Sidebar(p: Props) {
     return groupByRepo(runs);
   }, [p.runs, query]);
   const waiting = p.runs.filter((r) => NEEDS_YOU.includes(r.state)).length;
+  const active = p.runs.filter((r) => isActive(r.state)).length;
   const h = p.health;
 
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="logo" aria-hidden="true">◆</span> AI Bridge Studio
+        <span className="logo" aria-hidden="true">◆</span> <span className="brand-name">AI Bridge Studio</span>
+      </div>
+      <div className="telemetry">
+        <span className={`telemetry-live${active ? " on" : ""}`}>
+          <span className={`eq${active ? " on" : ""}`} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          {active ? `pracuje ${active}` : "klid"}
+        </span>
+        <Clock />
       </div>
       <button type="button" className={`new-task${p.view === "new" ? " on" : ""}`} onClick={p.onNew}>
         Nový úkol
