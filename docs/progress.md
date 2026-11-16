@@ -46,7 +46,7 @@ thread at 360 px, wrong Czech plurals, English error texts.
 
 **Numbers:** text styles failing contrast: about 8 → 0 in light and 3 → 0 in dark (WCAG AA, measured on
 every main screen); controls under 44 px at 360 px: about 20 → 0 (inline links excepted);
-page overflow at 360 px: 0 before and after. Built CSS 21.4 → 39.9 kB (5.1 → 8.8 kB gzip). Composer
+page overflow at 360 px: 0 before and after. Built CSS 21.4 → 39.3 kB (5.1 → 8.6 kB gzip). Composer
 ready in 0.2–0.4 s before and after.
 
 **Verification:** `tsc`, 24 Vitest, build. Playwright on Linux: 8 passed, 3 failed, all three
