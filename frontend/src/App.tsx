@@ -50,16 +50,16 @@ function usePolling(fn: () => Promise<void>, ms: number) {
   }, [fn, ms]);
 }
 
-// Theme: "system" follows the OS; the choice is a per-viewer convenience.
+// Theme: dark unless the viewer picked another; "system" follows the OS.
 const THEMES = ["system", "light", "dark"] as const;
 type Theme = (typeof THEMES)[number];
 
 function loadTheme(): Theme {
   try {
     const t = window.localStorage.getItem("studio-theme");
-    return (THEMES as readonly string[]).includes(t ?? "") ? (t as Theme) : "system";
+    return (THEMES as readonly string[]).includes(t ?? "") ? (t as Theme) : "dark";
   } catch {
-    return "system";
+    return "dark";
   }
 }
 

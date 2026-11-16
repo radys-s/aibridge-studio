@@ -764,7 +764,7 @@ export function Thread({ detail, live, onChanged, detailsOpen, onToggleDetails, 
 
   return (
     <section className="thread" aria-label="Průběh úkolu">
-      <header className="thread-head">
+      <header className={`thread-head${isActive(run.state) ? " active" : ""}`}>
         <div className="thread-title">
           <div>
             <h1>{spec.title || "Nový úkol"}</h1>
