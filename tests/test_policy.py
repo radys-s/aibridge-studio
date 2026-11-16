@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ def box(tmp_path: Path) -> Sandbox:
     return Sandbox(tmp_path, ["src/**", "src/*.py"])
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows paths and command policy")
 def test_path_escape_and_denylist(box: Sandbox) -> None:
     for bad in ("../outside.txt", "C:/Windows/win.ini", ".env", ".git/config", "src/../../x"):
         with pytest.raises(Denied):
@@ -83,6 +85,7 @@ def test_scope(box: Sandbox) -> None:
         box.check_writable("setup.py")
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows command policy")
 def test_commands(box: Sandbox) -> None:
     for bad in (
         "rm -rf /",
