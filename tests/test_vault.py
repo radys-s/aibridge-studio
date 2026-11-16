@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,7 @@ def test_folder_counts_mark_what_is_shared(vault: Vault) -> None:
     assert ".obsidian" not in counts
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows backslash paths")
 def test_repo_hint_accepts_both_slash_styles(vault: Vault, tmp_path: Path) -> None:
     repo = tmp_path / "proj"
     (repo / ".git").mkdir(parents=True)

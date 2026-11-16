@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -166,6 +167,7 @@ def test_api_external_done_in_wrong_state_is_409(tmp_path: Path, repo: Path) -> 
     assert resp.status_code == 409
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="launches wt.exe/cmd.exe")
 def test_open_terminal_only_while_awaiting_and_with_scrubbed_env(
     studio, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
