@@ -1,5 +1,6 @@
 // The runner writes decision reasons in English for logs and tests. The decision bar shows a
 // Czech explanation with the next step instead; the original stays available as a detail.
+// Each explanation names only buttons the bar shows in that state (see DecisionBar in Thread.tsx).
 
 type Rule = [RegExp, (m: RegExpMatchArray) => string];
 
@@ -9,6 +10,15 @@ const PHASES: Record<string, string> = {
   implementation: "Práce se nepovedla",
   review: "Recenze se nepovedla",
 };
+
+/** What went wrong, for the hand-over question where the bar offers no retry. */
+function handOverCause(reason: string): string {
+  const verify = reason.match(/independent verification failed; iteration limit (\d+) reached/);
+  if (verify) return `Nezávislé ověření neprošlo ani po ${verify[1]} pokusech.`;
+  const review = reason.match(/review requested changes; iteration limit (\d+) reached/);
+  if (review) return `Recenze změnu nepřijala ani po ${review[1]} kolech.`;
+  return "Levný model úkol nezvládl.";
+}
 
 const RULES: Rule[] = [
   [
@@ -29,7 +39,13 @@ const RULES: Rule[] = [
       "Brána k modelům (OmniRoute nebo Refrakt) neodpovídá. Spusť ji a klikni na Zkusit fázi znovu.",
   ],
   [
-    /cooling down|no_model/,
+    /no \w+ model (that does not train|is usable)/,
+    () =>
+      "Není připojený žádný použitelný model, který netrénuje na tvých datech. Připoj poskytovatele " +
+      "(Nastavení → Klíče) a klikni na Zkusit fázi znovu.",
+  ],
+  [
+    /cooling down/,
     () =>
       "Žádný vhodný model teď není volný: všechny mají pauzu po limitu nebo chybě. Zkus fázi znovu za pár minut.",
   ],
@@ -37,7 +53,11 @@ const RULES: Rule[] = [
     /must assess every task criterion|criterion assessments are missing/,
     () =>
       "Recenzent neohodnotil každé kritérium přesně tak, jak je v zadání (vynechal ho nebo ho přepsal jinými slovy), " +
-      "takže výsledek nejde uznat. Zkus fázi znovu; když se to opakuje, zkrať a zpřesni kritéria.",
+      "takže výsledek nejde uznat. Zkus fázi znovu; když se to opakuje, úkol opusť a zadej ho znovu s jednoduššími kritérii.",
+  ],
+  [
+    /Task acceptance criteria are missing or duplicated/,
+    () => "Zadání nemá kritéria přijetí, nebo se v něm opakují. Úkol opusť a zadej ho znovu s jasnými kritérii.",
   ],
   [/Review result is missing/, () => "Recenze nevrátila žádný výsledek. Zkus fázi znovu."],
   [
@@ -47,16 +67,8 @@ const RULES: Rule[] = [
   [
     /no independent reviewer/,
     () =>
-      "Změnu zkontroloval jen model, který ji napsal, protože jiný nebyl volný. Přijmi ji sám, " +
+      "Změnu zkontroloval jen model, který ji napsal (nezávislý nebyl k dispozici). Přijmi ji sám, " +
       "nebo zkus nezávislou recenzi znovu.",
-  ],
-  [
-    /plan recommends a strong agent/,
-    () => "Plán doporučuje, aby práci udělal silnější model. Předej mu úkol, nebo nech pokračovat levný model.",
-  ],
-  [
-    /hand over to/,
-    () => "Levný model úkol nezvládl. Předej ho silnějšímu modelu, nebo ho vrať k opravě s poznámkou.",
   ],
   [
     /worker stopped: (turn_limit|time_limit)/,
@@ -65,7 +77,9 @@ const RULES: Rule[] = [
   ],
   [
     /worker stopped: budget/,
-    () => "Worker narazil na limit volání free modelů. Zkus fázi znovu později, nebo úkol předej silnějšímu modelu.",
+    () =>
+      "Úkol vyčerpal svůj rozpočet tokenů nebo peněz, takže opakování ani předání nepomůže. " +
+      "Úkol opusť, nebo ho zadej znovu s vyšším rozpočtem.",
   ],
   [
     /working copy could not be created/,
@@ -81,13 +95,12 @@ const RULES: Rule[] = [
     () =>
       "Poznámku projektu nejde poslat modelům (je soukromá nebo obsahuje osobní údaje). Uprav ji, nebo zadej úkol jako Nové zadání.",
   ],
-  [/lead has questions/, () => "Autopilot má k plánu otázky. Odpověz zprávou dole."],
   [
     /external agent rewrote git history/,
     () => "Externí agent přepsal historii gitu v pracovní kopii, takže jeho práci nejde ověřit. Vrať úkol k opravě.",
   ],
   [
-    /internal error/,
+    /^internal error:/,
     () => "Ve Studiu nastala vnitřní chyba. Zkus fázi znovu; když se opakuje, technický detail níže pomůže najít příčinu.",
   ],
   [
@@ -96,8 +109,19 @@ const RULES: Rule[] = [
   ],
 ];
 
-/** Czech explanation with the next step, or null when the reason is not a known runner text. */
-export function explainReason(reason: string): string | null {
+/** Czech explanation with the next step, or null when the bar's own text says it already or the
+ * reason is not a known runner text (then the original is shown). `phase` is the run's phase. */
+export function explainReason(reason: string, phase?: string | null): string | null {
+  // These states have their own explanation and buttons in the bar.
+  if (/Sensitive .*withheld|lead has questions/.test(reason)) return null;
+  // The hand-over question (pending "takeover") offers no retry or rework, only these buttons.
+  const keep = phase === "work" ? ", nebo na Ponechat levný model" : "";
+  if (/plan recommends a strong agent/.test(reason)) {
+    return `Plán doporučuje, aby práci udělal silnější model. Klikni na Předat silnějšímu modelu${keep}.`;
+  }
+  if (/; hand over to \S+\?$/.test(reason)) {
+    return `${handOverCause(reason)} Klikni na Předat silnějšímu modelu${keep}.`;
+  }
   for (const [pattern, explain] of RULES) {
     const m = reason.match(pattern);
     if (m) return explain(m);

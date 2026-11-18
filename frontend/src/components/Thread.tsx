@@ -592,7 +592,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
 
   // needs_decision
   const reason = run.decision_reason || "Důvod nebyl uveden.";
-  const explained = explainReason(reason);
+  const explained = explainReason(reason, run.phase);
   const sensitiveOverrideAllowed = ["draft", "setup"].includes(run.phase ?? "")
     || (run.phase === "work" && (run.implementer || run.spec.implementer) === "freebuff");
   const sensitiveWork = detail.steps.some((s) => s.kind === "work" && s.error === "sensitive");
