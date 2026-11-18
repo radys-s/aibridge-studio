@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { api, type Health, type ModelInfo, type ModelStats, type ProbeResult, type ProviderToday, type SettingsSnapshot, type VaultOverview } from "../api";
+import { count } from "../format";
 import {
   activeProviders,
   asAutopilot,
@@ -243,7 +244,7 @@ function Budget({ health }: { health: Health }) {
         const level = budgetLevel(p);
         return (
           <li key={p.provider}>
-            {providerLabel(p.provider)}: {p.calls} dotazů dnes
+            {providerLabel(p.provider)}: {count(p.calls, "dotaz", "dotazy", "dotazů")} dnes
             {p.cap ? (
               <>
                 {" "}
@@ -349,7 +350,8 @@ export function SettingsView({ settings, health, onSaved }: Props) {
         ) : (
           <>
             <p className="small">
-              Obsidian · {vault.projects?.length ?? 0} projektů · {vault.handoffs?.length ?? 0} otevřených předávek
+              Obsidian · {count(vault.projects?.length ?? 0, "projekt", "projekty", "projektů")} ·{" "}
+              {count(vault.handoffs?.length ?? 0, "otevřená předávka", "otevřené předávky", "otevřených předávek")}
             </p>
             <ul className="plain small">
               {(vault.folders ?? []).map((f) => (

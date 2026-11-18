@@ -9,6 +9,7 @@ import {
   type VaultOverview,
   type VaultProject,
 } from "../api";
+import { count } from "../format";
 import { activeProviders, asAutopilot, describe, ESCALATIONS, gatewayProblem, IMPLEMENTERS, lines } from "../options";
 import { List } from "./bits";
 
@@ -71,7 +72,7 @@ export function StatusLine({ health, onHealthChanged }: { health: Health | null;
         <span className="error">Žádný poskytovatel bez tréninku není připojený, běh se zastaví.</span>
       )}
       <span aria-hidden="true">·</span>
-      <span>dnes {calls} {calls === 1 ? "dotaz" : calls >= 2 && calls <= 4 ? "dotazy" : "dotazů"}</span>
+      <span>dnes {count(calls, "dotaz", "dotazy", "dotazů")}</span>
     </p>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isActive, type Health, type RunSummary } from "../api";
 import { activeProviders } from "../options";
-import { relativeTime, STATE_LABELS } from "../format";
+import { plural, relativeTime, STATE_LABELS } from "../format";
 import { NEEDS_YOU } from "../notify";
 
 interface Props {
@@ -92,7 +92,7 @@ export function Sidebar(p: Props) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      {waiting > 0 && <p className="small waiting">{waiting} čeká na tebe</p>}
+      {waiting > 0 && <p className="small waiting">{waiting} {plural(waiting, "čeká", "čekají", "čeká")} na tebe</p>}
 
       <nav aria-label="Úkoly" className="run-list">
         {p.runsError && <p className="error small">{p.runsError}</p>}
