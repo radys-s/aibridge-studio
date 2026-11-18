@@ -6,6 +6,7 @@
 |---|---|---|
 | 2026-10-27 | bidnej / bidnej/black-october | Bezpečnostní update závislostí po „Black October“ |
 | 2026-11-16 | tomas/ux-cyber-dashboard | UX audit (top 10) and the cyber dashboard redesign |
+| 2026-11-18 | tomas/ux-* (#11–#15) | UX audit 2026-11 and five fixes: phone layout, Linux repo hint, gateway notice, Czech decision reasons, plurals |
 
 ## 2026-10-27 — Bezpečnostní update závislostí (Black October)
 
@@ -59,3 +60,49 @@ running card rotates a pseudo-element, the waiting glow animates opacity only).
 
 **Next:** fix the repository hint on Linux (turns E2E green there), a notice when no gateway
 answers, scroll to the inspector on phones, a shared Czech plural helper, Czech error texts.
+
+## 2026-11-18 — UX audit 2026-11 and five fixes (v0.6.0)
+
+**What and why:** Tomáš asked for Studio to be clearly better to use for a real person: fewer
+steps, fewer errors, clearer screens, no new features. The audit (`docs/ux-audit-2026-11.md`)
+walked first start, creating a task, progress, plan / diff / tests / review, a failed run,
+Přehled and Nastavení at 1280 px and 360 px, dark and light, on hub2 with a fresh install, the
+scripted gateway and one small real task through live Refrakt. It ranked ten friction points;
+the top five, all S or M, were fixed in one PR each, each reviewed independently before merge.
+
+**Changes:**
+- #11 Phone: the task list was 14 px high at 360 px (tasks could not be opened) and Podrobnosti
+  opened the inspector ~2,900 px off-screen. The list has its own room; opening the panel scrolls
+  its top into view. New E2E `phone.spec.ts`.
+- #12 Picking a project fills Repozitář from POSIX paths too (was Windows-only). Never offers
+  `//host/share` (an SMB probe on Windows) or the vault itself. Neutral placeholder.
+- #13 With no gateway answering, the composer says what to start and Spustit creates no run
+  (it used to create one that failed in 64 ms with an English error). The sidebar lists Refrakt.
+- #14 Decision reasons are explained in Czech and name the button to press; the runner's text
+  stays under "Technický detail".
+- #15 One Czech plural helper replaces three ad-hoc ones ("1 záznamů", "2 čeká na tebe" …).
+
+**Numbers (before → after):**
+
+| Journey | Before | After |
+|---|---|---|
+| First start without a gateway | 3 actions, then a dead run with an English error | told on load, 0 dead runs |
+| Continue a project on Linux | 3 actions + typing the full path | 2 actions |
+| Open a task on a phone | not possible | 1 tap |
+| Open details on a phone | 1 tap + 4–5 swipes | 1 tap |
+| A run waiting for a decision | English internals, guess among 3–4 buttons | Czech reason naming the button |
+
+Playwright on Linux 8/11 → 12/12; Vitest 24 → 40; pytest 190 passed / 6 skipped; CSS 39.3 →
+39.6 kB, JS 298 → 304 kB (93.6 kB gzip).
+
+**What worked:** walking the app as a first-time user on a fresh data dir found the two worst
+problems in minutes (the dead run, the invisible list); one live Refrakt run found the review
+contract failure that the scripted gateway never hits. Independent review of every PR found real
+issues each time: a flaky test, an SMB probe and the vault offered as a repo, explanations naming
+buttons the bar did not show.
+
+**Next:** stop the thread auto-scroll from pulling the inspector away during a live run (F4b);
+a compact phone sidebar so the composer starts on the first screen (F8); a "Brána" section in
+Settings with Refrakt setup (F9); ask models for Czech plan / review text (F10); refuse the vault
+as a typed repository path in `create_task` (found in review of #12).
+
