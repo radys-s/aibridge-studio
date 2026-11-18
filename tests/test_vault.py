@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from studio.sandbox import Denied
-from studio.vault import Vault, handoff_name, redact
+from studio.vault import Vault, handoff_name, redact, repo_path_candidates
 
 
 @pytest.fixture
@@ -133,3 +133,33 @@ def test_repo_hint_skips_paths_that_are_not_repositories(vault: Vault, tmp_path:
     note = vault.root / "02 Projekty/Hint.md"
     note.write_text(f"# Hint\nRepo: {plain}\nURL https://example.com/a/b\n", encoding="utf-8")
     assert vault.repo_hint(vault.read("02 Projekty/Hint.md")) is None
+
+
+def test_repo_path_candidates_runs_on_every_platform() -> None:
+    text = (
+        "Repozitář: /home/t/calc.\n"
+        "Win: C:\\src\\calc a C:/src/other\n"
+        "Odkaz [kód](/srv/code) a [[/home/t/wiki]] a **/opt/x**\n"
+        "Ne: https://example.com/a/b, file:///etc/x, ~/x, //nas/share, \\\\nas\\share, a/b, /\n"
+    )
+    assert repo_path_candidates(text) == [
+        "/home/t/calc",
+        "C:\\src\\calc",
+        "C:/src/other",
+        "/srv/code",
+        "/home/t/wiki",
+        "/opt/x",
+    ]
+
+
+def test_repo_hint_never_offers_the_vault(tmp_path: Path) -> None:
+    # An Obsidian vault synced with git, at a path without spaces (as on the hubs).
+    root = tmp_path / "vault"
+    (root / ".git").mkdir(parents=True)
+    (tmp_path / ".git").mkdir()
+    note = root / "02 Projekty" / "Hint.md"
+    note.parent.mkdir()
+    vault = Vault(root)
+    for target in (root, tmp_path):  # the vault itself, or a repo that contains it
+        note.write_text(f"# Hint\nRepo: {target}\n", encoding="utf-8")
+        assert vault.repo_hint(vault.read("02 Projekty/Hint.md")) is None, target
