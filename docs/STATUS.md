@@ -7,6 +7,9 @@
 - Privacy, daily caps and reviewer independence follow the upstream provider.
 - Without OmniRoute, Refrakt's twins are used instead of OmniRoute models that can only fail.
 - The status line shows whether Refrakt runs.
+- UX audit 2026-11 (`docs/ux-audit-2026-11.md`) and fixes #11–#15: phone task list and details
+  panel, repo hint from POSIX paths, a notice instead of a dead run when no gateway answers,
+  Refrakt in the sidebar, Czech decision reasons with the next step, correct Czech plurals.
 
 ## v0.5 — daily comfort and reliability (2026-10-10, branch `v0.5`, Claude Code)
 
