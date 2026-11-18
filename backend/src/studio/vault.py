@@ -55,6 +55,17 @@ _PRIVATE_FLAG = re.compile(r"(?im)^\s*private\s*:\s*(true|yes|ano)\s*$")
 _PRIVATE_TAG = re.compile(r"(?i)(?:^|[\s,\[\-#])(osobni|osobní|private)(?:$|[\s,\]])")
 _STATUS_OPEN = re.compile(r"(?im)^\s*status\s*:\s*open\s*$")
 _REPO_PATH = re.compile(r"(?i)\b([A-Z]:[\\/][^\s`'\"<>|]+)")
+# POSIX absolute path. The lookbehind skips URLs (`https://x/y`) and relative `a/b`; `(?!/)`
+# skips `//host/share`, which on Windows would open an SMB connection when probed.
+_POSIX_REPO_PATH = re.compile(r"(?<![\w/:.~-])(/(?!/)[^\s`'\"<>|()\[\]*]+)")
+_TRAILING = ".,;:)`]*"
+
+
+def repo_path_candidates(text: str) -> list[str]:
+    """Absolute paths in a note, Windows (`C:\\...`) and POSIX (`/home/...`), in note order."""
+    matches = [*_REPO_PATH.finditer(text), *_POSIX_REPO_PATH.finditer(text)]
+    paths = [m.group(1).rstrip(_TRAILING) for m in sorted(matches, key=lambda m: m.start())]
+    return [p for p in paths if p not in ("", "/")]
 
 
 @dataclass(frozen=True)
@@ -198,11 +209,20 @@ class Vault:
         return out
 
     def repo_hint(self, note: Note) -> str | None:
-        """First Windows path in a project note that is an existing git repository."""
-        for match in _REPO_PATH.finditer(note.text):
-            candidate = Path(match.group(1).rstrip(".,;:)`"))
-            if (candidate / ".git").exists():
-                return str(candidate)
+        """First absolute path in a project note that is an existing git repository.
+
+        Windows and POSIX paths both count, so a note works on the hubs as well as on the PC.
+        The vault itself (often synced with git) and any repository containing it are never
+        offered: their notes must not reach the worker.
+        """
+        vault = self.root.resolve()
+        for text in repo_path_candidates(note.text):
+            candidate = Path(text)
+            if not (candidate / ".git").exists():
+                continue
+            if vault.is_relative_to(candidate.resolve()):
+                continue
+            return str(candidate)
         return None
 
     def folder_counts(self) -> list[dict[str, object]]:

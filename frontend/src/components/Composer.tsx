@@ -10,7 +10,7 @@ import {
   type VaultProject,
 } from "../api";
 import { count } from "../format";
-import { activeProviders, asAutopilot, describe, ESCALATIONS, IMPLEMENTERS, lines } from "../options";
+import { activeProviders, asAutopilot, describe, ESCALATIONS, gatewayProblem, IMPLEMENTERS, lines } from "../options";
 import { List } from "./bits";
 
 interface Props {
@@ -49,7 +49,10 @@ export function StatusLine({ health, onHealthChanged }: { health: Health | null;
     >
       <span className={`hdot ${health.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" />
       <span>{health.gateway.reachable ? "OmniRoute běží" : "OmniRoute neběží"}</span>
-      {!health.gateway.reachable && health.gateway.launchable && <StartGateway onDone={onHealthChanged} />}
+      {/* With no gateway at all, the notice above the form offers this button instead. */}
+      {!health.gateway.reachable && health.gateway.launchable && !gatewayProblem(health) && (
+        <StartGateway onDone={onHealthChanged} />
+      )}
       {health.gateway.refrakt && (
         <>
           <span aria-hidden="true">·</span>
@@ -255,6 +258,12 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     setBusy(true);
     setError(null);
     try {
+      // Health is polled every 20 s: ask again, so a gateway started a moment ago counts.
+      if (gatewayProblem(await api.health().catch(() => health))) {
+        setError("Úkol nevznikl: modely nejsou dostupné. Postup najdeš v upozornění nahoře.");
+        onHealthChanged?.(); // shows the notice if the last poll had not caught it yet
+        return;
+      }
       const { run_id } = await api.createTask(task);
       setGoal("");
       setFocus("");
@@ -287,10 +296,24 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     }
   }
 
+  const noGateway = gatewayProblem(health);
   return (
     <div className="composer-page">
       <h1 className="composer-title">{start === "project" ? "Kde pokračujeme?" : "Co postavíme?"}</h1>
       <p className="composer-sub">Autopilot navrhne zadání, udělá práci a nechá ji nezávisle zkontrolovat.</p>
+      {/* Always mounted, so screen readers announce the notice when it appears. */}
+      <div role="status">
+        {noGateway && (
+          <div className="alert warn gateway-down">
+            <strong>Modely teď nejsou dostupné.</strong> {noGateway}
+            {health?.gateway.launchable && (
+              <div>
+                <StartGateway onDone={onHealthChanged} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       {template && (
         <p className="alert info small">
           Podle úkolu „{template.title}“. Uprav, co je potřeba, a spusť.
@@ -392,7 +415,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
               list="recent-repos"
               value={repo}
               spellCheck={false}
-              placeholder="C:\cesta\k\repu"
+              placeholder="Cesta ke git repozitáři"
               onChange={(e) => setRepo(e.target.value)}
             />
             <datalist id="recent-repos">
