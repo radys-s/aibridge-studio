@@ -306,9 +306,13 @@ ul.plain li {
   }
   .sidebar {
     height: auto !important;
-    max-height: 45vh;
     border-right: none !important;
     border-bottom: 1px solid var(--border);
+  }
+  /* The list gets its own room (about five tasks) instead of what is left of a capped sidebar. */
+  .run-list {
+    flex: none;
+    max-height: 30vh;
   }
 }
 

@@ -177,10 +177,21 @@ function Spec({ detail }: { detail: RunDetail }) {
   );
 }
 
-export function Inspector({ detail, diffRequest = 0 }: { detail: RunDetail; diffRequest?: number }) {
+interface InspectorProps {
+  detail: RunDetail;
+  /** Bumped by the Diff button: show the Diff tab. */
+  diffRequest?: number;
+  /** Bumped when the user opens the panel (not when it is restored open on page load). */
+  openRequest?: number;
+}
+
+export function Inspector({ detail, diffRequest = 0, openRequest = 0 }: InspectorProps) {
   const [tab, setTab] = useState<Tab>("diff");
   const diffTab = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (diffRequest) { setTab("diff"); diffTab.current?.focus(); } }, [diffRequest]);
+  // Below 1100 px the inspector sits under the whole thread; focusing its tab scrolls it into
+  // view, so opening it never looks like a dead button. The panel always opens on Diff.
+  useEffect(() => { if (openRequest) diffTab.current?.focus(); }, [openRequest]);
   const verify = latestOutput<VerifyOutput>(detail.steps, "verify");
   return (
     <aside className="inspector" aria-label="Inspektor">
