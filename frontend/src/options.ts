@@ -107,6 +107,8 @@ export function gatewayProblem(health: Health | null): string | null {
   const g = health.gateway;
   if (g.fake || g.reachable || g.refrakt?.reachable) return null;
   return g.refrakt
-    ? "OmniRoute ani Refrakt neodpovídá, úkol by hned skončil chybou. Spusť jeden z nich; stav se tu obnoví sám."
-    : "OmniRoute neodpovídá a Refrakt není nastavený, úkol by hned skončil chybou. Spusť OmniRoute (omniroute serve), nebo spusť Studio s proměnnou REFRAKT_GATEWAY_TOKEN a použij Refrakt.";
+    ? "OmniRoute ani Refrakt neodpovídají, úkol by hned skončil chybou. Spusť jeden z nich; stav se tu obnoví sám."
+    : `OmniRoute neodpovídá a Refrakt není nastavený, úkol by hned skončil chybou. Spusť OmniRoute${
+        g.launchable ? "" : " (omniroute serve)"
+      }, nebo spusť Studio s proměnnou REFRAKT_GATEWAY_TOKEN a použij Refrakt.`;
 }

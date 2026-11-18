@@ -137,11 +137,13 @@ export function Sidebar(p: Props) {
               ) : (
                 <>
                   <span className="hitem">
-                    <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> OmniRoute
+                    <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" /> OmniRoute
+                    <span className="sr-only">{h?.gateway.reachable ? " běží" : " neběží"}</span>
                   </span>
                   {h?.gateway.refrakt && (
                     <span className="hitem">
-                      <span className={`hdot ${h.gateway.refrakt.reachable ? "ok" : "bad"}`} /> Refrakt
+                      <span className={`hdot ${h.gateway.refrakt.reachable ? "ok" : "bad"}`} aria-hidden="true" /> Refrakt
+                      <span className="sr-only">{h.gateway.refrakt.reachable ? " běží" : " neběží"}</span>
                     </span>
                   )}
                 </>

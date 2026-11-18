@@ -259,7 +259,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     try {
       // Health is polled every 20 s: ask again, so a gateway started a moment ago counts.
       if (gatewayProblem(await api.health().catch(() => health))) {
-        setError("Úkol nevznikl: modely nejsou dostupné. Co s tím, píše upozornění nahoře.");
+        setError("Úkol nevznikl: modely nejsou dostupné. Postup najdeš v upozornění nahoře.");
         onHealthChanged?.(); // shows the notice if the last poll had not caught it yet
         return;
       }
@@ -300,16 +300,19 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
     <div className="composer-page">
       <h1 className="composer-title">{start === "project" ? "Kde pokračujeme?" : "Co postavíme?"}</h1>
       <p className="composer-sub">Autopilot navrhne zadání, udělá práci a nechá ji nezávisle zkontrolovat.</p>
-      {noGateway && (
-        <div className="alert warn gateway-down" role="status">
-          <strong>Modely teď nejsou dostupné.</strong> {noGateway}
-          {health?.gateway.launchable && (
-            <div>
-              <StartGateway onDone={onHealthChanged} />
-            </div>
-          )}
-        </div>
-      )}
+      {/* Always mounted, so screen readers announce the notice when it appears. */}
+      <div role="status">
+        {noGateway && (
+          <div className="alert warn gateway-down">
+            <strong>Modely teď nejsou dostupné.</strong> {noGateway}
+            {health?.gateway.launchable && (
+              <div>
+                <StartGateway onDone={onHealthChanged} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       {template && (
         <p className="alert info small">
           Podle úkolu „{template.title}“. Uprav, co je potřeba, a spusť.

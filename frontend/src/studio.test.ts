@@ -261,7 +261,7 @@ group("gateway", () => {
   it("says what to start when nothing answers", () => {
     expect(gatewayProblem(gw({}))).toMatch(/OmniRoute.*REFRAKT_GATEWAY_TOKEN/);
     const both = gatewayProblem(gw({ refrakt: { reachable: false } }));
-    expect(both).toMatch(/OmniRoute ani Refrakt/);
+    expect(both).toMatch(/OmniRoute ani Refrakt neodpovídají/);
     expect(both).not.toMatch(/REFRAKT_GATEWAY_TOKEN/);
   });
 });
