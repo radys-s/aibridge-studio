@@ -19,7 +19,7 @@ import {
   type VerifyOutput,
   type WorkOutput,
 } from "../api";
-import { absoluteTime, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
+import { absoluteTime, count, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
 import { actorLabel, describe, lines } from "../options";
 import { actorLead, buildThread, latestDraftId, progress, type StageState } from "../thread";
 import { explainReason } from "../reasons";
@@ -76,7 +76,8 @@ function AgentStream({ events, running }: { events: AgentEvent[]; running: boole
   return (
     <details className="agent-stream" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="small muted">
-        Průběh agenta · {events.length} záznamů{tools ? ` · ${tools} nástrojů` : ""}
+        Průběh agenta · {count(events.length, "záznam", "záznamy", "záznamů")}
+        {tools ? ` · ${count(tools, "nástroj", "nástroje", "nástrojů")}` : ""}
         {running && <span className="pulse" aria-label="běží" />}
       </summary>
       <div className="agent-log">
@@ -253,7 +254,9 @@ function StepBody({ step, act, latest }: { step: Step; act: Act; latest: boolean
           <p>
             {v.passed ? <span className="badge good">prošlo</span> : <span className="badge bad">neprošlo</span>}
             {v.empty_diff && <span className="badge warn">prázdný diff</span>}
-            <span className="muted small">{v.changed_files?.length ?? 0} změněných souborů</span>
+            <span className="muted small">
+              {count(v.changed_files?.length ?? 0, "změněný soubor", "změněné soubory", "změněných souborů")}
+            </span>
           </p>
           {v.out_of_scope?.length > 0 && (
             <div className="alert warn">
@@ -455,7 +458,7 @@ function MessageBubble({ message, draftEditable, act }: { message: Message; draf
 }
 
 function files(n: number): string {
-  return `${n} ${n === 1 ? "soubor" : n >= 2 && n <= 4 ? "soubory" : "souborů"}`;
+  return count(n, "soubor", "soubory", "souborů");
 }
 
 /** Takeover: Autopilot (a stronger free model) writes the code itself. Claude/Codex are not

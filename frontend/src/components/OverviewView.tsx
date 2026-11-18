@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { api, type Overview } from "../api";
-import { formatCost, formatDuration, formatTokens, STATE_LABELS } from "../format";
+import { count, formatCost, formatDuration, formatTokens, plural, STATE_LABELS } from "../format";
 import { StateBadge } from "./StateBadge";
 import { modelName } from "./SettingsView";
 
@@ -80,14 +80,16 @@ export function OverviewView() {
           <section className="card">
             <h2>Výsledky</h2>
             <div className="tiles">
-              <Tile label="úkolů" value={String(o.runs)} />
+              <Tile label={plural(o.runs, "úkol", "úkoly", "úkolů")} value={String(o.runs)} />
               <Tile
                 label="přijato"
                 value={percent(o.accept_rate)}
                 share={o.accept_rate}
                 note={[
-                  o.finished ? `${o.accepted} z ${o.finished} dokončených` : "zatím nic nedokončeno",
-                  o.runs > o.finished ? `${o.runs - o.finished} rozpracovaných` : "",
+                  o.finished
+                    ? `${o.accepted} z ${o.finished} ${plural(o.finished, "dokončeného", "dokončených", "dokončených")}`
+                    : "zatím nic nedokončeno",
+                  o.runs > o.finished ? count(o.runs - o.finished, "rozpracovaný", "rozpracované", "rozpracovaných") : "",
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -98,7 +100,9 @@ export function OverviewView() {
                 value={oneDecimal(o.fix_rounds_avg)}
                 note={o.accepted ? `${o.first_try}× napoprvé` : undefined}
               />
-              <Tile label="tvých rozhodnutí" value={String(o.decisions)} note={`${oneDecimal(o.decisions / o.runs)} na úkol`} />
+              <Tile
+                label={plural(o.decisions, "tvé rozhodnutí", "tvá rozhodnutí", "tvých rozhodnutí")}
+                value={String(o.decisions)} note={`${oneDecimal(o.decisions / o.runs)} na úkol`} />
               <Tile label="použito do repozitáře" value={String(o.applied)} />
             </div>
             <div className="state-counts">
@@ -117,7 +121,7 @@ export function OverviewView() {
               <Tile
                 label="volání modelů"
                 value={formatTokens(o.api.calls)}
-                note={o.api.failed ? `${o.api.failed} neúspěšných` : undefined}
+                note={o.api.failed ? count(o.api.failed, "neúspěšné", "neúspěšná", "neúspěšných") : undefined}
               />
               <Tile label="tokenů" value={formatTokens(o.api.tokens)} />
               <Tile

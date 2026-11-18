@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { parseUnifiedDiff } from "../diff";
+import { count } from "../format";
 
 const STATUS_LABELS = { modified: "upraven", added: "nový", deleted: "smazán", renamed: "přejmenován" };
 const SIGN = { add: "+", del: "-", ctx: " ", meta: "" };
@@ -15,7 +16,7 @@ export function DiffView({ diff }: { diff: string }) {
   return (
     <div className="diff">
       <p className="small muted">
-        {files.length} {files.length === 1 ? "soubor" : files.length < 5 ? "soubory" : "souborů"},{" "}
+        {count(files.length, "soubor", "soubory", "souborů")},{" "}
         <span className="add-count">+{totalAdd}</span> <span className="del-count">−{totalDel}</span>
       </p>
       {files.map((f, i) => (

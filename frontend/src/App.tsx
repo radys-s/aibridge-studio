@@ -87,6 +87,7 @@ function RunView({ runId, onChanged }: { runId: string; onChanged: () => void })
   const { detail, error, live, reload } = useRunDetail(runId);
   const [detailsOpen, setDetailsOpen] = usePersistedFlag("studio-details");
   const [diffRequest, setDiffRequest] = useState(0);
+  const [openRequest, setOpenRequest] = useState(0);
   const changed = useCallback(() => {
     void reload();
     onChanged();
@@ -107,10 +108,13 @@ function RunView({ runId, onChanged }: { runId: string; onChanged: () => void })
         live={live}
         onChanged={changed}
         detailsOpen={detailsOpen}
-        onToggleDetails={() => setDetailsOpen(!detailsOpen)}
+        onToggleDetails={() => {
+          if (!detailsOpen) setOpenRequest((n) => n + 1);
+          setDetailsOpen(!detailsOpen);
+        }}
         onShowDiff={() => { setDetailsOpen(true); setDiffRequest((n) => n + 1); }}
       />
-      {detailsOpen && <Inspector detail={detail} diffRequest={diffRequest} />}
+      {detailsOpen && <Inspector detail={detail} diffRequest={diffRequest} openRequest={openRequest} />}
     </div>
   );
 }

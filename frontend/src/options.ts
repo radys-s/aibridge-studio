@@ -1,5 +1,5 @@
 // Orchestration choices offered by the composer and settings, with Czech labels.
-import type { AnyLead, Escalation, Implementer, ModelInfo, Orchestration, Privacy } from "./api";
+import type { AnyLead, Escalation, Health, Implementer, ModelInfo, Orchestration, Privacy } from "./api";
 
 export const LEAD_LABELS: Record<AnyLead, string> = { autopilot: "Autopilot" };
 
@@ -98,4 +98,17 @@ export function lines(text: string): string[] {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
+}
+
+/** Why no model can be called right now, with what to do about it; null when a gateway answers
+ * (or health is not known yet, so loading never shows a false alarm). */
+export function gatewayProblem(health: Health | null): string | null {
+  if (!health) return null;
+  const g = health.gateway;
+  if (g.fake || g.reachable || g.refrakt?.reachable) return null;
+  return g.refrakt
+    ? "OmniRoute ani Refrakt neodpovídají, úkol by hned skončil chybou. Spusť jeden z nich; stav se tu obnoví sám."
+    : `OmniRoute neodpovídá a Refrakt není nastavený, úkol by hned skončil chybou. Spusť OmniRoute${
+        g.launchable ? "" : " (omniroute serve)"
+      }, nebo spusť Studio s proměnnou REFRAKT_GATEWAY_TOKEN a použij Refrakt.`;
 }
