@@ -683,6 +683,10 @@ p.waiting::after,
   color: var(--muted);
   padding: 0 0.25rem;
 }
+.hitem {
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
 .foot-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -995,6 +999,13 @@ textarea {
   background: var(--warn-bg);
   border-color: var(--warn);
   color: var(--warn);
+}
+.gateway-down {
+  margin: 0 0 1rem;
+  text-align: left;
+}
+.gateway-down > div {
+  margin-top: 0.6rem;
 }
 
 /* HUD panel: border, corner brackets, glow on hover. */

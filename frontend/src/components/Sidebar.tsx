@@ -127,7 +127,7 @@ export function Sidebar(p: Props) {
       </nav>
 
       <div className="sidebar-foot">
-        <div className="health small" title={p.healthError ?? h?.gateway.error ?? ""}>
+        <div className="health small" title={p.healthError ?? (h?.gateway.error ? `OmniRoute neodpovídá (${h.gateway.error})` : "")}>
           {p.healthError ? (
             <span className="error">Backend nedostupný</span>
           ) : (
@@ -136,10 +136,21 @@ export function Sidebar(p: Props) {
                 <span className="badge warn">testovací gateway</span>
               ) : (
                 <>
-                  <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} /> OmniRoute
+                  <span className="hitem">
+                    <span className={`hdot ${h?.gateway.reachable ? "ok" : "bad"}`} aria-hidden="true" /> OmniRoute
+                    <span className="sr-only">{h?.gateway.reachable ? " běží" : " neběží"}</span>
+                  </span>
+                  {h?.gateway.refrakt && (
+                    <span className="hitem">
+                      <span className={`hdot ${h.gateway.refrakt.reachable ? "ok" : "bad"}`} aria-hidden="true" /> Refrakt
+                      <span className="sr-only">{h.gateway.refrakt.reachable ? " běží" : " neběží"}</span>
+                    </span>
+                  )}
                 </>
               )}
-              <span className={`hdot ${h && activeProviders(h.models ?? []).length ? "ok" : "bad"}`} /> soukromé modely
+              <span className="hitem">
+                <span className={`hdot ${h && activeProviders(h.models ?? []).length ? "ok" : "bad"}`} /> soukromé modely
+              </span>
             </>
           )}
         </div>
