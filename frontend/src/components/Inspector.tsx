@@ -188,13 +188,19 @@ interface InspectorProps {
 export function Inspector({ detail, diffRequest = 0, openRequest = 0 }: InspectorProps) {
   const [tab, setTab] = useState<Tab>("diff");
   const diffTab = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
   useEffect(() => { if (diffRequest) { setTab("diff"); diffTab.current?.focus(); } }, [diffRequest]);
-  // Below 1100 px the inspector sits under the whole thread; focusing its tab scrolls it into
-  // view, so opening it never looks like a dead button. The panel always opens on Diff.
-  useEffect(() => { if (openRequest) diffTab.current?.focus(); }, [openRequest]);
+  // Below 1100 px the inspector sits under the whole thread: bring its top into view (the same
+  // in every browser) and move focus in, so opening it never looks like a dead button. Beside
+  // the thread it is already in view and nothing scrolls. The panel always opens on Diff.
+  useEffect(() => {
+    if (!openRequest) return;
+    panel.current?.scrollIntoView({ block: "start" });
+    diffTab.current?.focus({ preventScroll: true });
+  }, [openRequest]);
   const verify = latestOutput<VerifyOutput>(detail.steps, "verify");
   return (
-    <aside className="inspector" aria-label="Inspektor">
+    <aside ref={panel} className="inspector" aria-label="Inspektor">
       <div className="tabs" role="tablist">
         {TABS.map((t, index) => (
           <button

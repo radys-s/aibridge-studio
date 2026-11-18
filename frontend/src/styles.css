@@ -309,11 +309,6 @@ ul.plain li {
     border-right: none !important;
     border-bottom: 1px solid var(--border);
   }
-  /* The list gets its own room (about five tasks) instead of what is left of a capped sidebar. */
-  .run-list {
-    flex: none;
-    max-height: 30vh;
-  }
 }
 
 /* Sidebar */
@@ -2188,6 +2183,12 @@ td .meter {
 }
 
 @media (max-width: 760px) {
+  /* The list gets its own room (three to four tasks) instead of what was left of a sidebar
+     capped at 45vh, which was 14 px. Kept short so the page below still starts high. */
+  .run-list {
+    flex: none;
+    max-height: min(30vh, 11rem);
+  }
   .thread-head,
   .thread-body,
   .thread-foot {

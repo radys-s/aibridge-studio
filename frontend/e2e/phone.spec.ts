@@ -12,6 +12,11 @@ test("phone: the task list shows tasks and Podrobnosti brings the details into v
   await page.locator(".repo-field input").fill(REPO);
   await page.getByRole("button", { name: "Spustit" }).click();
   await expect(page).toHaveURL(/#\/run\//);
+  // Wait until the run settles (the draft waits for approval, or the run is done): until then
+  // each new thread item scrolls the page to the end and would move what this test looks at.
+  await expect(
+    page.getByRole("button", { name: /^(Schválit a plánovat|Použít do repozitáře|Zkusit fázi znovu)$/ }).first(),
+  ).toBeVisible({ timeout: 90_000 });
 
   // The run is listed and can be tapped: not squeezed under the sidebar footer.
   const item = page.locator(".run-item.selected");
@@ -24,5 +29,5 @@ test("phone: the task list shows tasks and Podrobnosti brings the details into v
   // Below 1100 px the inspector sits under the thread; opening it must bring it into view.
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.getByRole("button", { name: "Podrobnosti", exact: true }).click();
-  await expect(page.locator(".inspector")).toBeInViewport();
+  await expect(page.getByRole("tablist").first()).toBeInViewport({ ratio: 1 });
 });
