@@ -79,7 +79,8 @@ export function formatCost(usd: number | null | undefined): string {
   return `$${usd.toFixed(usd < 0.01 && usd > 0 ? 4 : 3)}`;
 }
 
-/** Czech noun form for a count: 1 → one, 2–4 → few, otherwise (0, 5+, 21, 22 …) → many. */
+/** Czech noun form for a count: 1 → one, 2–4 → few, otherwise (0, 5+, 21, 22 …) → many.
+ * For non-negative whole numbers; decimals would need the genitive singular. */
 export function plural(n: number, one: string, few: string, many: string): string {
   return n === 1 ? one : n >= 2 && n <= 4 ? few : many;
 }

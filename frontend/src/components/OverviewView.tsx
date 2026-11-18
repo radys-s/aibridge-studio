@@ -86,7 +86,9 @@ export function OverviewView() {
                 value={percent(o.accept_rate)}
                 share={o.accept_rate}
                 note={[
-                  o.finished ? `${o.accepted} z ${o.finished} dokončených` : "zatím nic nedokončeno",
+                  o.finished
+                    ? `${o.accepted} z ${o.finished} ${plural(o.finished, "dokončeného", "dokončených", "dokončených")}`
+                    : "zatím nic nedokončeno",
                   o.runs > o.finished ? count(o.runs - o.finished, "rozpracovaný", "rozpracované", "rozpracovaných") : "",
                 ]
                   .filter(Boolean)
