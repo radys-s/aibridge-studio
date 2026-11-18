@@ -1663,6 +1663,12 @@ details.advanced[open] > summary {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.decision-detail code {
+  display: block;
+  margin-top: 0.35rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .reply {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -22,6 +22,7 @@ import {
 import { absoluteTime, formatDuration, nowSec, STEP_LABELS, STEP_STATUS_LABELS, VERDICT_LABELS } from "../format";
 import { actorLabel, describe, lines } from "../options";
 import { actorLead, buildThread, latestDraftId, progress, type StageState } from "../thread";
+import { explainReason } from "../reasons";
 import { CopyButton, ExitBadge, latestOutput, List } from "./bits";
 import { StateBadge } from "./StateBadge";
 
@@ -591,6 +592,7 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
 
   // needs_decision
   const reason = run.decision_reason || "Důvod nebyl uveden.";
+  const explained = explainReason(reason);
   const sensitiveOverrideAllowed = ["draft", "setup"].includes(run.phase ?? "")
     || (run.phase === "work" && (run.implementer || run.spec.implementer) === "freebuff");
   const sensitiveWork = detail.steps.some((s) => s.kind === "work" && s.error === "sensitive");
@@ -679,7 +681,13 @@ function DecisionBar({ detail, act, note }: { detail: RunDetail; act: Act; note:
   return (
     <div className="decision-bar ask column">
       <strong>Čeká na tvoje rozhodnutí</strong>
-      <p className="decision-reason">{reason}</p>
+      <p className="decision-reason">{explained ?? reason}</p>
+      {explained && (
+        <details className="decision-detail muted small">
+          <summary>Technický detail</summary>
+          <code>{reason}</code>
+        </details>
+      )}
       <div className="actions">
         {buttons}
         {abandon}
