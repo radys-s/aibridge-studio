@@ -1,6 +1,6 @@
 import { describe as group, expect, it } from "vitest";
-import type { ModelInfo, Orchestration, RunDetail, RunSummary } from "./api";
-import { actorLabel, activeProviders, asAutopilot, describe, IMPLEMENTERS, lines } from "./options";
+import type { Health, ModelInfo, Orchestration, RunDetail, RunSummary } from "./api";
+import { actorLabel, activeProviders, asAutopilot, describe, gatewayProblem, IMPLEMENTERS, lines } from "./options";
 import { applyStream, cursorsOf, mergeRows } from "./stream";
 import { actorLead, buildThread, latestDraftId, progress, reviewAccepted } from "./thread";
 import { groupByRepo } from "./components/Sidebar";
@@ -245,5 +245,23 @@ group("model reliability", () => {
     ]);
     expect(titleFor(now)).toBe("(3) AI Bridge Studio");
     expect(titleFor([])).toBe("AI Bridge Studio");
+  });
+});
+
+group("gateway", () => {
+  const gw = (g: Partial<Health["gateway"]>) => ({ gateway: { reachable: false, ...g } }) as Health;
+
+  it("is fine when any gateway answers, or in the scripted test", () => {
+    expect(gatewayProblem(gw({ reachable: true }))).toBeNull();
+    expect(gatewayProblem(gw({ refrakt: { reachable: true } }))).toBeNull();
+    expect(gatewayProblem(gw({ fake: true }))).toBeNull();
+    expect(gatewayProblem(null)).toBeNull(); // unknown yet: no false alarm while loading
+  });
+
+  it("says what to start when nothing answers", () => {
+    expect(gatewayProblem(gw({}))).toMatch(/OmniRoute.*REFRAKT_GATEWAY_TOKEN/);
+    const both = gatewayProblem(gw({ refrakt: { reachable: false } }));
+    expect(both).toMatch(/OmniRoute ani Refrakt/);
+    expect(both).not.toMatch(/REFRAKT_GATEWAY_TOKEN/);
   });
 });
