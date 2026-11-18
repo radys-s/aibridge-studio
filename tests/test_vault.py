@@ -115,3 +115,21 @@ def test_repo_hint_accepts_both_slash_styles(vault: Vault, tmp_path: Path) -> No
         note = vault.root / "02 Projekty/Hint.md"
         note.write_text(f'---\npath: "{written}"\n---\n# Hint', encoding="utf-8")
         assert vault.repo_hint(vault.read("02 Projekty/Hint.md")) is not None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX absolute paths")
+def test_repo_hint_finds_posix_paths(vault: Vault, tmp_path: Path) -> None:
+    repo = tmp_path / "proj"
+    (repo / ".git").mkdir(parents=True)
+    note = vault.root / "02 Projekty/Hint.md"
+    for line in (f"Repozitář: {repo}", f"Repo: `{repo}`.", f'path: "{repo}"', f"({repo})"):
+        note.write_text(f"# Hint\n{line}\n", encoding="utf-8")
+        assert vault.repo_hint(vault.read("02 Projekty/Hint.md")) == str(repo), line
+
+
+def test_repo_hint_skips_paths_that_are_not_repositories(vault: Vault, tmp_path: Path) -> None:
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    note = vault.root / "02 Projekty/Hint.md"
+    note.write_text(f"# Hint\nRepo: {plain}\nURL https://example.com/a/b\n", encoding="utf-8")
+    assert vault.repo_hint(vault.read("02 Projekty/Hint.md")) is None

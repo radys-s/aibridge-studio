@@ -391,7 +391,7 @@ export function Composer({ settings, health, onCreated, onSettingsSaved, onHealt
               list="recent-repos"
               value={repo}
               spellCheck={false}
-              placeholder="C:\cesta\k\repu"
+              placeholder="Cesta ke git repozitáři"
               onChange={(e) => setRepo(e.target.value)}
             />
             <datalist id="recent-repos">

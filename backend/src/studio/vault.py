@@ -55,6 +55,8 @@ _PRIVATE_FLAG = re.compile(r"(?im)^\s*private\s*:\s*(true|yes|ano)\s*$")
 _PRIVATE_TAG = re.compile(r"(?i)(?:^|[\s,\[\-#])(osobni|osobní|private)(?:$|[\s,\]])")
 _STATUS_OPEN = re.compile(r"(?im)^\s*status\s*:\s*open\s*$")
 _REPO_PATH = re.compile(r"(?i)\b([A-Z]:[\\/][^\s`'\"<>|]+)")
+# POSIX absolute path; the lookbehind skips URLs (`https://x/y`) and relative `a/b`.
+_POSIX_REPO_PATH = re.compile(r"(?<![\w/:.~-])(/[^\s`'\"<>|()]+)")
 
 
 @dataclass(frozen=True)
@@ -198,8 +200,13 @@ class Vault:
         return out
 
     def repo_hint(self, note: Note) -> str | None:
-        """First Windows path in a project note that is an existing git repository."""
-        for match in _REPO_PATH.finditer(note.text):
+        """First absolute path in a project note that is an existing git repository.
+
+        Windows paths (`C:\\...`) and POSIX paths (`/home/...`) both count, so a note works on
+        the hubs as well as on the PC.
+        """
+        matches = [*_REPO_PATH.finditer(note.text), *_POSIX_REPO_PATH.finditer(note.text)]
+        for match in sorted(matches, key=lambda m: m.start()):
             candidate = Path(match.group(1).rstrip(".,;:)`"))
             if (candidate / ".git").exists():
                 return str(candidate)
