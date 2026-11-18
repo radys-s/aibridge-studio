@@ -13,7 +13,7 @@ from studio.config import ModelSpec, Settings
 from studio.gateway import ChatResult, ProviderError
 
 LEAD = frozenset({"coding", "tools", "lead"})
-PRIVATE = ModelSpec("cerebras/gpt-oss-120b", LEAD, 6, privacy="no_train")
+PRIVATE = ModelSpec("cerebras/gpt-oss-120b", LEAD, 6, privacy="no_train", billing="recurring_free")
 TRAINS = ModelSpec("nvidia/kimi", LEAD, 6, privacy="may_train")
 MODELS = (PRIVATE, TRAINS)
 HEADERS = {"X-Studio": "1"}

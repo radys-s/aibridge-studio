@@ -176,9 +176,18 @@ class Worker:
 
     # --- loop -------------------------------------------------------------------------
 
-    def run(self, spec: TaskSpec, plan: Plan | None, feedback: list[str]) -> WorkerOutcome:
+    def run(
+        self,
+        spec: TaskSpec,
+        plan: Plan | None,
+        feedback: list[str],
+        *,
+        memory_context: str = "",
+    ) -> WorkerOutcome:
         outcome = WorkerOutcome(status="error")
         prompt = system_prompt(spec, plan, feedback)
+        if memory_context:
+            prompt += "\n\n" + memory_context
         if secret_findings(prompt):
             outcome.status, outcome.detail = "sensitive", "Sensitive worker prompt withheld."
             return outcome

@@ -8,9 +8,11 @@ import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
 import { useRunNotifications } from "./notify";
 import { useRunDetail } from "./stream";
+import { MemoryView } from "./components/MemoryView";
+import { PersonalView } from "./components/PersonalView";
 
 // Routing via location.hash: "#/new" (default), "#/run/<id>", "#/settings", "#/overview".
-type Route = { view: "new"; from?: string } | { view: "settings" } | { view: "overview" } | { view: "run"; id: string };
+type Route = { view: "new"; from?: string } | { view: "settings" } | { view: "overview" } | { view: "memory" } | { view: "personal" } | { view: "run"; id: string };
 
 function parseHash(hash: string): Route {
   try {
@@ -22,6 +24,8 @@ function parseHash(hash: string): Route {
     return { view: "new" }; // a malformed %-escape must not blank the app
   }
   if (hash === "#/settings") return { view: "settings" };
+  if (hash === "#/memory") return { view: "memory" };
+  if (hash === "#/personal") return { view: "personal" };
   return hash === "#/overview" ? { view: "overview" } : { view: "new" };
 }
 
@@ -179,6 +183,10 @@ export default function App() {
     main = <RunView key={route.id} runId={route.id} onChanged={onChanged} />;
   } else if (route.view === "overview") {
     main = <OverviewView />;
+  } else if (route.view === "memory") {
+    main = <MemoryView />;
+  } else if (route.view === "personal") {
+    main = <PersonalView />;
   } else if (!settings) {
     main = settingsError ? <p className="alert error pad">Nastavení nelze načíst: {settingsError}</p> : <p className="muted pad">Načítám…</p>;
   } else if (route.view === "settings") {
@@ -216,6 +224,8 @@ export default function App() {
         onSelect={(id) => navigate({ view: "run", id })}
         onSettings={() => navigate({ view: "settings" })}
         onOverview={() => navigate({ view: "overview" })}
+        onMemory={() => navigate({ view: "memory" })}
+        onPersonal={() => navigate({ view: "personal" })}
         onTheme={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
       />
       <main className="main">{main}</main>

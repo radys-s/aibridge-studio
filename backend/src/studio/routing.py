@@ -12,6 +12,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 
 from studio.config import PRIVACY_RANK, ModelSpec, Privacy
 from studio.db import Database
@@ -28,6 +29,7 @@ COOLDOWN_S = {
     # Missing key or provider setting: nothing changes until Tomáš fixes it in OmniRoute;
     # "Otestovat" in Settings clears the cooldown as soon as it works.
     "setup": 3600.0,
+    "allowance_exhausted": 86400.0,
 }
 MAX_RETRY_AFTER_S = 600.0
 # Ollama Cloud's free plan has session and weekly quotas: retrying every minute is useless.
@@ -41,6 +43,7 @@ _SETUP = re.compile(
 _TRANSIENT = re.compile(r"^5\d\d\b|empty|upstream|overloaded|temporarily", re.I)
 # Rate limits and missing setup say nothing about the model's quality (ADR 0006).
 _CAPACITY = re.compile(r"^(429|401|403)\b")
+_QUOTA = re.compile(r"quota|credits? (?:exhausted|expired)|usage limit|allowance", re.I)
 
 # Learning from outcomes (ADR 0006): windows of recent history, and the evidence needed
 # before it changes the order. Failures age out after 3 days, so a demoted model whose
@@ -106,6 +109,7 @@ class ModelRouter:
         sleep: Callable[[float], None] = time.sleep,
         max_wait_s: float = 0.0,
         stats_ttl_s: float = STATS_TTL_S,
+        anonymous_verified: bool = False,
     ) -> None:
         self.db = db
         self.models = models
@@ -119,6 +123,8 @@ class ModelRouter:
         self.stats_ttl_s = stats_ttl_s
         self._stats: tuple[float, dict[str, ModelStats]] | None = None
         self._role_stats: dict[str, tuple[float, dict[str, ModelStats]]] = {}
+        self.anonymous_verified = anonymous_verified
+        self.probe_status: dict[str, dict[str, object]] = {}
 
     def blocked(self, model: ModelSpec, exposed: set[str] | None = None) -> str | None:
         """Why this model may not be used, or None."""
@@ -126,9 +132,45 @@ class ModelRouter:
             return "privacy"
         if model.paid and not self.allow_paid:
             return "paid"
+        if model.billing == "unknown":
+            return "billing_unknown"
+        if model.billing == "starter_credits":
+            return "starter_eligibility_unverified"
+        if model.billing == "anonymous_free" and not self.anonymous_verified:
+            return "anonymous_route_unverified"
         if exposed is not None and model.id not in exposed:
             return "not_connected"
         return None
+
+    def assert_personal_eligible(self, model_id: str) -> ModelSpec:
+        model = next((m for m in self.models if m.id == model_id), None)
+        if model is None:
+            raise NoModelAvailable("unknown personal model")
+        try:
+            policy_age = (date.today() - date.fromisoformat(model.policy_checked_at or "")).days
+        except ValueError:
+            policy_age = -1
+        if (
+            model.privacy != "no_train"
+            or not model.policy_source
+            or not 0 <= policy_age <= 30
+            or self.blocked(model, self.exposed()) is not None
+            or self.probe_status.get(model.id, {}).get("status") != "probe_passed"
+        ):
+            raise NoModelAvailable(
+                "personal model requires current no-training policy and tool probe"
+            )
+        return model
+
+    def choose_personal(self, model_id: str | None = None) -> ModelSpec:
+        if model_id is not None:
+            return self.assert_personal_eligible(model_id)
+        for candidate in self.candidates("lead", "hard"):
+            try:
+                return self.assert_personal_eligible(candidate)
+            except NoModelAvailable:
+                continue
+        raise NoModelAvailable("no verified personal model; probe an eligible model first")
 
     def usable(self) -> list[ModelSpec]:
         exposed = self.exposed()
@@ -177,6 +219,12 @@ class ModelRouter:
                     "provider": m.provider,
                     "privacy": m.privacy,
                     "paid": m.paid,
+                    "billing": m.billing,
+                    "policy_source": m.policy_source,
+                    "policy_checked_at": m.policy_checked_at,
+                    "configured": exposed is not None and m.id in exposed,
+                    "probe_status": self.probe_status.get(m.id, {}).get("status", "not_tested"),
+                    "probe_reason": self.probe_status.get(m.id, {}).get("reason"),
                     "lead": "lead" in m.capabilities,
                     "coding": "coding" in m.capabilities,
                     "strength": m.strength,
@@ -223,6 +271,10 @@ class ModelRouter:
             if capability == "lead"
             else ordered([m for m in usable if capability not in m.capabilities])
         )
+        # Anonymous OVH has two requests/minute: a bounded lead fallback, not worker capacity.
+        if capability != "lead":
+            preferred = [m for m in preferred if m.billing != "anonymous_free"]
+            others = [m for m in others if m.billing != "anonymous_free"]
         cooling = self.db.cooldowns()
         result = [m for m in [*preferred, *others] if m.id not in cooling]
         result += [m for m in [*preferred, *others] if m.id in cooling]
@@ -315,7 +367,13 @@ class ModelRouter:
     ) -> None:
         if kind == "gateway_unavailable":
             return  # the gateway is down, not the model; cooling every model would be wrong
-        if status == 429:
+        if _QUOTA.search(detail) and status in (402, 403, 429):
+            key = "allowance_exhausted"
+        elif status == 429 or (
+            model.startswith("ovh/")
+            and status == 403
+            and (retry_after is not None or re.search(r"rate|limit", detail, re.I))
+        ):
             key = "daily_limit" if _DAILY.search(detail) else "rate_limit"
         elif status in (401, 403) or _SETUP.search(detail):
             key = "setup"
@@ -325,6 +383,8 @@ class ModelRouter:
             key = kind
         seconds = COOLDOWN_S.get(key, COOLDOWN_S["provider_error"])
         # A provider's "reset after 3s" does not fix a missing key or Account ID.
-        if retry_after and key not in ("daily_limit", "setup"):
+        if retry_after and key not in ("daily_limit", "setup", "allowance_exhausted"):
             seconds = min(max(retry_after, 1.0), MAX_RETRY_AFTER_S)
-        self.db.set_cooldown(model, time.time() + seconds, f"{key}: {detail[:200]}")
+        from studio.sandbox import safe_text
+
+        self.db.set_cooldown(model, time.time() + seconds, f"{key}: {safe_text(detail)[:200]}")

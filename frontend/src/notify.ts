@@ -32,7 +32,7 @@ export function titleFor(runs: RunSummary[]): string {
 }
 
 export function changeText(c: Change): string {
-  if (c.kind === "accepted") return "Přijato — změna prošla ověřením i recenzí.";
+  if (c.kind === "accepted") return "Přijato — zkontroluj výsledek ověření a způsob přijetí.";
   if (c.kind === "abandoned") return "Úkol skončil bez přijetí.";
   return "Čeká na tvoje rozhodnutí.";
 }

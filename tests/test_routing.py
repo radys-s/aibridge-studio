@@ -12,9 +12,9 @@ from studio.db import Database
 from studio.routing import ModelRouter, NoModelAvailable, RouteBudget
 
 LEAD = frozenset({"coding", "tools", "lead"})
-PRIVATE = ModelSpec("groq/strong", LEAD, 6, privacy="no_train")
-PRIVATE_SMALL = ModelSpec("groq/small", LEAD, 3, privacy="no_train")
-OPEN = ModelSpec("openrouter/free:free", LEAD, 9)  # unknown privacy, stronger on paper
+PRIVATE = ModelSpec("groq/strong", LEAD, 6, privacy="no_train", billing="recurring_free")
+PRIVATE_SMALL = ModelSpec("groq/small", LEAD, 3, privacy="no_train", billing="recurring_free")
+OPEN = ModelSpec("openrouter/free:free", LEAD, 9, billing="recurring_free")
 PAID = ModelSpec("paid/orchestrator", LEAD, 10, privacy="no_train", paid=True, free=False)
 BUDGET = RouteBudget(100_000, 1.0)
 
@@ -325,8 +325,8 @@ def test_rate_limits_setup_errors_and_a_down_gateway_are_not_held_against_a_mode
 
 
 def test_accepted_work_lifts_a_model_for_hard_tasks_only(tmp_path: Path) -> None:
-    a = ModelSpec("groq/a", LEAD, 5, privacy="no_train")
-    b = ModelSpec("groq/b", LEAD, 5, privacy="no_train")
+    a = ModelSpec("groq/a", LEAD, 5, privacy="no_train", billing="recurring_free")
+    b = ModelSpec("groq/b", LEAD, 5, privacy="no_train", billing="recurring_free")
     r = router(tmp_path, a, b)
     for verdict in ("accept", "accept", "request_changes"):
         _reviewed(r.db, "groq/b", verdict)

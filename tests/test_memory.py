@@ -23,8 +23,10 @@ from studio.vault import Vault
 
 A, B = "test/lead-a", "test/lead-b"
 MODELS = (
-    ModelSpec(A, frozenset({"coding", "tools", "lead"}), 3, privacy="no_train"),
-    ModelSpec(B, frozenset({"tools", "lead"}), 2, privacy="no_train"),
+    ModelSpec(
+        A, frozenset({"coding", "tools", "lead"}), 3, privacy="no_train", billing="recurring_free"
+    ),
+    ModelSpec(B, frozenset({"tools", "lead"}), 2, privacy="no_train", billing="recurring_free"),
 )
 DRAFT = {
     "title": "Přidat median",

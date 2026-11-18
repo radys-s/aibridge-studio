@@ -20,6 +20,7 @@ def _default_vault() -> Path:
 
 
 Privacy = Literal["no_train", "unknown", "may_train"]
+Billing = Literal["recurring_free", "starter_credits", "anonymous_free", "paid", "unknown"]
 PRIVACY_RANK: dict[str, int] = {"no_train": 2, "unknown": 1, "may_train": 0}
 
 
@@ -34,6 +35,22 @@ class ModelSpec:
     # no_train | unknown | may_train; set from PROVIDER_PRIVACY (see below).
     privacy: Privacy = "unknown"
     paid: bool = False
+    billing: Billing = "unknown"
+    policy_source: str | None = None
+    policy_checked_at: str | None = None
+
+    def __post_init__(self) -> None:
+        provider = self.provider
+        if self.paid:
+            object.__setattr__(self, "billing", "paid")
+        sources = {
+            "groq": "https://console.groq.com/docs/your-data",
+            "cf": "https://developers.cloudflare.com/workers-ai/platform/data-usage/",
+            "ovh": "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/",
+        }
+        if self.policy_source is None and provider in sources and self.privacy == "no_train":
+            object.__setattr__(self, "policy_source", sources[provider])
+            object.__setattr__(self, "policy_checked_at", "2026-10-11")
 
     @property
     def provider(self) -> str:
@@ -117,7 +134,20 @@ PROVIDER_PRIVACY: dict[str, Privacy] = {
     "mistral": "may_train",
 }
 DEFAULT_MODELS: tuple[ModelSpec, ...] = tuple(
-    replace(m, privacy=PROVIDER_PRIVACY.get(m.provider, "unknown")) for m in _CATALOG
+    replace(
+        m,
+        privacy=PROVIDER_PRIVACY.get(m.provider, "unknown"),
+        billing=(
+            "recurring_free"
+            if m.provider in {"groq", "cf", "openrouter"}
+            else "starter_credits"
+            if m.provider == "ollamacloud"
+            else "anonymous_free"
+            if m.provider == "ovh"
+            else "unknown"
+        ),
+    )
+    for m in _CATALOG
 )
 # Known free-tier requests per day (per model on Groq; the whole :free pool on OpenRouter
 # without credits). Cloudflare counts neurons and Cerebras tokens, so they have no entry.
@@ -168,7 +198,15 @@ def _models_from_env() -> tuple[ModelSpec, ...]:
             privacy=_privacy(model_id),
         )
     return tuple(
-        replace(m, privacy=_privacy(m.id), paid=m.id in paid, free=m.id not in paid)
+        replace(
+            m,
+            privacy=_privacy(m.id),
+            paid=m.id in paid,
+            free=m.id not in paid,
+            billing=next(
+                (known.billing for known in DEFAULT_MODELS if known.id == m.id), "unknown"
+            ),
+        )
         for m in by_id.values()
     )
 

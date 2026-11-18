@@ -51,6 +51,7 @@ from studio.domain import (
 )
 from studio.gateway import ChatGateway
 from studio.memory import build_proposals, fallback_proposal, project_memory
+from studio.project_memory import ProjectMemory
 from studio.review import model_identity, review_passed, review_reason
 from studio.routing import ModelRouter
 from studio.sandbox import (
@@ -100,6 +101,7 @@ class Runner:
         self.vault = vault
         self._vault_lock = threading.Lock()  # one proposal read-modify-write at a time
         self.db = db
+        self.project_memory = ProjectMemory(db)
         self.gateway = gateway
         self.router = router
         self.leads = leads
@@ -325,6 +327,7 @@ class Runner:
             raise ValueError(str(exc)) from exc
         data = {"branch": applied.branch, "commit": applied.commit, "files": applied.files}
         self.db.event(run_id, "applied", f"Změna je ve větvi {applied.branch}", data)
+        self.project_memory.mark_applied(run_id, applied.branch, applied.commit)
         self.db.message(
             run_id,
             "studio",
@@ -521,6 +524,10 @@ class Runner:
         """
         run_id = run["id"]
         step = self.db.start_step(run_id, kind, run["iteration"], actor or name)
+        if kind in ("draft", "plan", "work", "review"):
+            packet = self._project_context(run, spec, kind, step)
+            if packet["text"]:
+                prompt += "\n\n" + packet["text"]
         if secret_findings(prompt) or SENSITIVE_OUTPUT in prompt:
             error = LeadError(
                 "Sensitive context withheld; review requires safe evidence.", "sensitive"
@@ -648,6 +655,27 @@ class Runner:
         return results
 
     # --- phases -----------------------------------------------------------------------
+
+    def _project_context(
+        self,
+        run: dict[str, Any],
+        spec: TaskSpec,
+        phase: str,
+        step_id: int,
+    ) -> dict[str, Any]:
+        project = self.project_memory.register_project(Path(spec.repo_path))
+        try:
+            head = workspace.source_head(Path(spec.repo_path))
+        except workspace.WorkspaceError:
+            head = run.get("source_commit") or ""
+        return self.project_memory.context(
+            project["id"],
+            spec.goal,
+            head=head,
+            run_id=run["id"],
+            phase=phase,
+            step_id=step_id,
+        )
 
     def _phase_setup(self, run: dict[str, Any], spec: TaskSpec) -> str:
         run_id = run["id"]
@@ -880,6 +908,7 @@ class Runner:
         run_id = run["id"]
         root = Path(run["workspace"])
         step = self.db.start_step(run_id, "work", run["iteration"], "worker")
+        packet = self._project_context(run, spec, "work", step)
         self.db.event(run_id, "work", f"Worker začíná iteraci {run['iteration']}")
         worker = Worker(
             self.db,
@@ -893,7 +922,7 @@ class Runner:
             should_stop=lambda: self._should_stop(run_id),
         )
         try:
-            outcome = worker.run(spec, plan, feedback)
+            outcome = worker.run(spec, plan, feedback, memory_context=packet["text"])
         except WorkerStopped as exc:
             self.db.finish_step(step, "interrupted", error="cancelled")
             raise Stopped() from exc
@@ -1191,7 +1220,38 @@ class Runner:
         patch_path.write_text(patch, encoding="utf-8", newline="")
         self.db.update_run(run_id, state=RunState.ACCEPTED, finished_at=time.time(), pending=None)
         self.db.event(run_id, "accepted", message, {"patch": str(patch_path)})
+        try:
+            self._propose_project_candidate(run, root)
+        except Exception:
+            # Optional memory curation cannot revoke an independently accepted result.
+            # Do not log candidate content or detailed exceptions containing source data.
+            self.db.event(run_id, "warning", "Návrh projektové paměti se nepodařilo uložit")
         return True
+
+    def _propose_project_candidate(self, run: dict[str, Any], root: Path) -> None:
+        run_id = run["id"]
+        # Independently accepted in the disposable working copy, not in the user's repo.
+        project = self.project_memory.register_project(
+            Path(json.loads(run["spec_json"])["repo_path"])
+        )
+        spec = TaskSpec.model_validate_json(run["spec_json"])
+        self.project_memory.propose(
+            project["id"],
+            {
+                "title": spec.title,
+                "content": ("Accepted in Studio working copy: " + spec.goal)[:12_000],
+                "subject_key": "run:" + run_id,
+                "kind": "state",
+                "confidence": 1.0,
+                "source_commit": run["source_commit"] or "",
+                "source_run": run_id,
+                "source_agent": "studio",
+                "result_state": "accepted_workspace",
+                "evidence": [{"type": "run", "quote": ""}],
+            },
+            workspace=root,
+            run_id=run_id,
+        )
 
     def memory_retry(self, run_id: str) -> None:
         """Propose the memory update again for an accepted run (on click)."""

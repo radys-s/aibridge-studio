@@ -234,9 +234,9 @@ def test_reviewer_excludes_the_same_model_behind_another_provider(
     runner, db, _ = studio(FakeGateway([]), [])
     caps = frozenset({"coding", "tools", "lead"})
     runner.router.models = (
-        ModelSpec("groq/openai/gpt-oss-120b", caps, 6),
-        ModelSpec("cerebras/gpt-oss-120b", caps, 6),
-        ModelSpec("groq/openai/gpt-oss-20b", caps, 4),
+        ModelSpec("groq/openai/gpt-oss-120b", caps, 6, billing="recurring_free"),
+        ModelSpec("cerebras/gpt-oss-120b", caps, 6, billing="recurring_free"),
+        ModelSpec("groq/openai/gpt-oss-20b", caps, 4, billing="recurring_free"),
     )
     spec = make_spec(repo)
     run_id = db.create_task_and_run(spec.model_dump_json())

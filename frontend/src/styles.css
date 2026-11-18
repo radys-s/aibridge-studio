@@ -1410,3 +1410,16 @@ td.probe .badge {
   gap: 0.5rem 1rem;
   margin-top: 1rem;
 }
+
+.knowledge-view { max-width: 960px; width: 100%; margin: 0 auto; overflow-wrap: anywhere; }
+.knowledge-view h1 { margin-bottom: 0.5rem; }
+.knowledge-view h2 { margin-top: 1.5rem; }
+.knowledge-view label { display: block; margin: 0.75rem 0; }
+.knowledge-view input:not([type="checkbox"]), .knowledge-view select, .knowledge-view textarea { display: block; width: 100%; margin-top: 0.4rem; }
+.knowledge-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; margin: 0.75rem 0; }
+.knowledge-controls label { flex: 1 1 240px; }
+.knowledge-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--r); margin: 0.75rem 0; }
+.knowledge-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-width: 100%; }
+.knowledge-view details { margin: 0.75rem 0; }
+.knowledge-view summary { cursor: pointer; }
+@media (max-width: 480px) { .knowledge-controls > button { flex: 1 1 140px; } .knowledge-view { min-width: 0; } }

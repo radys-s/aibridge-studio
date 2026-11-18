@@ -158,10 +158,12 @@ function ModelState({ health, m }: { health: Health; m: ModelInfo }) {
       </>
     );
   } else if (m.cooldown_until) state = `pauza do ${new Date(m.cooldown_until * 1000).toLocaleTimeString("cs-CZ")}`;
-  else state = "připraven";
+  else state = m.probe_status === "probe_passed" ? "test připojení prošel" : "v katalogu — připojení neověřeno";
   return (
     <>
       {state}
+      {m.billing && <div className="muted small">Účtování: {({ recurring_free: "opakovaná bezplatná kvóta", starter_credits: "omezené startovní kredity", anonymous_free: "anonymní bezplatný přístup", paid: "placené", unknown: "neověřené" } as Record<string, string>)[m.billing] ?? m.billing}</div>}
+      {m.policy_source && <div className="small"><a href={m.policy_source} target="_blank" rel="noreferrer">Podmínky dat</a> · ověřeno {m.policy_checked_at ?? "neověřeno"}</div>}
       {(m.demoted || (m.demotion_reasons?.length ?? 0) > 0) && (
         <div>
           <span className="badge warn" title={m.demotion_reasons?.join("; ") || "Router ho zkouší až po spolehlivějších modelech."}>

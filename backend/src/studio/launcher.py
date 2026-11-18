@@ -25,7 +25,7 @@ def which_on_path(name: str) -> str | None:
     directory first, so a planted `omniroute.cmd` next to Studio could run on the click."""
     for entry in os.environ.get("PATH", "").split(os.pathsep):
         if entry and Path(entry).is_absolute():
-            found = shutil.which(name, path=entry)
+            found = shutil.which(str(Path(entry) / name), path=entry)
             if found and Path(found).is_absolute():
                 return found
     return None
@@ -69,7 +69,7 @@ class OmniRouteLauncher:
         try:
             port = str(urlparse(self.url).port or 20128)
         except ValueError as exc:
-            raise LaunchError(f"invalid gateway URL: {self.url}") from exc
+            raise LaunchError("invalid gateway URL") from exc
         with self._lock:
             poll = getattr(self._proc, "poll", None)
             if poll is not None and poll() is None:
@@ -107,6 +107,6 @@ class OmniRouteLauncher:
                 start_new_session=os.name != "nt",
             )
         except OSError as exc:
-            raise LaunchError(f"failed to start omniroute: {exc}") from exc
+            raise LaunchError("failed to start omniroute") from exc
         finally:
             log.close()

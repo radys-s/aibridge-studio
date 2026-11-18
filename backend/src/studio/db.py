@@ -16,10 +16,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from studio.project_memory import SCHEMA as MEMORY_SCHEMA
 from studio.review import model_identity
 from studio.sandbox import safe_text, safe_value
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Message of the decision event the runner writes for an automatic draft approval; the
 # overview does not count it as Tomáš's decision.
@@ -146,6 +147,7 @@ class Database:
         self._lock = threading.RLock()
         with self.connect() as conn:
             conn.executescript(_SCHEMA)
+            conn.executescript(MEMORY_SCHEMA)
             for table, columns in (
                 ("run", _RUN_COLUMNS_V2),
                 ("model_call", _MODEL_CALL_COLUMNS_V2),

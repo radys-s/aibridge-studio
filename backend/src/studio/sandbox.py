@@ -76,8 +76,10 @@ def _credential_assignment(text: str) -> bool:
     for m in _CREDENTIAL.finditer(text):
         quoted = m["quoted"]
         if quoted is not None:
-            if any(c.isspace() for c in quoted) or "{" in quoted:
-                continue  # prose or a template, e.g. UI text "Zadej heslo znovu"
+            if quoted in {"Zadej heslo znovu", "Enter your password", "Confirm password"}:
+                continue  # explicit UI labels, not arbitrary prose/password phrases
+            if "{" in quoted and re.search(r"(?:\$\{|\{[A-Za-z_]\w*\})", quoted):
+                continue  # identifiable code interpolation, not arbitrary whitespace
             return True
         value = m["value"]
         if m["after"]:
@@ -85,7 +87,13 @@ def _credential_assignment(text: str) -> bool:
         if len(value) <= 64 and _ATTRIBUTE_PATH.fullmatch(value):
             continue  # `settings.api_key`; a JWT with dots is longer
         if _IDENTIFIER_NO_DIGIT.fullmatch(value):
-            continue  # a variable such as `raw_password`; letter-only literals are missed
+            # A complete dotenv-style line containing a plain alphabetic value is
+            # ambiguous with code. Treat it conservatively; snake_case references remain code.
+            start = text.rfind("\n", 0, m.start()) + 1
+            end = text.find("\n", m.end())
+            line = text[start : end if end >= 0 else len(text)].strip()
+            if "_" in value or not re.fullmatch(r"(?:export\s+)?[\w-]+\s*=\s*[A-Za-z]+", line):
+                continue
         return True
     return False
 

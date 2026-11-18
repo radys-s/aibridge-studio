@@ -11,11 +11,13 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -28,9 +30,13 @@ from studio.domain import AUTOPILOT, TaskSpec
 from studio.gateway import ChatGateway, OmniRouteGateway
 from studio.launcher import LaunchError, OmniRouteLauncher
 from studio.memory import project_memory
+from studio.personal import PersonalService
+from studio.personal_vault import PersonalVault
 from studio.preferences import Defaults, Preferences
 from studio.probe import UnknownModel, probe_model
-from studio.routing import ModelRouter
+from studio.project_memory import ProjectMemory
+from studio.protected_storage import PersonalStore, ProtectedStorageUnavailable
+from studio.routing import ModelRouter, NoModelAvailable
 from studio.runner import Runner
 from studio.sandbox import Denied
 
@@ -70,6 +76,44 @@ class SettingsBody(BaseModel):
 
 class ProbeBody(BaseModel):
     model: str
+
+
+class ProjectBody(BaseModel):
+    path: str = Field(max_length=1000)
+    name: str | None = Field(None, max_length=300)
+
+
+class CandidateBody(BaseModel):
+    payload: dict[str, Any]
+    run_id: str | None = None
+
+
+class ApprovalBody(BaseModel):
+    resolve_conflicts: bool = False
+
+
+class ContextBody(BaseModel):
+    objective: str = Field(max_length=12000)
+    max_chars: int = Field(8000, ge=200, le=8000)
+
+
+class PersonalQuery(BaseModel):
+    query: str = Field(max_length=4000)
+    paths: list[str] = Field(default_factory=list, max_length=20)
+    model_id: str | None = None
+
+
+class PersonalPolicyBody(BaseModel):
+    exclusions: list[str] = Field(max_length=100)
+    enabled: bool
+
+
+class PersonalApproval(BaseModel):
+    session_id: str
+
+
+class ClaimBody(BaseModel):
+    text: str = Field(max_length=4000)
 
 
 def _decode(row: dict[str, Any], *keys: str) -> dict[str, Any]:
@@ -120,6 +164,7 @@ def create_app(
     gateway: ChatGateway | None = None,
     leads: dict[str, Lead] | None = None,
     start_runner: bool = True,
+    personal_service: PersonalService | None = None,
 ) -> FastAPI:
     db = Database(settings.db_path)
     if gateway is None and settings.fake_gateway:
@@ -141,6 +186,17 @@ def create_app(
         AUTOPILOT: ApiLead(db, gw, router, lambda: settings.vault()),
     }
     prefs = Preferences(db)
+    memory = ProjectMemory(db)
+    personal = personal_service
+    personal_unavailable = "Protected personal storage is unavailable."
+    if personal is None and settings.vault_path:
+        root = settings.vault_path
+        if root.name == "AI paměť":
+            root = root.parent
+        with suppress(ProtectedStorageUnavailable, OSError):
+            personal = PersonalService(
+                PersonalStore(settings.data_dir / "personal"), PersonalVault(root), router, gw
+            )
     launcher = OmniRouteLauncher(
         settings.omniroute_url,
         settings.data_dir,
@@ -164,10 +220,24 @@ def create_app(
     app = FastAPI(title="AI Bridge Studio", version=__version__, lifespan=lifespan)
     app.state.db = db
     app.state.runner = runner
+    app.state.personal = personal
+    app.state.memory = memory
+
+    @app.exception_handler(RequestValidationError)
+    async def private_validation(request: Request, exc: RequestValidationError):  # type: ignore[no-untyped-def]
+        if request.url.path.startswith("/api/personal/"):
+            return JSONResponse({"detail": "Invalid personal request."}, status_code=422)
+        return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
     async def csrf_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
-        if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.url.path.startswith("/api/personal/"):
+            host = request.headers.get("host", "").split(":", 1)[0]
+            if host not in ("127.0.0.1", "localhost", settings.host):
+                return JSONResponse({"detail": "forbidden"}, status_code=403)
+        if request.method not in ("GET", "HEAD", "OPTIONS") or request.url.path.startswith(
+            "/api/personal/"
+        ):
             origin = request.headers.get("origin")
             if request.headers.get("x-studio") != "1" or (origin and origin not in allowed_origins):
                 return JSONResponse({"detail": "forbidden"}, status_code=403)
@@ -256,6 +326,135 @@ def create_app(
             "refused": refused,
             "preview": main.text[:1500],
         }
+
+    # --- curated project memory and isolated personal context ---------------------------
+
+    def memory_call(fn: Any) -> Any:
+        try:
+            return fn()
+        except (ValueError, Denied):
+            raise HTTPException(
+                409, "Memory request denied: check project, evidence or conflict."
+            ) from None
+
+    @app.get("/api/memory/projects")
+    def memory_projects() -> list[dict[str, Any]]:
+        return memory.projects()
+
+    @app.post("/api/memory/projects", status_code=201)
+    def register_memory_project(body: ProjectBody) -> Any:
+        path = Path(body.path)
+        if not path.is_absolute() or not (path / ".git").exists():
+            raise HTTPException(422, "Project must be an absolute Git repository path")
+        return memory_call(lambda: memory.register_project(path, body.name))
+
+    @app.get("/api/memory/projects/{project_id}/items")
+    def memory_items(project_id: str, query: str = "", limit: int = 30) -> Any:
+        return memory_call(lambda: memory.search(project_id, query, min(max(limit, 1), 100)))
+
+    @app.get("/api/memory/projects/{project_id}/candidates")
+    def memory_candidates(project_id: str) -> Any:
+        return memory_call(lambda: memory.candidates(project_id))
+
+    @app.post("/api/memory/projects/{project_id}/candidates")
+    def propose_memory(project_id: str, body: CandidateBody) -> Any:
+        workspace = None
+        if body.run_id:
+            run = db.run(body.run_id)
+            if not run or run["state"] != "accepted" or not run["workspace"]:
+                raise HTTPException(409, "Evidence requires an accepted run working copy")
+            workspace = Path(run["workspace"])
+        else:
+            with db.connect() as conn:
+                row = conn.execute(
+                    "SELECT path FROM memory_mount WHERE project_id=? LIMIT 1", (project_id,)
+                ).fetchone()
+            if row:
+                workspace = Path(row["path"])
+        return memory_call(
+            lambda: memory.propose(
+                project_id, body.payload, workspace=workspace, run_id=body.run_id
+            )
+        )
+
+    @app.post("/api/memory/candidates/{candidate_id}/approve")
+    def approve_memory(candidate_id: str, body: ApprovalBody) -> Any:
+        return memory_call(
+            lambda: memory.approve(candidate_id, resolve_conflicts=body.resolve_conflicts)
+        )
+
+    @app.post("/api/memory/candidates/{candidate_id}/reject")
+    def reject_memory(candidate_id: str) -> Any:
+        return memory_call(lambda: memory.reject(candidate_id))
+
+    @app.post("/api/memory/projects/{project_id}/context")
+    def preview_memory(project_id: str, body: ContextBody) -> Any:
+        return memory_call(
+            lambda: memory.context(project_id, body.objective, max_chars=body.max_chars)
+        )
+
+    def personal_required() -> PersonalService:
+        if personal is None:
+            raise HTTPException(503, personal_unavailable)
+        return personal
+
+    def personal_call(fn: Any) -> Any:
+        try:
+            return fn(personal_required())
+        except (Denied, ValueError, ProtectedStorageUnavailable, OSError, NoModelAvailable):
+            # Never echo a provider exception, input validation payload or personal text.
+            raise HTTPException(
+                409, "Personal request denied; refresh approval and check privacy policy."
+            ) from None
+
+    @app.get("/api/personal/status")
+    def personal_status() -> dict[str, Any]:
+        return {
+            "available": personal is not None,
+            "gateway_privacy_ready": bool(personal and personal.gateway_privacy_ready()),
+            "reason": "Cloud disclosure requires verified disabled gateway payload logging.",
+            "policy": personal_call(lambda svc: svc.policy()) if personal else None,
+        }
+
+    @app.put("/api/personal/policy")
+    def personal_policy(body: PersonalPolicyBody) -> Any:
+        return personal_call(
+            lambda svc: svc.configure_exclusions(body.exclusions, enabled=body.enabled)
+        )
+
+    @app.post("/api/personal/search")
+    def personal_search(body: PersonalQuery) -> Any:
+        return personal_call(lambda svc: svc.search(body.query))
+
+    @app.post("/api/personal/sessions", status_code=201)
+    def personal_session() -> Any:
+        return personal_call(lambda svc: svc.create_session())
+
+    @app.get("/api/personal/sessions/{session_id}")
+    def personal_history(session_id: str) -> Any:
+        return personal_call(lambda svc: svc.history(session_id))
+
+    @app.post("/api/personal/sessions/{session_id}/claims")
+    def personal_claim(session_id: str, body: ClaimBody) -> Any:
+        return personal_call(lambda svc: svc.propose_claim(session_id, body.text))
+
+    @app.post("/api/personal/claims/{claim_id}/approve")
+    def personal_claim_approve(claim_id: str, body: PersonalApproval) -> Any:
+        return personal_call(lambda svc: svc.approve_claim(claim_id, body.session_id))
+
+    @app.post("/api/personal/sessions/{session_id}/preview")
+    def personal_preview(session_id: str, body: PersonalQuery) -> Any:
+        return personal_call(
+            lambda svc: svc.preview(session_id, body.query, body.paths, body.model_id)
+        )
+
+    @app.post("/api/personal/approvals/{approval_id}/approve")
+    def personal_approve(approval_id: str, body: PersonalApproval) -> Any:
+        return personal_call(lambda svc: svc.approve(approval_id, body.session_id))
+
+    @app.post("/api/personal/approvals/{approval_id}/answer")
+    def personal_answer(approval_id: str, body: PersonalApproval) -> Any:
+        return personal_call(lambda svc: svc.answer(approval_id, body.session_id))
 
     # --- tasks and runs -----------------------------------------------------------------
 

@@ -10,12 +10,14 @@ interface Props {
   runs: RunSummary[];
   runsError: string | null;
   selectedId: string | null;
-  view: "new" | "run" | "settings" | "overview";
+  view: "new" | "run" | "settings" | "overview" | "memory" | "personal";
   theme: string;
   onNew: () => void;
   onSelect: (id: string) => void;
   onSettings: () => void;
   onOverview: () => void;
+  onMemory: () => void;
+  onPersonal: () => void;
   onTheme: () => void;
 }
 
@@ -57,6 +59,10 @@ export function Sidebar(p: Props) {
       <button type="button" className={`new-task${p.view === "new" ? " on" : ""}`} onClick={p.onNew}>
         Nový úkol
       </button>
+      <div className="knowledge-controls">
+        <button type="button" aria-current={p.view === "memory" ? "page" : undefined} onClick={p.onMemory}>Paměť</button>
+        <button type="button" aria-current={p.view === "personal" ? "page" : undefined} onClick={p.onPersonal}>Osobní</button>
+      </div>
       <input
         className="search"
         type="search"

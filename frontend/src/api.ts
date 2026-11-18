@@ -57,7 +57,13 @@ export interface ModelInfo {
   strength: number;
   /** privacy: below the privacy floor; paid: paid models are off; not_connected: OmniRoute
    * does not offer it (provider not connected). */
-  blocked: "privacy" | "paid" | "not_connected" | null;
+  blocked: "privacy" | "paid" | "not_connected" | "billing_unknown" | "starter_eligibility_unverified" | "anonymous_route_unverified" | null;
+  billing?: string;
+  configured?: boolean;
+  probe_status?: string;
+  probe_reason?: string | null;
+  policy_source?: string;
+  policy_checked_at?: string;
   cooldown_until: number | null;
   /** Why the pause started: "setup" (key or provider setting missing in OmniRoute),
    * "rate_limit", "daily_limit", "transient", … */
@@ -455,7 +461,7 @@ export interface ProbeResult {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, init);
+    res = await fetch(path, path.startsWith("/api/personal/") ? { ...init, headers: { ...init?.headers, "X-Studio": "1" } } : init);
   } catch {
     throw new ApiError(0, "Server je nedostupný.");
   }
@@ -513,6 +519,23 @@ export interface Overview {
 const runPath = (id: string) => `/api/runs/${encodeURIComponent(id)}`;
 
 export const api = {
+  memoryProjects: () => request<MemoryProject[]>("/api/memory/projects"),
+  registerMemoryProject: (path: string) => send<MemoryProject>("POST", "/api/memory/projects", { path }),
+  memoryItems: (id: string, query: string) => request<MemoryItem[]>(`/api/memory/projects/${encodeURIComponent(id)}/items?query=${encodeURIComponent(query)}`),
+  memoryCandidates: (id: string) => request<MemoryCandidate[]>(`/api/memory/projects/${encodeURIComponent(id)}/candidates`),
+  approveMemory: (id: string, resolve_conflicts = false) => send("POST", `/api/memory/candidates/${encodeURIComponent(id)}/approve`, { resolve_conflicts }),
+  rejectMemory: (id: string) => send("POST", `/api/memory/candidates/${encodeURIComponent(id)}/reject`, {}),
+  memoryContext: (id: string, objective: string) => send<{ text: string; estimated_tokens: number }>("POST", `/api/memory/projects/${encodeURIComponent(id)}/context`, { objective }),
+  personalStatus: () => request<PersonalStatus>("/api/personal/status"),
+  personalPolicy: (exclusions: string[], enabled: boolean) => send("PUT", "/api/personal/policy", { exclusions, enabled }),
+  personalSearch: (query: string) => send<{ path: string; snippet?: string; text?: string }[]>("POST", "/api/personal/search", { query }),
+  personalSession: () => send<{ session_id: string }>("POST", "/api/personal/sessions", {}),
+  personalHistory: (id: string) => request<PersonalHistory>(`/api/personal/sessions/${encodeURIComponent(id)}`),
+  personalClaim: (id: string, text: string) => send<{ claim_id: string; text: string }>("POST", `/api/personal/sessions/${encodeURIComponent(id)}/claims`, { text }),
+  personalApproveClaim: (id: string, session_id: string) => send("POST", `/api/personal/claims/${encodeURIComponent(id)}/approve`, { session_id }),
+  personalPreview: (id: string, query: string, paths: string[]) => send<PersonalPreview>("POST", `/api/personal/sessions/${encodeURIComponent(id)}/preview`, { query, paths }),
+  personalApprove: (id: string, session_id: string) => send("POST", `/api/personal/approvals/${encodeURIComponent(id)}/approve`, { session_id }),
+  personalAnswer: (id: string, session_id: string) => send<{ answer: string }>("POST", `/api/personal/approvals/${encodeURIComponent(id)}/answer`, { session_id }),
   health: () => request<Health>("/api/health"),
   settings: () => request<SettingsSnapshot>("/api/settings"),
   saveSettings: (body: { defaults: Defaults }) => send<SettingsSnapshot>("PUT", "/api/settings", body),
@@ -529,3 +552,10 @@ export const api = {
   streamUrl: (id: string, cursors: { events: number; agent: number; messages: number }) =>
     `${runPath(id)}/stream?events=${cursors.events}&agent=${cursors.agent}&messages=${cursors.messages}`,
 };
+
+export interface MemoryProject { id: string; name: string }
+export interface MemoryItem { id: string; title: string; content: string; evidence_status?: string; payload?: { title: string; content: string; evidence?: unknown[] }; evidence?: unknown[] }
+export interface MemoryCandidate { id: string; state: string; reason: string; payload: { title: string; content: string; evidence?: unknown[] }; payload_json?: string }
+export interface PersonalStatus { available: boolean; gateway_privacy_ready: boolean; reason: string; policy: { enabled: boolean; exclusions: string[] } | null }
+export interface PersonalHistory { messages: { role: string; content: string }[]; claims: { claim_id: string; text: string; status: string }[] }
+export interface PersonalPreview { approval_id: string; question: string; snippets: { path: string; text: string; hash: string }[]; model: string; provider: string; expires_at: number; warning: string }

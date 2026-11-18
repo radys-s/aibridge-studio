@@ -33,6 +33,9 @@ export const BLOCKED_LABELS: Record<NonNullable<ModelInfo["blocked"]>, string> =
   privacy: "pod hranicí soukromí",
   paid: "placený (vypnuto)",
   not_connected: "poskytovatel nepřipojen v OmniRoute",
+  billing_unknown: "neověřené účtování — automatické použití vypnuto",
+  starter_eligibility_unverified: "startovní kredity — nárok na model není ověřen",
+  anonymous_route_unverified: "anonymní bezplatná cesta není ověřena",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {

@@ -20,8 +20,20 @@ from studio.runner import Runner
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "synthetic_repo"
 MODELS = (
-    ModelSpec("test/model-a", frozenset({"coding", "tools"}), 2, privacy="no_train"),
-    ModelSpec("test/model-b", frozenset({"coding", "tools"}), 1, privacy="no_train"),
+    ModelSpec(
+        "test/model-a",
+        frozenset({"coding", "tools"}),
+        2,
+        privacy="no_train",
+        billing="recurring_free",
+    ),
+    ModelSpec(
+        "test/model-b",
+        frozenset({"coding", "tools"}),
+        1,
+        privacy="no_train",
+        billing="recurring_free",
+    ),
 )
 
 MEDIAN_OK = '''"""Small statistics helpers."""
